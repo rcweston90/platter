@@ -1,0 +1,5 @@
+node_modules/
+dist/
+artifact/
+# Generated from signalsmith-stretch before dev and build.
+public/worklets/stretch.js

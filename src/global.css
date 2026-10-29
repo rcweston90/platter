@@ -1,0 +1,63 @@
+/* Platter — page-level tokens. One deliberate dark look (it's hardware),
+ * so there is no light variant; every colour is defined here once. */
+:root {
+  color-scheme: dark;
+  --font-sans: 'Barlow', system-ui, sans-serif;
+  --font-label: 'Barlow Condensed', 'Barlow', 'Arial Narrow', system-ui, sans-serif;
+  --font-mono: 'JetBrains Mono', ui-monospace, 'SFMono-Regular', Menlo, Consolas, monospace;
+  --dj-bg: #0e0f11;
+  --dj-panel: #16171a;
+  --dj-panel-2: #1d1f23;
+  --dj-panel-3: #282b30;
+  --dj-line: #2c2f35;
+  --dj-line-2: #41454d;
+  /* Text fields need a 3:1 edge to read as fields (WCAG 1.4.11); buttons are
+     named by their labels, so they keep the quieter --dj-line-2. */
+  --dj-field-line: #6b7078;
+  --dj-text: #eceae4;
+  --dj-dim: #a4a8ae;
+  --dj-ink: #0e0f11;
+  --dj-a: #5ec4ff;
+  --dj-b: #ff9a4d;
+  --dj-play: #45d88c;
+  --dj-cue: #ffc23d;
+  --dj-rec: #ff5a5a;
+  --dj-focus: #ffe066;
+  --dj-wave-bg: #0a0b0d;
+  --dj-wave-low: #3170ff;
+  --dj-wave-mid: #ff9f43;
+  --dj-wave-high: #f2eee6;
+  --dj-grid: rgb(255 255 255 / 0.3);
+  --dj-grid-bar: rgb(255 255 255 / 0.6);
+  --dj-playhead: #ff4747;
+  --dj-loop: rgb(69 216 140 / 0.2);
+  --dj-played: rgb(10 11 13 / 0.6);
+  --dj-hot-1: #ff6b86;
+  --dj-hot-2: #45d88c;
+  --dj-hot-3: #5ec4ff;
+  --dj-hot-4: #c99bff;
+  --dj-vinyl: #0b0b0c;
+  --dj-groove: #1d1e21;
+  --dj-plinth-1: #26282c;
+  --dj-plinth-2: #141517;
+  --dj-metal-1: #e3e5e8;
+  --dj-metal-2: #858a91;
+  --dj-shadow: rgb(0 0 0 / 0.45);
+  --dj-sheen: rgb(255 255 255 / 0.07);
+  --dj-meter-ok: #45d88c;
+  --dj-meter-hot: #ffc23d;
+  --dj-meter-clip: #ff5a5a;
+}
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  margin: 0;
+  background: var(--dj-bg);
+  color: var(--dj-text);
+}
