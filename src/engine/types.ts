@@ -23,12 +23,20 @@ export interface TrackRecord {
   bpm: number | null;
   /** Time of a beat, in seconds — the beat grid is gridOffset + n · 60/bpm. */
   gridOffset: number;
+  /** Camelot key code (8A = A minor); null until analysed or if unclear. */
+  key: string | null;
   peaks: WavePeaks | null;
   art: Blob | null;
-  /** The audio file. Absent for demo tracks, which are synthesised on load. */
+  /** The audio file, when it was added by drop or picker. */
   blob: Blob | null;
-  /** Id of a built-in demo track (see demo.ts). */
+  /** Id of a built-in demo track (see demo.ts), synthesised on load. */
   demo?: string;
+  /** A file in a linked music folder, read when the track loads. */
+  handle?: FileSystemFileHandle;
+  /** An Audius track id, streamed when the track loads. */
+  audius?: string;
+  /** Where the track lives online (an Audius page), for attribution. */
+  link?: string;
   cues: TrackCues;
   addedAt: number;
   status: 'analysing' | 'ready' | 'error';

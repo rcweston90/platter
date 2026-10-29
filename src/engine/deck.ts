@@ -1,10 +1,12 @@
 import type { StretchNode } from 'signalsmith-stretch';
 import { workletUrl, type DjEngine } from './engine';
+import { nearestCompatibleShift, shiftKey } from './key';
 import { createStore, type Store } from './store';
 import { HOT_CUES, type TrackCues, type TrackRecord, type WavePeaks } from './types';
 
 export const PITCH_RANGES = [0.08, 0.16, 0.5] as const;
 export const LOOP_BEATS = [0.25, 0.5, 1, 2, 4, 8, 16, 32] as const;
+export const ROLL_BEATS = [0.125, 0.25, 0.5, 1] as const;
 const BEND = 0.04; // pitch-bend buttons: ±4%, like holding a finger to the platter edge
 const FALLBACK_BPM = 120; // beat-sized loops and jumps still work on an unanalysed track
 
@@ -30,6 +32,15 @@ export interface DeckState {
   quantize: boolean;
   bpm: number | null;
   gridOffset: number;
+  /** The track's Camelot key, as analysed. */
+  key: string | null;
+  /** Semitones of key shift on top of key lock (needs the stretcher). */
+  keyShift: number;
+  /** Slip mode: scratches, loops, reverse and rolls return to where the track would be. */
+  slip: boolean;
+  reverse: boolean;
+  /** Beats of the beat roll being held, or null. */
+  roll: number | null;
   cue: number;
   hotCues: (number | null)[];
   loop: { active: boolean; beats: number; start: number; end: number };
@@ -48,6 +59,11 @@ function initialState(): DeckState {
     quantize: true,
     bpm: null,
     gridOffset: 0,
+    key: null,
+    keyShift: 0,
+    slip: false,
+    reverse: false,
+    roll: null,
     cue: 0,
     hotCues: Array.from({ length: HOT_CUES }, () => null),
     loop: { active: false, beats: 4, start: 0, end: 0 },
@@ -58,7 +74,7 @@ const clamp = (v: number, lo: number, hi: number) => Math.min(hi, Math.max(lo, v
 const frac = (v: number) => v - Math.floor(v);
 
 type WorkletMessage =
-  | { type: 'pos'; t: number; pos: number; rate: number; playing: boolean }
+  | { type: 'pos'; t: number; pos: number; rate: number; playing: boolean; shadow: number }
   | { type: 'ended' };
 
 /**
@@ -87,7 +103,7 @@ export class Deck {
   private stretchLatency = 0;
   private wetOn = false;
   private sr = 44100;
-  private rep = { t: 0, pos: 0, rate: 0 };
+  private rep = { t: 0, pos: 0, rate: 0, shadow: -1 };
   private touched = false;
   private bend = 0;
   private previewing = false;
@@ -100,12 +116,17 @@ export class Deck {
     return this.index === 0 ? 'A' : 'B';
   }
 
+  /** The track's audio is in the worklet (not merely armed on screen). */
+  get hasAudio() {
+    return this.loaded;
+  }
+
   attach(engine: DjEngine) {
     this.engine = engine;
     this.stretch = null;
     this.stretchLoading = null;
     this.wetOn = false;
-    this.rep = { t: 0, pos: 0, rate: 0 };
+    this.rep = { t: 0, pos: 0, rate: 0, shadow: -1 };
     const { ctx } = engine;
     this.sr = ctx.sampleRate;
     this.node = new AudioWorkletNode(ctx, 'dj-deck', {
@@ -121,9 +142,12 @@ export class Deck {
     this.wet.connect(input);
     this.node.port.onmessage = (e: MessageEvent<WorkletMessage>) => {
       const m = e.data;
-      if (m.type === 'pos') this.rep = { t: m.t, pos: m.pos, rate: m.rate };
+      if (m.type === 'pos') this.rep = { t: m.t, pos: m.pos, rate: m.rate, shadow: m.shadow };
       else if (m.type === 'ended') this.store.set({ playing: false });
     };
+    // Key lock or a key shift remembered from last time needs the stretcher.
+    const st = this.store.get();
+    if (st.keyLock || st.keyShift) void this.ensureStretch().then(() => this.applyKeyLock());
   }
 
   private post(msg: Record<string, unknown>, transfer: Transferable[] = []) {
@@ -141,6 +165,25 @@ export class Deck {
     let frames = this.rep.pos + this.rep.rate * (this.engine.now() - this.rep.t) * this.sr;
     if (this.wetOn) frames -= this.stretchLatency * this.rep.rate * this.sr;
     return clamp(frames / this.sr, 0, track.duration);
+  }
+
+  /** Where slip mode will return to, in track seconds, while it differs from
+   *  the heard playhead; null otherwise. */
+  slipPosition(): number | null {
+    const { track, playing, pitch } = this.store.get();
+    if (!track || !this.engine || this.rep.shadow < 0) return null;
+    const motor = playing ? 1 + pitch + this.bend : 0;
+    const frames = this.rep.shadow + motor * (this.engine.now() - this.rep.t) * this.sr;
+    return clamp(frames / this.sr, 0, track.duration);
+  }
+
+  /** The key you hear: the analysed key, moved by pitch (unless key lock
+   *  holds it) and by key shift. */
+  effectiveKey(): string | null {
+    const { key, keyLock, pitch, keyShift } = this.store.get();
+    if (!key) return null;
+    const fromPitch = keyLock ? 0 : 12 * Math.log2(1 + pitch);
+    return shiftKey(key, Math.round(fromPitch) + keyShift);
   }
 
   /** Current playback rate (1 = original speed; negative while scratching back). */
@@ -180,6 +223,7 @@ export class Deck {
       playing: false,
       bpm: rec.bpm,
       gridOffset: rec.gridOffset,
+      key: rec.key ?? null,
       cue: rec.cues.main,
       hotCues: [...rec.cues.hot],
     });
@@ -204,7 +248,7 @@ export class Deck {
     const right = buffer.numberOfChannels > 1 ? new Float32Array(buffer.getChannelData(1)) : null;
     this.post({ type: 'load', left, right }, right ? [left.buffer, right.buffer] : [left.buffer]);
     this.loaded = true;
-    this.rep = { t: 0, pos: 0, rate: 0 };
+    this.rep = { t: 0, pos: 0, rate: 0, shadow: -1 };
     this.previewing = false;
     const prevArt = this.store.get().track?.artUrl;
     if (prevArt && prevArt !== artUrl) URL.revokeObjectURL(prevArt);
@@ -222,11 +266,15 @@ export class Deck {
       playing: false,
       bpm: rec.bpm,
       gridOffset: rec.gridOffset,
+      key: rec.key ?? null,
       cue: rec.cues.main,
       hotCues: [...rec.cues.hot],
       loop: { ...this.store.get().loop, active: false },
+      reverse: false,
+      roll: null,
     });
     this.post({ type: 'loop', in: -1, out: -1 });
+    this.post({ type: 'slip', on: this.store.get().slip });
     this.post({ type: 'seek', frame: rec.cues.main * this.sr });
     this.followTempo();
   }
@@ -241,6 +289,7 @@ export class Deck {
       next.bpm = patch.bpm;
       next.gridOffset = patch.gridOffset ?? 0;
     }
+    if (patch.key !== undefined && s.key == null) next.key = patch.key;
     this.store.set(next);
     this.followTempo();
     this.other?.followTempo();
@@ -275,6 +324,59 @@ export class Deck {
   pause() {
     this.post({ type: 'pause' });
     this.store.set({ playing: false, error: null });
+  }
+
+  /** Stop like a turntable with the brake turned up: a slow wind-down. */
+  brake(seconds = 1.4) {
+    if (!this.loaded || !this.store.get().playing) return;
+    this.post({ type: 'pause', brake: seconds });
+    this.store.set({ playing: false });
+  }
+
+  /** Flick the record backwards and let it wind down — the end-of-track move. */
+  spinback(seconds = 1) {
+    if (!this.loaded || !this.store.get().playing) return;
+    this.post({ type: 'spinback', time: seconds });
+    this.store.set({ playing: false });
+  }
+
+  setSlip(on: boolean) {
+    this.store.set({ slip: on });
+    this.post({ type: 'slip', on });
+  }
+
+  setReverse(on: boolean) {
+    if (!this.ready()) return;
+    this.store.set({ reverse: on });
+    this.post({ type: 'reverse', on });
+  }
+
+  /** Hold to play backwards; let go and the track is where it would have been. */
+  censor(on: boolean) {
+    if (on ? !this.ready() : !this.loaded) return;
+    this.post({ type: 'censor', on });
+  }
+
+  /** Hold for a beat roll: a slip loop of `beats` from the current beat. */
+  roll(beats: number | null) {
+    const s = this.store.get();
+    if (beats === null) {
+      if (s.roll === null) return;
+      this.store.set({ roll: null });
+      if (!s.loop.active) this.post({ type: 'loop', in: -1, out: -1 });
+      return;
+    }
+    if (!this.ready()) return;
+    const beat = this.beatLength();
+    const here = this.position();
+    // Start on the beat just played, so the roll lands in time.
+    const start =
+      s.quantize && s.bpm ? s.gridOffset + Math.floor((here - s.gridOffset) / beat) * beat : here;
+    const end = start + beats * beat;
+    if (s.loop.active) this.store.set({ loop: { ...s.loop, active: false } });
+    this.post({ type: 'loop', in: -1, out: -1 });
+    this.post({ type: 'loop', in: start * this.sr, out: end * this.sr, slip: true });
+    this.store.set({ roll: beats });
   }
 
   togglePlay() {
@@ -443,6 +545,32 @@ export class Deck {
     this.applyKeyLock();
   }
 
+  /** Move the key up or down in semitones, independent of tempo. */
+  async setKeyShift(semitones: number) {
+    this.store.set({ keyShift: clamp(Math.round(semitones), -6, 6) });
+    await this.ensureStretch();
+    this.applyKeyLock();
+  }
+
+  /** Shift to the nearest key that mixes harmonically with the other deck. */
+  keySync() {
+    const target = this.other?.effectiveKey();
+    const { key, keyLock, pitch } = this.store.get();
+    if (!key || !target) return;
+    const fromPitch = keyLock ? 0 : Math.round(12 * Math.log2(1 + pitch));
+    const base = shiftKey(key, fromPitch);
+    void this.setKeyShift(nearestCompatibleShift(base, target));
+  }
+
+  private async ensureStretch() {
+    if (!this.engine || this.stretch) return;
+    try {
+      await this.loadStretch(this.engine);
+    } catch {
+      this.store.set({ keyLock: false, keyShift: 0, error: 'Key lock and key shift are unavailable in this browser.' });
+    }
+  }
+
   async setKeyLock(on: boolean) {
     this.store.set({ keyLock: on });
     if (on && this.engine && !this.stretch) {
@@ -480,16 +608,18 @@ export class Deck {
     const s = this.store.get();
     // A hand on the record always hears the record: scratching through a
     // pitch-shifter smears it, and DJ hardware drops key lock while touched.
-    const wantWet = s.keyLock && !!this.stretch && !this.touched;
-    if (this.stretch && s.keyLock) {
-      void this.stretch.schedule({ active: true, semitones: -12 * Math.log2(1 + s.pitch + this.bend) });
+    const shifting = s.keyLock || s.keyShift !== 0;
+    const wantWet = shifting && !!this.stretch && !this.touched;
+    if (this.stretch && shifting) {
+      const lock = s.keyLock ? -12 * Math.log2(1 + s.pitch + this.bend) : 0;
+      void this.stretch.schedule({ active: true, semitones: lock + s.keyShift });
     }
     if (wantWet === this.wetOn) return;
     this.wetOn = wantWet;
     const t = this.engine.ctx.currentTime;
     this.dry.gain.setTargetAtTime(wantWet ? 0 : 1, t, 0.01);
     this.wet.gain.setTargetAtTime(wantWet ? 1 : 0, t, 0.01);
-    if (!wantWet && !s.keyLock && this.stretch) void this.stretch.schedule({ active: false, output: t + 0.15 });
+    if (!wantWet && !shifting && this.stretch) void this.stretch.schedule({ active: false, output: t + 0.15 });
   }
 
   /* ── Sync ─────────────────────────────────────────────────────────────── */

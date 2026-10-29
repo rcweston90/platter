@@ -1,3 +1,4 @@
+import { camelot, detectKey, parseKeyName } from './key';
 import { EQ_HIGH_HZ, EQ_LOW_HZ } from './mixer';
 import { emptyCues, type TrackRecord, type WavePeaks } from './types';
 
@@ -82,7 +83,7 @@ function stripExtension(name: string) {
 
 /** Title, artist and cover art via music-metadata (MIT); falls back to an
  *  "Artist - Title" file name, then the bare file name. */
-export async function readTags(file: File): Promise<{ title: string; artist: string; art: Blob | null }> {
+export async function readTags(file: File): Promise<{ title: string; artist: string; art: Blob | null; key: string | null }> {
   const base = stripExtension(file.name);
   const dash = base.split(/\s+[-–]\s+/);
   const fallback = dash.length >= 2 ? { artist: dash[0], title: dash.slice(1).join(' - ') } : { artist: '', title: base };
@@ -90,13 +91,16 @@ export async function readTags(file: File): Promise<{ title: string; artist: str
     const { parseBlob, selectCover } = await import('music-metadata');
     const { common } = await parseBlob(file, { duration: false, skipCovers: false });
     const pic = selectCover(common.picture);
+    // A key already in the tags (Rekordbox, Mixed In Key …) beats detection.
+    const tagged = common.key ? parseKeyName(common.key) : null;
     return {
       title: common.title?.trim() || fallback.title,
       artist: common.artist?.trim() || fallback.artist,
       art: pic ? new Blob([new Uint8Array(pic.data)], { type: pic.format }) : null,
+      key: tagged ? camelot(tagged) : null,
     };
   } catch {
-    return { ...fallback, art: null };
+    return { ...fallback, art: null, key: null };
   }
 }
 
@@ -117,6 +121,7 @@ export async function trackFromFile(file: File): Promise<TrackRecord> {
     duration: 0,
     bpm: null,
     gridOffset: 0,
+    key: tags.key,
     peaks: null,
     art: tags.art,
     blob: file,
@@ -126,16 +131,17 @@ export async function trackFromFile(file: File): Promise<TrackRecord> {
   };
 }
 
-/** Decode, draw and beat-detect a crate track. Analysis runs at 44.1 kHz
- *  whatever the output rate — only the picture and the tempo come from it. */
-export async function analyseTrack(rec: TrackRecord): Promise<Partial<TrackRecord>> {
-  if (!rec.blob) return {};
-  const buf = await decodeAudio(rec.blob, 44100);
+/** Decode, draw, beat-detect and key-detect a crate track. Analysis runs at
+ *  44.1 kHz whatever the output rate — only the picture, tempo and key come
+ *  from it. */
+export async function analyseTrack(rec: TrackRecord, audio: Blob): Promise<Partial<TrackRecord>> {
+  const buf = await decodeAudio(audio, 44100);
   const peaks = computePeaks(buf);
   const tempo = await detectTempo(buf);
   const patch: Partial<TrackRecord> = {
     duration: buf.duration,
     peaks,
+    key: rec.key ?? detectKey(buf),
     bpm: tempo ? Math.round(tempo.bpm * 100) / 100 : null,
     gridOffset: tempo ? tempo.offset : 0,
     status: 'ready',

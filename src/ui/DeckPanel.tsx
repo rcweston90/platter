@@ -1,9 +1,11 @@
-
-import { useRef, useState, type PointerEvent } from 'react';
-import { LOOP_BEATS, PITCH_RANGES, type Deck } from '../engine/deck';
+import { useRef, useState, type KeyboardEvent, type PointerEvent } from 'react';
+import { LOOP_BEATS, PITCH_RANGES, ROLL_BEATS, type Deck } from '../engine/deck';
+import { beatsLabel } from '../engine/fx';
+import { compatible, keyName } from '../engine/key';
 import type { DjSession } from '../engine/session';
 import { useStore } from '../engine/store';
 import { useDropTarget, useFrame, type FrameLoop } from './frame';
+import { FxStrip } from './FxStrip';
 import { Turntable } from './Turntable';
 import { formatTime, Overview } from './Waveforms';
 import s from '../platter.module.css';
@@ -11,6 +13,32 @@ import s from '../platter.module.css';
 export const TRACK_MIME = 'application/x-dj-track';
 
 const loopLabel = (b: number) => (b < 1 ? `1/${Math.round(1 / b)}` : String(b));
+type PadMode = 'hot' | 'roll' | 'tricks';
+const PAD_MODES: { id: PadMode; label: string }[] = [
+  { id: 'hot', label: 'Hot cue' },
+  { id: 'roll', label: 'Roll' },
+  { id: 'tricks', label: 'Tricks' },
+];
+
+/** Pointer and keyboard handlers for a button that acts while held. */
+function hold(down: () => void, up: () => void) {
+  return {
+    onPointerDown: (e: PointerEvent<HTMLButtonElement>) => {
+      if (e.button !== 0) return;
+      e.currentTarget.setPointerCapture(e.pointerId);
+      down();
+    },
+    onPointerUp: up,
+    onPointerCancel: up,
+    onKeyDown: (e: KeyboardEvent<HTMLButtonElement>) => {
+      if ((e.key === ' ' || e.key === 'Enter') && !e.repeat) {
+        e.preventDefault();
+        down();
+      }
+    },
+    onKeyUp: (e: KeyboardEvent<HTMLButtonElement>) => (e.key === ' ' || e.key === 'Enter') && up(),
+  };
+}
 const pct = (p: number) => `${p > 0 ? '+' : p < 0 ? '−' : '±'}${Math.abs(p * 100).toFixed(2)}%`;
 
 export function DeckPanel({
@@ -25,6 +53,9 @@ export function DeckPanel({
   still: boolean;
 }) {
   const st = useStore(deck.store);
+  const other = useStore((deck.other ?? deck).store);
+  const mixer = useStore(session.mixer);
+  const [padMode, setPadMode] = useState<PadMode>('hot');
   const time = useRef<HTMLSpanElement>(null);
   const remain = useRef<HTMLSpanElement>(null);
   const [over, setOver] = useState(false);
@@ -40,6 +71,10 @@ export function DeckPanel({
 
   const effBpm = deck.effectiveBpm();
   const idx = deck.index;
+  const effKey = deck.effectiveKey();
+  // Recomputed on every render of either deck (both stores are subscribed).
+  const otherKey = other.track ? deck.other?.effectiveKey() ?? null : null;
+  const keyMatch = effKey && otherKey ? compatible(effKey, otherKey) : null;
 
   const section = useRef<HTMLElement>(null);
   useDropTarget(
@@ -125,6 +160,17 @@ export function DeckPanel({
             {effBpm ? effBpm.toFixed(1) : st.track ? '…' : '—'}
           </span>
           <span className={s.bpmUnit}>BPM</span>
+          <span
+            className={s.keyChip}
+            data-match={keyMatch === null ? undefined : keyMatch}
+            title={
+              effKey
+                ? `${keyName(effKey)}${keyMatch === null ? '' : keyMatch ? ' — mixes with the other deck' : ' — clashes with the other deck'}`
+                : 'Key unknown'
+            }
+          >
+            {effKey ?? '—'}
+          </span>
         </div>
       </header>
 
@@ -261,10 +307,11 @@ export function DeckPanel({
             type="button"
             className={s.toggle}
             aria-pressed={st.keyLock}
+            aria-label={`Deck ${deck.label} key lock`}
             onClick={() => void deck.setKeyLock(!st.keyLock)}
             title="Key lock: change tempo without changing pitch (Signalsmith Stretch)"
           >
-            Key
+            Keylock
           </button>
           <button
             type="button"
@@ -275,9 +322,27 @@ export function DeckPanel({
           >
             Quant
           </button>
+          <button
+            type="button"
+            className={s.toggle}
+            aria-pressed={st.slip}
+            onClick={() => deck.setSlip(!st.slip)}
+            title="Slip: scratches, loops and reverse return to where the track would have been"
+          >
+            Slip
+          </button>
         </div>
       </div>
 
+      <div className={s.padModes} role="group" aria-label={`Deck ${deck.label} pad mode`}>
+        {PAD_MODES.map((m) => (
+          <button key={m.id} type="button" className={s.mini} aria-pressed={padMode === m.id} onClick={() => setPadMode(m.id)}>
+            {m.label}
+          </button>
+        ))}
+      </div>
+
+      {padMode === 'hot' && (
       <div className={s.hotCues} role="group" aria-label={`Deck ${deck.label} hot cues — Shift-click, right-click or long-press to clear`}>
         {st.hotCues.map((t, i) => (
           <button
@@ -306,6 +371,74 @@ export function DeckPanel({
           </button>
         ))}
       </div>
+      )}
+
+      {padMode === 'roll' && (
+        <div className={s.hotCues} role="group" aria-label={`Deck ${deck.label} beat rolls — hold`}>
+          {ROLL_BEATS.map((b) => (
+            <button
+              key={b}
+              type="button"
+              className={`${s.hotCue} ${s.pad}`}
+              data-active={st.roll === b}
+              disabled={!st.track}
+              aria-label={`Hold for a ${beatsLabel(b)}-beat roll`}
+              {...hold(
+                () => deck.roll(b),
+                () => deck.roll(null),
+              )}
+            >
+              <span className={s.hotNum}>{beatsLabel(b)}</span>
+              <span className={s.hotTime}>roll</span>
+            </button>
+          ))}
+        </div>
+      )}
+
+      {padMode === 'tricks' && (
+        <div className={s.hotCues} role="group" aria-label={`Deck ${deck.label} tricks`}>
+          <button
+            type="button"
+            className={`${s.hotCue} ${s.pad}`}
+            disabled={!st.track}
+            aria-label="Hold to censor: plays backwards, then carries on where the track would be"
+            {...hold(
+              () => deck.censor(true),
+              () => deck.censor(false),
+            )}
+          >
+            <span className={s.hotNum}>Censor</span>
+          </button>
+          <button
+            type="button"
+            className={`${s.hotCue} ${s.pad}`}
+            aria-pressed={st.reverse}
+            data-active={st.reverse}
+            disabled={!st.track}
+            onClick={() => deck.setReverse(!st.reverse)}
+          >
+            <span className={s.hotNum}>Reverse</span>
+          </button>
+          <button
+            type="button"
+            className={`${s.hotCue} ${s.pad}`}
+            disabled={!st.playing}
+            onClick={() => deck.brake()}
+            aria-label="Brake: a slow turntable stop"
+          >
+            <span className={s.hotNum}>Brake</span>
+          </button>
+          <button
+            type="button"
+            className={`${s.hotCue} ${s.pad}`}
+            disabled={!st.playing}
+            onClick={() => deck.spinback()}
+            aria-label="Spinback: flick the record back and let it stop"
+          >
+            <span className={s.hotNum}>Spinback</span>
+          </button>
+        </div>
+      )}
 
       <div className={s.loops} role="group" aria-label={`Deck ${deck.label} loop and beat jump`}>
         <button type="button" className={s.mini} onClick={() => deck.beatJump(-1)} disabled={!st.track} aria-label={`Jump back ${loopLabel(st.loop.beats)} beats`}>
@@ -335,6 +468,33 @@ export function DeckPanel({
         </button>
         <button type="button" className={s.mini} onClick={() => deck.beatJump(1)} disabled={!st.track} aria-label={`Jump forward ${loopLabel(st.loop.beats)} beats`}>
           ▸▸
+        </button>
+      </div>
+
+      <FxStrip session={session} index={idx} fx={mixer.channels[idx].fx} />
+
+      <div className={s.keyRow} role="group" aria-label={`Deck ${deck.label} key`}>
+        <span className={s.keyLabel}>Key</span>
+        <button type="button" className={s.mini} onClick={() => void deck.setKeyShift(st.keyShift - 1)} disabled={!st.track || st.keyShift <= -6} aria-label="Key down a semitone">
+          ♭
+        </button>
+        <span className={s.keyShift} aria-label={`Key shift ${st.keyShift} semitones`}>
+          {st.keyShift > 0 ? `+${st.keyShift}` : st.keyShift}
+        </span>
+        <button type="button" className={s.mini} onClick={() => void deck.setKeyShift(st.keyShift + 1)} disabled={!st.track || st.keyShift >= 6} aria-label="Key up a semitone">
+          ♯
+        </button>
+        <button
+          type="button"
+          className={s.mini}
+          onClick={() => deck.keySync()}
+          disabled={!st.key || !otherKey}
+          title="Shift to the nearest key that mixes with the other deck"
+        >
+          Match
+        </button>
+        <button type="button" className={s.mini} onClick={() => void deck.setKeyShift(0)} disabled={st.keyShift === 0} aria-label="Reset key shift">
+          0
         </button>
       </div>
     </section>

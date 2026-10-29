@@ -3,6 +3,7 @@ import { DjEngine } from '../engine/engine';
 import type { DjSession } from '../engine/session';
 import { useStore } from '../engine/store';
 import { useFrame, type FrameLoop } from './frame';
+import { MidiPanel } from './MidiPanel';
 import { saveFile } from './save';
 import { formatTime } from './Waveforms';
 import s from '../platter.module.css';
@@ -15,6 +16,9 @@ export const SHORTCUTS: { keys: string; action: string }[] = [
   { keys: 'D · J', action: 'Loop on / off' },
   { keys: 'Z X · N M', action: 'Beat jump back / forward' },
   { keys: '1–4 · 7–0', action: 'Hot cues (Shift to clear)' },
+  { keys: 'F · H', action: 'Beat FX on / off' },
+  { keys: 'C · ,', action: 'Censor (hold)' },
+  { keys: 'V · .', action: 'Slip on / off' },
   { keys: '[ ]', action: 'Crossfader left / right (Shift: all the way)' },
   { keys: '\\', action: 'Crossfader to centre' },
 ];
@@ -127,6 +131,13 @@ export function TopBar({ session, loop }: { session: DjSession; loop: FrameLoop 
               the headphones. Browsers only name outputs after a microphone permission — it is released straight away
               and nothing is recorded.
             </p>
+          </div>
+        </details>
+
+        <details className={s.popover}>
+          <summary className={s.action}>MIDI</summary>
+          <div className={`${s.popPanel} ${s.popWide}`}>
+            <MidiPanel session={session} />
           </div>
         </details>
 

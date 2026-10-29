@@ -81,6 +81,11 @@ export function readPalette(el: Element) {
     cue: v('--dj-cue'),
     loop: v('--dj-loop'),
     played: v('--dj-played'),
+    ghost: v('--dj-ghost'),
+    a: v('--dj-a'),
+    b: v('--dj-b'),
+    ok: v('--dj-play'),
+    line: v('--dj-line-2'),
     text: v('--dj-dim'),
     // Canvas fonts can't resolve var(); custom properties compute to the
     // substituted family list, so read the site's mono stack here.

@@ -16,7 +16,9 @@ const html = readFileSync(resolve(dist, 'index.html'), 'utf8');
 const pick = (re) => [...html.matchAll(re)].map((m) => m[0]);
 const title = pick(/<title>[\s\S]*?<\/title>/g)[0];
 const description = pick(/<meta name="description"[^>]*>/g);
-const links = pick(/<link\b[^>]*>/g);
+// Fonts and the stylesheet only: the manifest, icons and service worker
+// belong to a real host, not an artifact.
+const links = pick(/<link\b[^>]*>/g).filter((l) => /rel="(preconnect|stylesheet)"/.test(l));
 const scripts = pick(/<script\b[^>]*><\/script>/g);
 if (!title || !scripts.length) throw new Error('artifact: dist/index.html is missing its title or entry script');
 

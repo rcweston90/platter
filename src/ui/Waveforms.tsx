@@ -132,6 +132,15 @@ export function ScrollingWave({ deck, loop, zoom, label }: { deck: Deck; loop: F
       st.hotCues.forEach((t, i) => t !== null && marker(t, P.hot[i], String(i + 1)));
     }
 
+    // Slip's shadow: where the track will be when the scratch, roll or
+    // reverse ends.
+    const slip = st.track ? deck.slipPosition() : null;
+    if (slip !== null) {
+      const x = Math.round(cx + (slip - deck.position()) * (w / zoom));
+      g.fillStyle = P.ghost;
+      for (let y = 0; y < h; y += 6) g.fillRect(x - 1, y, 2, 3);
+    }
+
     g.fillStyle = P.playhead;
     g.fillRect(cx - 1, 0, 2, h);
   });

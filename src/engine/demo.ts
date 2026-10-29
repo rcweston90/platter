@@ -18,11 +18,13 @@ interface DemoSpec {
   title: string;
   bpm: number;
   bars: number;
+  /** Camelot key, known by construction. */
+  key: string;
 }
 
 export const DEMOS: DemoSpec[] = [
-  { id: 'demo-night-bus', title: 'Night Bus', bpm: 124, bars: 64 },
-  { id: 'demo-paper-lanterns', title: 'Paper Lanterns', bpm: 128, bars: 64 },
+  { id: 'demo-night-bus', title: 'Night Bus', bpm: 124, bars: 64, key: '8A' },
+  { id: 'demo-paper-lanterns', title: 'Paper Lanterns', bpm: 128, bars: 64, key: '4A' },
 ];
 
 const DEMO_ARTIST = 'Demo · synthesised in your browser';
@@ -36,6 +38,7 @@ export function demoRecords(): TrackRecord[] {
     duration: (d.bars * 4 * 60) / d.bpm,
     bpm: d.bpm,
     gridOffset: 0,
+    key: d.key,
     peaks: null,
     art: null,
     blob: null,

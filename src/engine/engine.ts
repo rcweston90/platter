@@ -29,6 +29,8 @@ type SinkAudioElement = HTMLAudioElement & { setSinkId?: (id: string) => Promise
  */
 export class DjEngine {
   readonly channels: [Channel, Channel];
+  /** The mix bus before the master level: where the sampler joins. */
+  readonly bus: GainNode;
   readonly masterMeters: [AnalyserNode, AnalyserNode];
   private masterGain: GainNode;
   private masterOut: GainNode;
@@ -46,6 +48,7 @@ export class DjEngine {
 
   private constructor(readonly ctx: AudioContext) {
     const master = ctx.createGain();
+    this.bus = master;
     this.cueBus = ctx.createGain();
     this.channels = [new Channel(ctx, master, this.cueBus), new Channel(ctx, master, this.cueBus)];
 

@@ -14,7 +14,11 @@
  *                  smooth, sample-accurate rate — backwards included;
  *   · jumps      — cues, needle drops and loop wraps cross-fade the old read
  *                  position into the new one over XFADE frames, so they don't
- *                  click.
+ *                  click;
+ *   · slip       — a second, "shadow" playhead keeps running at the motor's
+ *                  speed while the record is held, reversed, censored or
+ *                  rolling in a slip loop; when that ends, playback jumps to
+ *                  the shadow, so the track carries on as if nothing happened.
  *
  * Reads use 4-point Hermite interpolation. Position is reported every
  * REPORT_EVERY frames stamped with the context time it applies to, and the
@@ -64,11 +68,30 @@ class DjDeckProcessor extends AudioWorkletProcessor {
     this.loopOut = -1;
     this.xPos = 0;
     this.xLeft = 0;
+    this.dir = 1; // -1 while reversed
+    this.slip = false;
+    this.loopSlip = false; // the current loop returns to the shadow when it ends
+    this.censor = false;
+    this.shadow = 0;
+    this.stopSlope = 0; // brake/spinback override, rate units per second
     this.sinceReport = 0;
     this.port.onmessage = (e) => this.message(e.data);
   }
 
+  /** Is the playhead off on an excursion the shadow is keeping time through? */
+  excursion() {
+    return this.touch || this.dir < 0 || this.censor || (this.loopSlip && this.loopIn >= 0);
+  }
+
+  /** Is the shadow running? Slip mode covers every excursion; a censor or a
+   *  beat roll (a slip loop) brings its own, slip mode or not. */
+  tracking() {
+    return (this.slip && this.excursion()) || this.censor || (this.loopSlip && this.loopIn >= 0);
+  }
+
   message(m) {
+    const wasOut = this.excursion();
+    let returnTo = false;
     switch (m.type) {
       case 'load':
         this.left = m.left;
@@ -79,6 +102,9 @@ class DjDeckProcessor extends AudioWorkletProcessor {
         this.playing = false;
         this.loopIn = this.loopOut = -1;
         this.xLeft = 0;
+        this.dir = 1;
+        this.censor = false;
+        this.shadow = 0;
         break;
       case 'unload':
         this.left = this.right = null;
@@ -94,6 +120,28 @@ class DjDeckProcessor extends AudioWorkletProcessor {
       case 'pause':
         this.playing = false;
         if (m.instant) this.rate = 0;
+        // A slow brake (the turntable's stop button with the motor torque down).
+        if (m.brake) this.stopSlope = Math.max(0.2, Math.abs(this.rate)) / m.brake;
+        break;
+      case 'spinback':
+        // A hand flicks the record backwards and lets it wind down.
+        this.playing = false;
+        this.rate = -Math.max(2.5, 3 * Math.abs(this.rate));
+        this.stopSlope = Math.abs(this.rate) / (m.time || 1);
+        break;
+      case 'reverse':
+        this.dir = m.on ? -1 : 1;
+        returnTo = this.slip;
+        break;
+      case 'slip':
+        this.slip = m.on;
+        if (!m.on) this.loopSlip = false;
+        break;
+      case 'censor':
+        // Reverse while held, then back to where the track would have been.
+        this.censor = m.on;
+        this.dir = m.on ? -1 : 1;
+        returnTo = !m.on;
         break;
       case 'pitch':
         this.pitch = m.value;
@@ -115,15 +163,31 @@ class DjDeckProcessor extends AudioWorkletProcessor {
           this.touchBase = this.pos;
           this.touchTarget = this.pos;
         }
+        returnTo = this.slip;
         break;
       case 'scratch':
         this.touchTarget = this.touchBase + m.delta;
         break;
       case 'loop':
+        if (m.in >= 0) {
+          if (this.loopIn < 0) this.loopSlip = m.slip ?? this.slip;
+        } else {
+          returnTo = this.loopSlip;
+        }
         this.loopIn = m.in;
         this.loopOut = m.out;
+        if (m.in < 0) {
+          this.loopSlip = false;
+        } else if (this.pos >= m.out && m.out > m.in) {
+          // Loops are placed at the beat being *heard*; the playhead runs ahead
+          // by the output latency and may already be past a short loop's end.
+          // Fold it back in, keeping its phase, so the loop still catches.
+          this.jump(m.in + ((this.pos - m.in) % (m.out - m.in)));
+        }
         break;
     }
+    if (wasOut && !this.excursion() && returnTo) this.jump(this.shadow);
+    if (!this.tracking()) this.shadow = this.pos;
     this.report();
   }
 
@@ -143,6 +207,8 @@ class DjDeckProcessor extends AudioWorkletProcessor {
       pos: this.pos,
       rate: this.rate,
       playing: this.playing,
+      // The shadow playhead, when it differs from the heard one.
+      shadow: this.tracking() ? this.shadow : -1,
     });
   }
 
@@ -167,13 +233,15 @@ class DjDeckProcessor extends AudioWorkletProcessor {
       else if (target < -SCRATCH_MAX) target = -SCRATCH_MAX;
       r1 = r0 + (target - r0) * 0.5;
     } else {
-      const target = this.playing ? this.pitch + this.bend : 0;
+      const target = this.playing ? this.dir * (this.pitch + this.bend) : 0;
       const dt = n / sampleRate;
-      // Stopping uses the brake; coming up from (near) rest uses the motor's
-      // spin-up; anything else is the pitch fader moving under a spinning
-      // record, which should land almost at once.
+      // Stopping uses the brake (or a brake/spinback's own); coming up from
+      // (near) rest uses the motor's spin-up, as does a change of direction;
+      // anything else is the pitch fader moving under a spinning record,
+      // which should land almost at once.
       let slope;
-      if (target === 0) slope = this.brakeTime > 0 ? 1 / this.brakeTime : Infinity;
+      if (target === 0) slope = this.stopSlope > 0 ? this.stopSlope : this.brakeTime > 0 ? 1 / this.brakeTime : Infinity;
+      else if (r0 !== 0 && Math.sign(r0) !== Math.sign(target)) slope = this.startTime > 0 ? 2 / this.startTime : Infinity;
       else if (Math.abs(r0) < Math.abs(target) * 0.9) slope = this.startTime > 0 ? 1 / this.startTime : Infinity;
       else slope = PITCH_SLEW;
       const step = slope * dt;
@@ -243,6 +311,14 @@ class DjDeckProcessor extends AudioWorkletProcessor {
 
     this.pos = pos;
     this.rate = pos <= 0 && r1 < 0 ? 0 : r1;
+    if (this.rate === 0) this.stopSlope = 0;
+    // The shadow runs at the motor's speed through an excursion, and is the
+    // playhead itself the rest of the time.
+    if (this.tracking()) {
+      if (this.playing) this.shadow = Math.min(len - 1, this.shadow + (this.pitch + this.bend) * n);
+    } else {
+      this.shadow = pos;
+    }
     if (this.touch) {
       // Hand at the record's edges: the target can't run off the end.
       this.touchTarget = Math.max(0, Math.min(len - 1, this.touchTarget));

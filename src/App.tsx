@@ -2,11 +2,12 @@
 import { useEffect, useRef, useState } from 'react';
 import { DjSession } from './engine/session';
 import { useStore } from './engine/store';
-import { Crate } from './ui/Crate';
+import { Library } from './ui/Library';
 import { DeckPanel } from './ui/DeckPanel';
 import { FrameLoop } from './ui/frame';
 import { usePrefersReducedMotion } from './ui/hooks';
 import { Mixer } from './ui/Mixer';
+import { PhaseMeter } from './ui/PhaseMeter';
 import { TopBar } from './ui/TopBar';
 import { ScrollingWave } from './ui/Waveforms';
 import s from './platter.module.css';
@@ -39,6 +40,8 @@ export default function App() {
   const [deckA, deckB] = session.decks;
 
   useEffect(() => {
+    // The rig, reachable from the browser console (and the end-to-end tests).
+    (window as unknown as { platter: DjSession }).platter = session;
     void session.init();
     return () => {
       session.dispose();
@@ -74,6 +77,10 @@ export default function App() {
     };
     const hot = (deck: typeof A, i: number, shift: boolean) => (shift ? deck.clearHotCue(i) : deck.hotCue(i));
     const x = () => session.mixer.get().crossfader;
+    const toggleFx = (i: 0 | 1) => {
+      const fx = session.mixer.get().channels[i].fx;
+      session.setChannel(i, { fx: { ...fx, on: !fx.on } });
+    };
 
     const down = (e: KeyboardEvent) => {
       if (!handles(e)) return;
@@ -104,6 +111,12 @@ export default function App() {
         Digit8: () => once && hot(B, 1, e.shiftKey),
         Digit9: () => once && hot(B, 2, e.shiftKey),
         Digit0: () => once && hot(B, 3, e.shiftKey),
+        KeyF: () => once && toggleFx(0),
+        KeyH: () => once && toggleFx(1),
+        KeyC: () => once && A.censor(true),
+        Comma: () => once && B.censor(true),
+        KeyV: () => once && A.setSlip(!A.store.get().slip),
+        Period: () => once && B.setSlip(!B.store.get().slip),
         BracketLeft: () => session.setCrossfader(x() - step),
         BracketRight: () => session.setCrossfader(x() + step),
         Backslash: () => session.setCrossfader(0),
@@ -121,6 +134,8 @@ export default function App() {
         KeyS: () => A.setBend(0),
         KeyK: () => B.setBend(0),
         KeyL: () => B.setBend(0),
+        KeyC: () => A.censor(false),
+        Comma: () => B.censor(false),
       };
       map[e.code]?.();
     };
@@ -143,6 +158,7 @@ export default function App() {
           </span>
           <ScrollingWave deck={deckA} loop={loop} zoom={zoom} label="Deck A waveform around the playhead" />
         </div>
+        <PhaseMeter decks={session.decks} loop={loop} />
         <div className={s.waveRow} data-deck="B">
           <span className={s.waveTag} aria-hidden="true">
             B
@@ -178,7 +194,7 @@ export default function App() {
         <DeckPanel session={session} deck={deckB} loop={loop} still={still} />
       </div>
 
-      <Crate session={session} />
+      <Library session={session} />
 
       <footer className={s.credits}>
         <p>
@@ -194,7 +210,11 @@ export default function App() {
           <a href="https://github.com/Borewit/music-metadata" target="_blank" rel="noopener noreferrer">
             music-metadata
           </a>{' '}
-          for tags and cover art, all MIT. The deck and mixer follow the conventions of{' '}
+          for tags and cover art, all MIT. Streaming is{' '}
+          <a href="https://audius.co" target="_blank" rel="noopener noreferrer">
+            Audius
+          </a>
+          ’s open API. The deck and mixer follow the conventions of{' '}
           <a href="https://mixxx.org" target="_blank" rel="noopener noreferrer">
             Mixxx
           </a>
