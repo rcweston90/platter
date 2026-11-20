@@ -1,3 +1,5 @@
+import type { TrackLibraryInfo } from '../library/types';
+
 /** Waveform summary: per-band peak envelopes, `rate` bins per second, 0–255. */
 export interface WavePeaks {
   rate: number;
@@ -42,6 +44,9 @@ export interface TrackRecord {
   license?: string;
   /** Where the track lives online (an Audius or SoundCloud page), for attribution. */
   link?: string;
+  /** Tags beyond title/artist and the library analysis (energy, loudness,
+   *  tempo confidence …) — see src/library. Absent until analysed. */
+  library?: TrackLibraryInfo;
   cues: TrackCues;
   addedAt: number;
   status: 'analysing' | 'ready' | 'error';

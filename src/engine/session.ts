@@ -1,4 +1,5 @@
 import { analyseTrack, computePeaks, decodeAudio, detectTempo, newTrackId, trackFromFile } from './analysis';
+import { LibrarySync } from '../library/sync';
 import { fetchArtwork, fetchAudiusAudio, type AudiusTrack } from './audius';
 import { fetchSoundCloudAudio, SoundCloudError, type ScTrack } from './soundcloud';
 import { AutoDj } from './autodj';
@@ -94,6 +95,8 @@ const JOG_TICKS_PER_TURN = 256; // controller jog resolution assumed for scratch
  * (`ensureEngine`).
  */
 export class DjSession {
+  /** The library record and mashup analysis (src/library). */
+  readonly library: LibrarySync = new LibrarySync(this);
   readonly decks: [Deck, Deck] = [new Deck(0), new Deck(1)];
   /** Each deck's stems (vocals, drums, bass, other): split on request, held in memory only. */
   readonly stems: [DeckStems, DeckStems] = [
