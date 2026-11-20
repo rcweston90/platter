@@ -1,7 +1,9 @@
-import { useEffect, useId, useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { searchAudius, trendingAudius, type AudiusTrack } from '../engine/audius';
 import type { DjSession } from '../engine/session';
 import { useStore } from '../engine/store';
+import { SearchBar } from './SearchBar';
+import { TrackRow } from './TrackRow';
 import { formatTime } from './Waveforms';
 import s from '../platter.module.css';
 
@@ -15,12 +17,11 @@ export function AudiusPanel({ session }: { session: DjSession }) {
   const [query, setQuery] = useState('');
   const [genre, setGenre] = useState<string | null>(null);
   const [results, setResults] = useState<AudiusTrack[]>([]);
-  const [status, setStatus] = useState<string>('Search Audius, or pick a genre to see what’s trending this week.');
+  const [status, setStatus] = useState<string>('Search, or pick a genre to see what’s trending this week.');
   const [busy, setBusy] = useState(false);
   const abort = useRef<AbortController | null>(null);
   const a = useStore(session.decks[0].store);
   const b = useStore(session.decks[1].store);
-  const searchId = useId();
 
   const run = (fn: (signal: AbortSignal) => Promise<AudiusTrack[]>, label: string) => {
     abort.current?.abort();
@@ -31,7 +32,7 @@ export function AudiusPanel({ session }: { session: DjSession }) {
     fn(ctl.signal)
       .then((list) => {
         setResults(list);
-        setStatus(list.length ? `${list.length} tracks — ${label}.` : `Nothing found for ${label}.`);
+        setStatus(list.length ? `${list.length} tracks: ${label}.` : `Nothing found for ${label}.`);
       })
       .catch((err: unknown) => {
         if ((err as Error).name === 'AbortError') return;
@@ -55,78 +56,64 @@ export function AudiusPanel({ session }: { session: DjSession }) {
   };
 
   return (
-    <div className={s.panelBody}>
-      <form
-        className={s.crateHead}
-        onSubmit={(e) => {
-          e.preventDefault();
-          const q = query.trim();
-          if (!q) return;
-          setGenre(null);
-          run((signal) => searchAudius(q, signal), `“${q}”`);
-        }}
-      >
-        <label htmlFor={searchId} className={s.srOnly}>
-          Search Audius
-        </label>
-        <input id={searchId} type="search" className={s.search} placeholder="Search Audius" value={query} onChange={(e) => setQuery(e.target.value)} />
-        <button type="submit" className={s.action} disabled={busy || !query.trim()}>
-          Search
-        </button>
-      </form>
-      <div className={s.genres} role="group" aria-label="Trending by genre">
-        {GENRES.map((g) => (
-          <button
-            key={g}
-            type="button"
-            className={s.mini}
-            aria-pressed={genre === g}
-            onClick={() => {
-              setGenre(g);
-              run((signal) => trendingAudius(g, signal), `trending in ${g}`);
-            }}
-          >
-            {g}
-          </button>
-        ))}
+    <div className={s.sourceBody}>
+      <div className={s.sourceTop}>
+        <SearchBar
+          label="Search Audius"
+          placeholder="Search tracks and artists"
+          value={query}
+          onChange={setQuery}
+          busy={busy && genre === null}
+          onSearch={(q) => {
+            setGenre(null);
+            run((signal) => searchAudius(q, signal), `“${q}”`);
+          }}
+          onClear={() => setQuery('')}
+        />
+        <div className={s.genres} role="group" aria-label="Trending this week by genre">
+          {GENRES.map((g) => (
+            <button
+              key={g}
+              type="button"
+              className={s.chip}
+              aria-pressed={genre === g}
+              onClick={() => {
+                setGenre(g);
+                run((signal) => trendingAudius(g, signal), `trending in ${g}`);
+              }}
+            >
+              {g}
+            </button>
+          ))}
+        </div>
+        <p className={s.sourceNote} role="status">
+          {status}
+        </p>
       </div>
-      <p className={s.crateNote} role="status">
-        {status} Tracks stream from{' '}
-        <a href="https://audius.co" target="_blank" rel="noopener noreferrer">
-          Audius
-        </a>
-        ; adding one to the crate keeps a link back to the artist.
-      </p>
       {results.length > 0 && (
-        <ul className={s.audiusList}>
+        <ul className={s.trackList}>
           {results.map((t) => (
-            <li key={t.id} className={s.audiusRow}>
-              {t.artwork ? <img src={t.artwork} alt="" className={s.audiusArt} loading="lazy" /> : <span className={s.audiusArt} />}
-              <span className={s.audiusMeta}>
-                <span className={s.rowTitle}>{t.title}</span>
-                <span className={s.dim}>
-                  {t.artist}
-                  {t.genre ? ` · ${t.genre}` : ''} · {formatTime(t.duration)}
-                </span>
-              </span>
-              <span className={s.audiusActions}>
-                <button type="button" className={s.loadBtn} data-deck="A" disabled={a.playing} onClick={() => void load(t, 0)} aria-label={`Load ${t.title} on deck A`}>
-                  A
-                </button>
-                <button type="button" className={s.loadBtn} data-deck="B" disabled={b.playing} onClick={() => void load(t, 1)} aria-label={`Load ${t.title} on deck B`}>
-                  B
-                </button>
-                <button type="button" className={s.loadBtn} onClick={() => void session.addAudius(t)} aria-label={`Add ${t.title} to the crate`}>
-                  +
-                </button>
-                <a className={s.rowLink} href={t.link} target="_blank" rel="noopener noreferrer" aria-label={`${t.title} on Audius`}>
-                  ↗
-                </a>
-              </span>
-            </li>
+            <TrackRow
+              key={t.id}
+              title={t.title}
+              artist={t.artist}
+              artwork={t.artwork}
+              meta={[formatTime(t.duration), t.genre]}
+              load={{ a: () => void load(t, 0), b: () => void load(t, 1), add: () => void session.addAudius(t), aDisabled: a.playing, bDisabled: b.playing }}
+              link={t.link}
+              linkLabel="↗"
+              linkName={`${t.title} by ${t.artist} on Audius`}
+            />
           ))}
         </ul>
       )}
+      <p className={s.sourceFoot}>
+        Tracks stream from{' '}
+        <a href="https://audius.co" target="_blank" rel="noopener noreferrer">
+          Audius
+        </a>
+        , open and free music. Adding one to the crate keeps a link back to the artist.
+      </p>
     </div>
   );
 }

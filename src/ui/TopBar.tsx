@@ -3,6 +3,7 @@ import { DjEngine } from '../engine/engine';
 import type { DjSession } from '../engine/session';
 import { useStore } from '../engine/store';
 import { useFrame, type FrameLoop } from './frame';
+import { browse, openBrowse } from './browse';
 import { MidiPanel } from './MidiPanel';
 import { saveFile } from './save';
 import { formatTime } from './Waveforms';
@@ -29,6 +30,7 @@ const useCapability = (check: () => boolean) => useSyncExternalStore(noSubscribe
 
 export function TopBar({ session, loop }: { session: DjSession; loop: FrameLoop }) {
   const m = useStore(session.mixer);
+  const { open: browsing } = useStore(browse);
   const [saveNote, setSaveNote] = useState<string | null>(null);
   const clock = useRef<HTMLSpanElement>(null);
   const masterId = useId();
@@ -58,6 +60,9 @@ export function TopBar({ session, loop }: { session: DjSession; loop: FrameLoop 
       </div>
 
       <div className={s.topActions}>
+        <button type="button" className={`${s.primaryBtn} ${s.browseBtn}`} aria-expanded={browsing} onClick={() => openBrowse()}>
+          Browse music
+        </button>
         <button
           type="button"
           className={`${s.toggle} ${s.recBtn}`}

@@ -8,6 +8,7 @@ import { useDropTarget, useFrame, type FrameLoop } from './frame';
 import { FxStrip } from './FxStrip';
 import { Turntable } from './Turntable';
 import { formatTime, Overview } from './Waveforms';
+import { openBrowse } from './browse';
 import s from '../platter.module.css';
 
 export const TRACK_MIME = 'application/x-dj-track';
@@ -146,12 +147,27 @@ export function DeckPanel({
               <p className={s.trackTitle} title={st.track.title}>
                 {st.track.title}
               </p>
-              <p className={s.trackArtist}>{st.track.artist || '—'}</p>
+              <p className={s.trackArtist}>
+                {st.track.artist || '—'}
+                {st.track.source && (
+                  <>
+                    {' · '}
+                    <a className={s.deckSource} href={st.track.source.link} target="_blank" rel="noopener noreferrer">
+                      {st.track.source.name} ↗
+                    </a>
+                  </>
+                )}
+              </p>
             </>
           ) : (
             <>
               <p className={s.trackTitle}>No track</p>
-              <p className={s.trackArtist}>Drop a file here or load from the crate</p>
+              <p className={s.trackArtist}>
+                Drop a file here, load from the crate, or{' '}
+                <button type="button" className={s.linkBtn} onClick={() => openBrowse()}>
+                  browse music
+                </button>
+              </p>
             </>
           )}
         </div>

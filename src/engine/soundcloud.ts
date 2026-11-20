@@ -57,6 +57,8 @@ export interface ScTrack {
   duration: number;
   artwork: string | null;
   genre: string;
+  /** Tempo as the uploader entered it, if they did. */
+  bpm: number | null;
   license: string;
   licenseName: string;
   link: string;
@@ -143,7 +145,7 @@ async function refresh(): Promise<string> {
       const res = await fetch(`${ENDPOINT}?op=refresh`, { method: 'POST', credentials: 'same-origin' });
       if (res.status === 401) {
         signedOut();
-        throw new SoundCloudError('Sign in to SoundCloud (in the SoundCloud tab) to play this track.');
+        throw new SoundCloudError('Sign in to SoundCloud (Browse music → SoundCloud) to play this track.');
       }
       if (!res.ok) throw new SoundCloudError('Couldn’t reach SoundCloud. Check your connection and try again.');
       const body = (await res.json()) as { accessToken: string; expiresIn: number };
@@ -304,6 +306,7 @@ interface ApiTrack {
   duration: number;
   artwork_url?: string | null;
   genre?: string | null;
+  bpm?: number | null;
   license?: string | null;
   permalink_url: string;
   streamable?: boolean;
@@ -343,6 +346,7 @@ export function toTrack(t: ApiTrack, meId: number | null): ScTrack {
     duration: t.duration / 1000,
     artwork: bigArt(t.artwork_url ?? t.user?.avatar_url),
     genre: t.genre ?? '',
+    bpm: t.bpm && t.bpm > 40 ? Math.round(t.bpm) : null,
     license,
     licenseName: LICENSE_NAMES[license] ?? license,
     link: t.permalink_url,

@@ -98,7 +98,7 @@ export type Palette = ReturnType<typeof readPalette>;
 
 /**
  * Makes an element a drop target. Wired with addEventListener rather than JSX
- * props: dropping is a pointer shortcut for the Load and Add music buttons,
+ * props: dropping is a pointer shortcut for the Load and Add files buttons,
  * which are the keyboard path, so the region itself stays a plain landmark.
  */
 export function useDropTarget(

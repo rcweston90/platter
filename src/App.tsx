@@ -9,6 +9,9 @@ import { usePrefersReducedMotion } from './ui/hooks';
 import { Mixer } from './ui/Mixer';
 import { PhaseMeter } from './ui/PhaseMeter';
 import { TopBar } from './ui/TopBar';
+import { MusicFlyout } from './ui/MusicFlyout';
+import { openBrowse } from './ui/browse';
+import { cameBackFromSoundCloud } from './engine/soundcloud';
 import { ScrollingWave } from './ui/Waveforms';
 import s from './platter.module.css';
 
@@ -62,6 +65,11 @@ export default function App() {
     ro.observe(el);
     return () => ro.disconnect();
   }, [loop]);
+
+  // Back from SoundCloud's sign-in page: carry on where it started, in the flyout.
+  useEffect(() => {
+    if (cameBackFromSoundCloud()) openBrowse('soundcloud');
+  }, []);
 
   // Performance keys. Physical key codes, so the layout works on any keyboard
   // language. Only while focus is in the rig (or nowhere), never while typing,
@@ -195,6 +203,7 @@ export default function App() {
       </div>
 
       <Library session={session} />
+      <MusicFlyout session={session} />
 
       <footer className={s.credits}>
         <p>
