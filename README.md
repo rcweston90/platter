@@ -26,7 +26,8 @@ GitHub Actions).
   would have been; a dashed ghost playhead shows where that is.
 - Beat loops (1/4 to 32 beats, halve and double) and beat jump, snapped to
   the grid when QUANT is on.
-- Pitch fader with ±8 / ±16 / ±50% ranges and hold-to-bend nudge buttons.
+- Pitch fader with ±8 / ±16 / ±50% ranges and hold-to-bend nudge buttons, and a
+  33 / 45 platter speed switch (45 plays 1.35× fast, on top of the fader).
 - SYNC matches the other deck's tempo and lines up the beats; the phase meter
   between the waveforms shows each deck's beat in the bar and how far apart
   their beats are.
@@ -142,6 +143,7 @@ that's when browsers reveal device names — nothing is recorded.
 
 ```bash
 npm run test:e2e     # against a running dev or preview server
+npm run test:controls  # clicks every deck and mixer control and checks its effect
 ```
 
 The end-to-end check drives a real browser through cueing, playing, sync,

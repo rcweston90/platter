@@ -1,11 +1,12 @@
 
 import { useRef, useState, type KeyboardEvent, type PointerEvent } from 'react';
-import type { Deck } from '../engine/deck';
+import { SPEEDS, type Deck } from '../engine/deck';
 import { useStore } from '../engine/store';
 import { useFrame, type FrameLoop } from './frame';
 import s from '../platter.module.css';
 
-/** One revolution at 33⅓ rpm: 1.8 s of audio passes under the needle. */
+/** One revolution at 33⅓ rpm: 1.8 s of audio passes under the needle. At 45
+ *  the same groove passes 1.35× faster, so the record spins 1.35× faster too. */
 const SECONDS_PER_REV = 1.8;
 const ARM_REST = -6; // degrees: parked beside the record
 const ARM_START = 16; // on the outer groove
@@ -87,9 +88,20 @@ export function Turntable({ deck, loop, still }: { deck: Deck; loop: FrameLoop; 
 
   return (
     <div className={s.plinth} data-deck={deck.label}>
-      <div className={s.plinthLights} aria-hidden="true">
-        <span className={st.playing ? s.lightOn : s.light}>33</span>
-        <span className={s.light}>45</span>
+      <div className={s.speedGroup} role="group" aria-label={`Deck ${deck.label} platter speed`}>
+        {SPEEDS.map((rpm) => (
+          <button
+            key={rpm}
+            type="button"
+            className={s.speedBtn}
+            aria-pressed={st.speed === rpm}
+            aria-label={rpm === 33 ? '33⅓ rpm' : '45 rpm'}
+            title={rpm === 33 ? '33⅓ rpm: the record as cut' : '45 rpm: 1.35× faster, on top of the pitch fader'}
+            onClick={() => deck.setSpeed(rpm)}
+          >
+            {rpm}
+          </button>
+        ))}
       </div>
       <div
         className={`${s.platter} ${held ? s.platterHeld : ''} ${st.track ? '' : s.platterEmpty}`}

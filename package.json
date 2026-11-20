@@ -14,6 +14,7 @@
     "preview": "vite preview",
     "typecheck": "tsc",
     "test:e2e": "node tests/e2e.mjs",
+    "test:controls": "node tests/controls.mjs",
     "artifact": "npm run build && node scripts/artifact.mjs",
     "test:stems": "node tests/stems.mjs"
   },

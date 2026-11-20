@@ -494,6 +494,7 @@
 /* ── Turntable ──────────────────────────────────────────────────────────── */
 
 .plinth {
+  container-type: inline-size;
   position: relative;
   width: 100%;
   max-width: 400px;
@@ -506,27 +507,48 @@
     0 10px 28px var(--dj-shadow);
 }
 
-.plinthLights {
+.speedGroup {
   position: absolute;
-  bottom: 4%;
-  left: 5%;
+  z-index: 1; /* above the platter's corner */
+  bottom: 3%;
+  left: 4%;
   display: flex;
-  gap: 8px;
+  gap: 4px;
+}
+
+/* 33 / 45: a pair of small selector keys in the plinth's corner, sized to be
+   pressed (36 × 32) without crowding the record. */
+.speedBtn {
+  display: inline-grid;
+  place-items: center;
+  width: 36px;
+  height: 32px;
+  padding: 0;
+  border: 1px solid var(--dj-line-2);
+  border-radius: 6px;
+  background: var(--dj-panel-2);
+  color: var(--dj-dim);
+  font: inherit;
   font-family: var(--font-label);
   font-size: 13px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  cursor: pointer;
+  transition: background-color 120ms, border-color 120ms, color 120ms;
 }
 
-.light,
-.lightOn {
-  padding: 0 6px;
-  border: 1px solid var(--dj-line-2);
-  border-radius: 3px;
-  color: var(--dj-dim);
+.speedBtn:hover {
+  border-color: var(--dj-dim);
+  color: var(--dj-text);
 }
 
-.lightOn {
-  border-color: var(--deck);
-  color: var(--deck);
+/* A phone-sized plinth has less corner beside the record: smaller keys. */
+@container (max-width: 280px) {
+  .speedBtn {
+    width: 30px;
+    height: 26px;
+    font-size: 12px;
+  }
 }
 
 .platter {
@@ -691,7 +713,8 @@
 
 .pitchEnd {
   font-family: var(--font-mono);
-  font-size: 15px;
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
   color: var(--dj-dim);
   line-height: 1;
 }
@@ -800,8 +823,36 @@
 
 .rangeGroup .mini,
 .bendGroup .mini {
-  min-width: 56px;
+  width: 56px;
+  min-width: 0;
   padding: 0 4px;
+}
+
+/* Selected range and speed read at a glance: filled in the deck's colour,
+   like the other latched keys (Sync, Quant), not just an outline. */
+.rangeBtn[aria-pressed='true'],
+.speedBtn[aria-pressed='true'] {
+  border-color: var(--deck, var(--dj-play));
+  background: var(--deck, var(--dj-play));
+  color: var(--dj-ink);
+}
+
+/* Icon glyphs in small keys share one size and stroke, whatever the font. */
+.mini svg {
+  flex: none;
+  width: 16px;
+  height: 16px;
+}
+
+.bendBtn svg {
+  width: 18px;
+  height: 18px;
+}
+
+.bendBtn[data-held='true'] {
+  border-color: var(--deck, var(--dj-text));
+  color: var(--deck, var(--dj-text));
+  background: var(--dj-panel-3);
 }
 
 /* ── Transport, hot cues, loops ─────────────────────────────────────────── */
@@ -814,11 +865,17 @@
 }
 
 .bigBtn {
+  /* A true circle: a fixed square box that never grows or shrinks in the
+     transport's flex row. */
   display: grid;
+  flex: none;
   place-items: center;
-  width: 64px;
+  box-sizing: border-box;
+  width: 56px;
   height: 56px;
-  border: 1px solid var(--dj-line-2);
+  aspect-ratio: 1;
+  padding: 0;
+  border: 1.5px solid var(--dj-line-2);
   border-radius: 50%;
   background: var(--dj-panel-2);
   font-family: var(--font-label);
@@ -843,7 +900,11 @@
 .playBtn {
   border-color: var(--dj-play);
   color: var(--dj-play);
-  font-size: 18px;
+}
+
+.playBtn svg {
+  width: 22px;
+  height: 22px;
 }
 
 .playBtn[aria-pressed='true'] {
