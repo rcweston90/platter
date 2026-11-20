@@ -1,0 +1,581 @@
+/* The Mashups tab (MashupsPanel). Buttons, the table, the search field and
+   the badge look come from platter.module.css; only what is new lives here.
+   Colours are the --dj-* tokens in global.css. */
+
+.panel {
+  gap: 12px;
+}
+
+.head {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.sync {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 44px;
+  padding: 0 10px;
+  border: 1px dashed var(--dj-line-2);
+  border-radius: 6px;
+  color: var(--dj-dim);
+  font-size: 13px;
+  white-space: nowrap;
+}
+
+.sync strong {
+  color: var(--dj-text);
+  font-weight: 600;
+}
+
+.syncStop {
+  min-height: 44px;
+  padding: 0 4px;
+  color: var(--dj-text);
+}
+
+/* ── Two panes: library | mix with ─────────────────────────────────────── */
+
+.panes {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 12px;
+}
+
+@container dj (min-width: 1000px) {
+  .panes {
+    grid-template-columns: minmax(0, 1fr) minmax(320px, 420px);
+    align-items: start;
+  }
+}
+
+.libPane,
+.mixPane {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-width: 0;
+}
+
+.mixPane {
+  padding: 12px;
+  border: 1px solid var(--dj-line);
+  border-radius: 6px;
+  background: var(--dj-bg);
+}
+
+.paneTitle {
+  margin: 0;
+  color: var(--dj-dim);
+  font-family: var(--font-label);
+  font-size: 14px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+/* ── Filters ───────────────────────────────────────────────────────────── */
+
+.filters {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: 8px 12px;
+}
+
+.field,
+.range {
+  display: flex;
+  gap: 4px;
+  font-size: 13px;
+}
+
+.field {
+  flex-direction: column;
+}
+
+.field > label,
+.range > legend {
+  color: var(--dj-dim);
+  font-family: var(--font-label);
+  font-size: 13px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.fieldSearch {
+  flex: 1 1 140px;
+}
+
+/* Wide: the extra filters sit in the same row as search. */
+.moreFilters {
+  display: contents;
+}
+
+.filterToggle {
+  display: none;
+}
+
+.range {
+  flex-wrap: wrap;
+  align-items: center;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  min-width: 0;
+}
+
+/* A legend won't sit inside a flex row, so it floats to its own line above. */
+.range > legend {
+  float: left;
+  width: 100%;
+  margin-bottom: 0;
+  padding: 0;
+}
+
+.range > span[aria-hidden] {
+  color: var(--dj-dim);
+}
+
+.num,
+.numSmall,
+.select {
+  min-height: 44px;
+  padding: 0 8px;
+  border: 1px solid var(--dj-field-line);
+  border-radius: 6px;
+  background: var(--dj-panel-2);
+  color: var(--dj-text);
+  font: inherit;
+  font-size: 14px;
+}
+
+.num,
+.numSmall {
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+}
+
+.num {
+  width: 68px;
+}
+
+.numSmall {
+  width: 60px;
+}
+
+.num::placeholder,
+.numSmall::placeholder {
+  color: var(--dj-dim);
+}
+
+.select {
+  min-width: 96px;
+}
+
+/* Sized for "Mixes with 11A", not the longest option. */
+.keySelect {
+  width: 156px;
+}
+
+.check {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 44px;
+  margin-left: 4px;
+  color: var(--dj-text);
+  font-size: 13px;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.check input {
+  width: 18px;
+  height: 18px;
+  margin: 0;
+  accent-color: var(--dj-play);
+}
+
+.count {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 12px;
+  margin: 0;
+  color: var(--dj-dim);
+  font-family: var(--font-mono);
+  font-size: 13px;
+  font-variant-numeric: tabular-nums;
+}
+
+.count button {
+  min-height: 32px;
+  font-family: var(--font-sans);
+}
+
+/* ── Table ─────────────────────────────────────────────────────────────── */
+
+.tableWrap {
+  max-height: 600px;
+}
+
+.table {
+  table-layout: auto;
+}
+
+.row:focus-visible {
+  outline-offset: -2px;
+}
+
+.rowSelected,
+.rowSelected:hover {
+  background: color-mix(in srgb, var(--dj-panel-2) 80%, var(--dj-a) 14%);
+  box-shadow: inset 3px 0 0 var(--dj-a);
+}
+
+.colTitle {
+  max-width: 0;
+  width: 100%;
+}
+
+.clip {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.artist {
+  color: var(--dj-dim);
+  font-size: 13px;
+}
+
+.key small {
+  margin-left: 4px;
+  color: var(--dj-dim);
+  font-family: var(--font-sans);
+  font-size: 11px;
+  font-weight: 500;
+}
+
+.doubt {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 14px;
+  height: 14px;
+  margin-left: 3px;
+  border: 1px solid var(--dj-line-2);
+  border-radius: 50%;
+  color: var(--dj-dim);
+  font-family: var(--font-sans);
+  font-size: 10px;
+  font-weight: 700;
+  line-height: 1;
+  vertical-align: 1px;
+  cursor: help;
+}
+
+.colEnergy {
+  width: 1%;
+  white-space: nowrap;
+}
+
+.colGenre {
+  max-width: 140px;
+  color: var(--dj-dim);
+}
+
+.energy {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.segments {
+  display: inline-grid;
+  grid-template-columns: repeat(10, 4px);
+  gap: 1px;
+}
+
+.segments > span {
+  height: 12px;
+  border-radius: 1px;
+  background: var(--dj-panel-3);
+}
+
+.segments > span[data-on='true'] {
+  background: var(--dj-cue);
+}
+
+.energyNum {
+  min-width: 2ch;
+  font-family: var(--font-mono);
+  font-size: 13px;
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+}
+
+.tableEmpty {
+  padding: 16px 12px;
+}
+
+/* ── Mix with… ─────────────────────────────────────────────────────────── */
+
+.empty {
+  margin: 0;
+  padding: 24px 4px;
+  color: var(--dj-dim);
+  font-size: 14px;
+  text-align: center;
+}
+
+.warn {
+  margin: 0;
+  color: var(--dj-cue);
+  font-size: 13px;
+}
+
+.seed {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding-bottom: 8px;
+  border-bottom: 1px solid var(--dj-line);
+}
+
+.seedInfo,
+.cardInfo {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.seedTitle {
+  font-size: 16px;
+}
+
+.facts {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 2px 10px;
+  margin-top: 2px;
+  color: var(--dj-text);
+  font-family: var(--font-mono);
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+}
+
+.deckBtns,
+.cardActions {
+  display: flex;
+  align-items: center;
+}
+
+.loadBtn:first-child {
+  margin-left: 0;
+}
+
+.mixOpts {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: 8px 16px;
+}
+
+.matches {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  max-height: 600px;
+  margin: 0;
+  padding: 0 4px 0 0;
+  overflow: auto;
+  list-style: none;
+}
+
+.card {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 10px 12px;
+  border: 1px solid var(--dj-line);
+  border-radius: 6px;
+  background: var(--dj-panel);
+}
+
+.cardHead {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+}
+
+.verdict {
+  flex: none;
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: var(--dj-panel-3);
+  color: var(--dj-text);
+  font-family: var(--font-label);
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.verdict[data-verdict='great'] {
+  background: color-mix(in srgb, var(--dj-play) 16%, transparent);
+  color: var(--dj-play);
+}
+
+.verdict[data-verdict='possible'] {
+  background: color-mix(in srgb, var(--dj-cue) 14%, transparent);
+  color: var(--dj-cue);
+}
+
+.verdict[data-verdict='stretch'] {
+  background: none;
+  box-shadow: inset 0 0 0 1px var(--dj-line-2);
+  color: var(--dj-dim);
+}
+
+.scoreRow {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.scoreBar {
+  flex: 1;
+  height: 4px;
+  overflow: hidden;
+  border-radius: 2px;
+  background: var(--dj-panel-3);
+}
+
+.scoreBar > span {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: var(--dj-text);
+}
+
+.card[data-verdict='great'] .scoreBar > span {
+  background: var(--dj-play);
+}
+
+.card[data-verdict='possible'] .scoreBar > span {
+  background: var(--dj-cue);
+}
+
+.card[data-verdict='stretch'] .scoreBar > span {
+  background: var(--dj-dim);
+}
+
+.scoreNum {
+  min-width: 3ch;
+  color: var(--dj-dim);
+  font-family: var(--font-mono);
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+}
+
+.summary {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 2px 10px;
+  margin: 0;
+  font-family: var(--font-mono);
+  font-size: 13px;
+  font-variant-numeric: tabular-nums;
+}
+
+.tag {
+  padding: 0 5px;
+  border-radius: 3px;
+  background: var(--dj-panel-3);
+  font-size: 12px;
+}
+
+.reasons {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin: 0;
+  padding-left: 16px;
+  color: var(--dj-dim);
+  font-size: 13px;
+  line-height: 1.4;
+}
+
+.cardActions {
+  gap: 4px;
+  margin-top: 2px;
+}
+
+.cardActions .loadBtn {
+  margin-left: 0;
+}
+
+.pairBtn {
+  flex: 1;
+}
+
+.pairBtn:disabled {
+  cursor: not-allowed;
+  opacity: 0.4;
+}
+
+/* ── Narrow: the crate's own cut (640px) ───────────────────────────────── */
+
+@container dj (max-width: 640px) {
+  .colWide {
+    display: none;
+  }
+
+  .fieldSearch {
+    flex-basis: 0;
+  }
+
+  .filterToggle {
+    display: inline-flex;
+  }
+
+  .moreFilters {
+    display: none;
+    flex-basis: 100%;
+    flex-wrap: wrap;
+    align-items: flex-end;
+    gap: 8px 12px;
+  }
+
+  .moreFilters[data-open='true'] {
+    display: flex;
+  }
+
+  .key small {
+    display: none;
+  }
+
+  .table td {
+    padding: 6px 8px;
+  }
+
+  .table th button {
+    padding: 0 8px;
+  }
+
+  .segments {
+    display: none;
+  }
+
+  .mixPane {
+    padding: 8px;
+  }
+}

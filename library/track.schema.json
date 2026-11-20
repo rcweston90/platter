@@ -1,0 +1,83 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/rcweston90/platter/library/track.schema.json",
+  "title": "Platter library file",
+  "description": "One record per track: tags and analysis, never audio. Written by Platter's Mashups tab and by `npm run library`. Types in src/library/types.ts.",
+  "type": "object",
+  "required": ["schemaVersion", "generator", "updatedAt", "tracks"],
+  "properties": {
+    "$schema": { "type": "string" },
+    "schemaVersion": { "const": 1 },
+    "generator": { "type": "string", "description": "What wrote the file, e.g. \"Platter platter-analyzer-1 (scanner)\"." },
+    "updatedAt": { "type": "string", "format": "date-time" },
+    "root": { "type": ["string", "null"], "description": "Name of the scanned or linked folder (its name only, not the full path)." },
+    "tracks": { "type": "array", "items": { "$ref": "#/$defs/track" } }
+  },
+  "$defs": {
+    "track": {
+      "type": "object",
+      "required": ["id", "path", "fileName", "format", "fileSize", "fingerprint", "tags", "analysis", "addedAt"],
+      "properties": {
+        "id": { "type": "string", "description": "The fingerprint (or crate:<id> for a browser track not yet read)." },
+        "path": { "type": "string", "description": "Path inside the scanned folder, \"/\"-separated." },
+        "fileName": { "type": "string" },
+        "format": { "enum": ["flac", "mp3", "wav", "aiff", "m4a", "aac", "ogg", "opus", "webm", "other"] },
+        "fileSize": { "type": "integer", "minimum": 0 },
+        "modified": { "type": ["integer", "null"], "description": "File modification time, ms since 1970." },
+        "fingerprint": { "type": "string", "description": "SHA-256 (hex) of the size (8 bytes LE) + first 256 KB + last 256 KB." },
+        "addedAt": { "type": "string", "format": "date-time" },
+        "error": { "type": "string" },
+        "tags": { "$ref": "#/$defs/tags" },
+        "analysis": { "oneOf": [{ "type": "null" }, { "$ref": "#/$defs/analysis" }] }
+      }
+    },
+    "tags": {
+      "type": "object",
+      "required": ["title", "artist"],
+      "properties": {
+        "title": { "type": "string" },
+        "artist": { "type": "string" },
+        "album": { "type": ["string", "null"] },
+        "albumArtist": { "type": ["string", "null"] },
+        "genre": { "type": ["string", "null"] },
+        "year": { "type": ["integer", "null"] },
+        "label": { "type": ["string", "null"] },
+        "bpm": { "type": ["number", "null"], "description": "Tempo found in the tags (TBPM / BPM)." },
+        "key": { "type": ["string", "null"], "pattern": "^(1[0-2]|[1-9])[AB]$", "description": "Key found in the tags, as Camelot." },
+        "hasArt": { "type": "boolean" }
+      }
+    },
+    "candidate": {
+      "type": "object",
+      "required": ["bpm", "salience"],
+      "properties": { "bpm": { "type": "number" }, "salience": { "type": "number", "minimum": 0, "maximum": 1 } }
+    },
+    "analysis": {
+      "type": "object",
+      "required": ["analyzer", "analyzedAt", "duration", "bpm", "key"],
+      "properties": {
+        "analyzer": { "type": "string", "description": "Analysis version; records from another version are re-analysed." },
+        "analyzedAt": { "type": "string", "format": "date-time" },
+        "duration": { "type": "number", "description": "Seconds." },
+        "bpm": { "type": ["number", "null"] },
+        "bpmConfidence": { "type": "number", "minimum": 0, "maximum": 1 },
+        "bpmSource": { "enum": ["analysis", "tag"] },
+        "bpmCandidates": { "type": "array", "items": { "$ref": "#/$defs/candidate" }, "description": "Other readings, typically half and double time." },
+        "tempoStability": { "type": "number", "minimum": 0, "maximum": 1 },
+        "firstBeat": { "type": "number", "description": "Seconds to the first beat; grid = firstBeat + n·60/bpm." },
+        "firstDownbeat": { "type": "number", "description": "Seconds to the first bar's \"one\" (4/4 assumed)." },
+        "key": { "type": ["string", "null"], "pattern": "^(1[0-2]|[1-9])[AB]$" },
+        "keyName": { "type": ["string", "null"] },
+        "keyConfidence": { "type": "number", "minimum": 0, "maximum": 1 },
+        "keySource": { "enum": ["analysis", "tag"] },
+        "lufs": { "type": ["number", "null"], "description": "Integrated loudness, ITU-R BS.1770-4." },
+        "peakDb": { "type": ["number", "null"] },
+        "lra": { "type": ["number", "null"], "description": "Loudness range, EBU Tech 3342, LU." },
+        "energy": { "type": ["integer", "null"], "minimum": 1, "maximum": 10 },
+        "onsetRate": { "type": ["number", "null"], "description": "Onsets per second." },
+        "brightness": { "type": ["number", "null"], "description": "Spectral centroid, Hz." },
+        "lowEnd": { "type": ["number", "null"], "description": "Share of energy below ~150 Hz." }
+      }
+    }
+  }
+}

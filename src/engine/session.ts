@@ -1,4 +1,7 @@
-import { analyseTrack, computePeaks, decodeAudio, detectTempo, newTrackId, trackFromFile } from './analysis';
+import { analyseTrack, computePeaks, decodeAudio, detectTempo, newTrackId, pickGrid, trackFromFile } from './analysis';
+import { analyzeBuffer } from '../library/client';
+import { normaliseTags } from '../library/tags';
+import { ANALYZER_VERSION } from '../library/types';
 import { LibrarySync } from '../library/sync';
 import { fetchArtwork, fetchAudiusAudio, type AudiusTrack } from './audius';
 import { fetchSoundCloudAudio, SoundCloudError, type ScTrack } from './soundcloud';
@@ -7,7 +10,7 @@ import { backupToImported, makeBackup, matchTrack, parseBackup, parseRekordboxXm
 import { Deck, PITCH_RANGES } from './deck';
 import { DEMOS, demoRecords, renderDemo } from './demo';
 import { DjEngine, listOutputDevices, unlockDeviceNames, type CueRouting, type OutputDevice } from './engine';
-import { audioFilesIn, fileFromHandle, pickFolder } from './folder';
+import { fileFromHandle } from './folder';
 import type { FxState } from './fx';
 import { detectKey } from './key';
 import {
@@ -168,6 +171,7 @@ export class DjSession {
     void this.midi.init();
     void loadRecordings().then((list) => this.recordings.set({ list }));
     void this.runAnalysis();
+    void this.library.init();
   }
 
   /** Puts the last session's tracks (or the crate's first two) on the decks
@@ -288,6 +292,7 @@ export class DjSession {
 
   dispose() {
     this.disposed = true;
+    this.library.dispose();
     void this.autoDj.setOn(false);
     this.beats.stop();
     this.sampler.silence();
@@ -410,7 +415,7 @@ export class DjSession {
 
   /* ── Crate ────────────────────────────────────────────────────────────── */
 
-  private updateTrack(id: string, patch: Partial<TrackRecord>) {
+  updateTrack(id: string, patch: Partial<TrackRecord>) {
     let updated: TrackRecord | null = null;
     const tracks = this.crate.get().tracks.map((t) => {
       if (t.id !== id) return t;
@@ -422,7 +427,7 @@ export class DjSession {
     this.decks.forEach((d) => d.applyAnalysis(id, patch));
   }
 
-  private addRecords(recs: TrackRecord[]) {
+  addRecords(recs: TrackRecord[]) {
     if (!recs.length) return;
     this.crate.set({ tracks: [...this.crate.get().tracks, ...recs] });
     recs.forEach((r) => void saveTrack(r));
@@ -440,24 +445,10 @@ export class DjSession {
     return audio.length;
   }
 
-  /** Links a music folder: the crate keeps handles, not copies. */
+  /** Links a music folder: the crate keeps handles, not copies, and the
+   *  folder is remembered so the Mashups tab can rescan it. */
   async linkFolder() {
-    const dir = await pickFolder();
-    if (!dir) return;
-    this.crate.set({ note: `Reading “${dir.name}”…` });
-    const handles = await audioFilesIn(dir);
-    const known = new Set(this.crate.get().tracks.map((t) => t.fileName));
-    const fresh = handles.filter((h) => !known.has(h.name));
-    const recs: TrackRecord[] = [];
-    for (const h of fresh) {
-      const file = await h.getFile();
-      const rec = await trackFromFile(file);
-      recs.push({ ...rec, blob: null, handle: h });
-    }
-    this.addRecords(recs);
-    this.crate.set({
-      note: `Linked “${dir.name}”: ${recs.length} new track${recs.length === 1 ? '' : 's'}${handles.length > fresh.length ? `, ${handles.length - fresh.length} already in the crate` : ''}.`,
-    });
+    await this.library.linkFolder();
   }
 
   async addAudius(t: AudiusTrack) {
@@ -549,7 +540,7 @@ export class DjSession {
 
   /** One track at a time, in the background: decoding is memory-hungry, and
    *  the decks need the CPU more than the crate does. */
-  private async runAnalysis() {
+  async runAnalysis() {
     if (this.analysing) return;
     this.analysing = true;
     try {
@@ -627,7 +618,9 @@ export class DjSession {
       this.stems[i].trackLoaded(this.crate.get().tracks.find((t) => t.id === rec.id) ?? rec);
       if (this.inflight[i]?.play) deck.play();
       // Never analysed (no access in the background): do it now.
-      if (!rec.demo && rec.bpm === null && rec.status !== 'error') void this.analyseLoaded(rec, buffer);
+      if (!rec.demo && rec.status !== 'error' && (rec.bpm === null || (!rec.soundcloud && rec.library?.analysis?.analyzer !== ANALYZER_VERSION))) {
+        void this.analyseLoaded(rec, buffer);
+      }
     } catch (err) {
       if (token === this.loadTokens[i]) {
         const why =
@@ -639,13 +632,20 @@ export class DjSession {
     }
   }
 
+  /** Analysis for a track that couldn't be read in the background (a linked
+   *  file without access yet), from the audio the deck just decoded. */
   private async analyseLoaded(rec: TrackRecord, buffer: AudioBuffer) {
-    const tempo = await detectTempo(buffer);
-    const patch: Partial<TrackRecord> = { key: rec.key ?? detectKey(buffer), status: 'ready' };
-    if (tempo) {
-      patch.bpm = Math.round(tempo.bpm * 100) / 100;
-      patch.gridOffset = tempo.offset;
+    const tags = rec.library?.tags ?? normaliseTags(null, rec.fileName);
+    const [tempo, deep] = await Promise.all([rec.bpm === null ? detectTempo(buffer) : null, analyzeBuffer(buffer, tags).catch(() => null)]);
+    const patch: Partial<TrackRecord> = { key: rec.key ?? deep?.key ?? detectKey(buffer), status: 'ready' };
+    if (rec.bpm === null) {
+      const grid = pickGrid(tempo, deep);
+      if (grid) {
+        patch.bpm = grid.bpm;
+        patch.gridOffset = grid.offset;
+      }
     }
+    if (deep) patch.library = { ...rec.library, tags, analysis: deep };
     this.updateTrack(rec.id, patch);
   }
 

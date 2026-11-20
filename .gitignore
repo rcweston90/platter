@@ -3,3 +3,28 @@ dist/
 artifact/
 # Generated from signalsmith-stretch before dev and build.
 public/worklets/stretch.js
+
+# Music never goes in the repo (copyright, and size). Platter's own CC0
+# sounds under public/ and the test fixtures are the only exceptions.
+*.mp3
+*.wav
+*.flac
+*.aif
+*.aiff
+*.m4a
+*.aac
+*.ogg
+*.oga
+*.opus
+*.alac
+*.wma
+!/public/**
+!/tests/fixtures/**
+
+# Your library record lists your music. This repo is public, so it stays on
+# your machine unless you decide otherwise (see library/README.md).
+/library/tracks.json
+/library/tracks.json.tmp
+
+# (again, after the exceptions above, which would otherwise re-include it)
+public/worklets/stretch.js
