@@ -35,7 +35,9 @@ export interface TrackRecord {
   handle?: FileSystemFileHandle;
   /** An Audius track id, streamed when the track loads. */
   audius?: string;
-  /** Where the track lives online (an Audius page), for attribution. */
+  /** A SoundCloud track URN, streamed when the track loads (its audio is never stored). */
+  soundcloud?: string;
+  /** Where the track lives online (an Audius or SoundCloud page), for attribution. */
   link?: string;
   cues: TrackCues;
   addedAt: number;

@@ -5,18 +5,21 @@ import { AudiusPanel } from './AudiusPanel';
 import { Crate } from './Crate';
 import { QueuePanel } from './QueuePanel';
 import { RecordingsPanel } from './RecordingsPanel';
+import { SoundCloudPanel } from './SoundCloudPanel';
+import { cameBackFromSoundCloud } from '../engine/soundcloud';
 import s from '../platter.module.css';
 
-type Tab = 'crate' | 'audius' | 'queue' | 'recordings';
+type Tab = 'crate' | 'audius' | 'soundcloud' | 'queue' | 'recordings';
 
-/** The lower half: crate, Audius, the Auto-DJ queue and recorded mixes. */
+/** The lower half: crate, Audius, SoundCloud, the Auto-DJ queue and recorded mixes. */
 export function Library({ session }: { session: DjSession }) {
-  const [tab, setTab] = useState<Tab>('crate');
+  const [tab, setTab] = useState<Tab>(() => (cameBackFromSoundCloud() ? 'soundcloud' : 'crate'));
   const { queue, on } = useStore(session.autoDj.store);
   const { list } = useStore(session.recordings);
   const tabs: { id: Tab; label: string }[] = [
     { id: 'crate', label: 'Crate' },
     { id: 'audius', label: 'Audius' },
+    { id: 'soundcloud', label: 'SoundCloud' },
     { id: 'queue', label: `Auto-DJ${on ? ' ●' : ''}${queue.length ? ` (${queue.length})` : ''}` },
     { id: 'recordings', label: `Recordings${list.length ? ` (${list.length})` : ''}` },
   ];
@@ -52,6 +55,7 @@ export function Library({ session }: { session: DjSession }) {
       <div id={`lib-panel-${tab}`} role="tabpanel" aria-labelledby={`lib-tab-${tab}`}>
         {tab === 'crate' && <Crate session={session} />}
         {tab === 'audius' && <AudiusPanel session={session} />}
+        {tab === 'soundcloud' && <SoundCloudPanel session={session} />}
         {tab === 'queue' && <QueuePanel session={session} />}
         {tab === 'recordings' && <RecordingsPanel session={session} />}
       </div>

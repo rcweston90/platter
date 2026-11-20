@@ -60,6 +60,12 @@ GitHub Actions).
 - **Audius**: search or browse trending tracks on
   [Audius](https://audius.co) — open, free music — and stream them onto the
   decks. Tracks keep a link back to the artist.
+- **SoundCloud** (on the Vercel site): sign in to browse your likes,
+  playlists and uploads, or search. Your own uploads, and tracks whose artist
+  chose a Creative Commons license that allows remixes, stream onto the
+  decks; SoundCloud's API terms keep every other track on SoundCloud, so
+  those rows link out instead. Audio is streamed each time a track loads and
+  never saved, and every track credits its artist and links back.
 - **Auto-DJ**: queue tracks and it mixes them like a DJ would — the next
   track waits synced on the idle deck, starts on its first beat 8, 16 or 32
   bars before the end, and crossfades with a bass swap halfway.
@@ -128,8 +134,8 @@ npm run test:e2e     # against a running dev or preview server
 
 The end-to-end check drives a real browser through cueing, playing, sync,
 scratching, key lock, import, recording, key matching, beat FX, rolls, the
-sampler, MIDI learn, Auto-DJ, backup and Rekordbox import, recordings and
-Audius (with its API mocked). It needs a Playwright Chromium
+sampler, MIDI learn, Auto-DJ, backup and Rekordbox import, recordings,
+Audius and SoundCloud (with their APIs mocked). It needs a Playwright Chromium
 (`npx playwright install chromium`); set `PLATTER_URL` to test another
 address. `window.platter` is the running rig, for the console.
 
@@ -138,6 +144,14 @@ address. `window.platter` is the running rig, for the console.
 `.github/workflows/pages.yml` builds and publishes to GitHub Pages on every
 push to `main`. Turn it on once under Settings → Pages → Source: GitHub
 Actions. Any static host works the same way: serve `dist/`.
+
+**SoundCloud** needs the Vercel deployment: `api/soundcloud.ts` is a Vercel
+Function that holds the app's secret for the OAuth exchange and keeps the
+refresh token in an HttpOnly cookie. Register an app at SoundCloud with the
+redirect URI `https://<your-site>/soundcloud-callback` (`vercel.json`
+rewrites that path to the app), then set `SOUNDCLOUD_CLIENT_ID` and
+`SOUNDCLOUD_CLIENT_SECRET` in the Vercel project. On a static host the
+SoundCloud tab says it isn't available.
 
 `npm run artifact` packages the build as a claude.ai artifact. That sandbox
 keeps pages away from other sites and devices, so Audius, MIDI, folder
@@ -159,10 +173,12 @@ src/engine/
   midi.ts       MIDI learn, mappings, LED feedback
   autodj.ts     queue and automatic transitions
   audius.ts     Audius search, trending and streaming
+  soundcloud.ts SoundCloud sign-in (PKCE), browsing, streaming, licence checks
   folder.ts     linked music folders (File System Access)
   backup.ts     JSON backup, Rekordbox XML import
   library.ts    everything kept in IndexedDB
   demo.ts       the two demo tracks, synthesised sample by sample
+api/soundcloud.ts  Vercel Function: OAuth token exchange, API and media relay
 src/ui/         React: turntables, waveforms, phase meter, mixer, pads, panels
 ```
 

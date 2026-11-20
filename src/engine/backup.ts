@@ -25,6 +25,7 @@ export interface BackupTrack {
   cues: TrackCues;
   demo?: string;
   audius?: string;
+  soundcloud?: string;
   link?: string;
 }
 
@@ -54,6 +55,7 @@ export function makeBackup(tracks: TrackRecord[], settings: unknown, midi: unkno
       cues: t.cues,
       ...(t.demo ? { demo: t.demo } : {}),
       ...(t.audius ? { audius: t.audius, link: t.link } : {}),
+      ...(t.soundcloud ? { soundcloud: t.soundcloud, link: t.link } : {}),
     })),
     settings,
     midi,

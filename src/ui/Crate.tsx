@@ -208,8 +208,14 @@ export function Crate({ session }: { session: DjSession }) {
                     <td>
                       <span className={s.rowTitle}>{t.title}</span>
                       {t.link && (
-                        <a className={s.rowLink} href={t.link} target="_blank" rel="noopener noreferrer" aria-label={`${t.title} on Audius`}>
-                          Audius ↗
+                        <a
+                          className={s.rowLink}
+                          href={t.link}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          aria-label={`${t.title} by ${t.artist} on ${t.soundcloud ? 'SoundCloud' : 'Audius'}`}
+                        >
+                          {t.soundcloud ? 'SoundCloud' : 'Audius'} ↗
                         </a>
                       )}
                       {on && <span className={s.rowOn}>on {on}</span>}

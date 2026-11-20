@@ -2,7 +2,7 @@
  * End-to-end check in Chromium: the rig opens cued up, plays, syncs,
  * scratches, key-locks, imports a file, records a mix; then key matching,
  * beat FX, rolls, the sampler, MIDI learn, Auto-DJ, backup and Rekordbox
- * import, recordings and Audius (with its API mocked).
+ * import, recordings, Audius and SoundCloud (with their APIs mocked).
  *
  *   npm run dev            # or: npm run build && npm run preview
  *   npm run test:e2e       # URL defaults to http://localhost:5173/
@@ -238,6 +238,60 @@ await A.getByText('Mocked Groove').waitFor({ timeout: 15000 });
 await page.waitForFunction(() => window.platter.crate.get().tracks.find((t) => t.title === 'Mocked Groove')?.bpm, null, { timeout: 20000 });
 const mocked = await page.evaluate(() => window.platter.crate.get().tracks.find((t) => t.title === 'Mocked Groove'));
 check(mocked.link === 'https://audius.co/artist/mocked' && Math.round(mocked.bpm) === 126, `an Audius track streams onto deck A and is analysed (${mocked.bpm} BPM, link kept)`);
+
+// ── SoundCloud (its Vercel function and media host mocked). Last: the
+// sign-in comes back through /soundcloud-callback, which reloads the page. ──
+const scTrack = (id, title, license, userId) => ({
+  kind: 'track',
+  id,
+  urn: `soundcloud:tracks:${id}`,
+  title,
+  duration: 8000,
+  artwork_url: null,
+  genre: 'House',
+  license,
+  permalink_url: `https://soundcloud.com/mock/${id}`,
+  streamable: true,
+  access: 'playable',
+  user: { id: userId, username: `Artist ${userId}` },
+});
+const scCalls = [];
+await page.route('**/api/soundcloud?**', async (route) => {
+  const q = new URL(route.request().url()).searchParams;
+  const op = q.get('op');
+  scCalls.push(op === 'api' ? `api ${q.get('path')}` : op);
+  const json = (body, status = 200) => route.fulfill({ status, contentType: 'application/json', body: JSON.stringify(body) });
+  if (op === 'status') return json({ configured: true, clientId: 'mock' });
+  if (op === 'token' || op === 'refresh') return json({ accessToken: 'tok', expiresIn: 3600 });
+  if (op === 'stream') return json({ kind: 'mp3', url: 'https://cf-media.sndcdn.com/mock.mp3' });
+  if (op === 'api' && q.get('path') === '/me') return json({ id: 7, username: 'Me', permalink_url: 'https://soundcloud.com/me' });
+  if (op === 'api' && q.get('path').startsWith('/me/likes/tracks')) {
+    return json({ collection: [scTrack(1, 'Free Remix Bait', 'cc-by', 9), scTrack(2, 'Locked Down Banger', 'all-rights-reserved', 9), scTrack(3, 'My Own Tune', 'all-rights-reserved', 7)], next_href: null });
+  }
+  return json({ error: 'unmocked' }, 404);
+});
+await page.route('https://cf-media.sndcdn.com/**', (route) => route.fulfill({ status: 200, contentType: 'audio/wav', body: kickWav(8, 122) }));
+await page.evaluate(() => sessionStorage.setItem('platter.sc.pkce', JSON.stringify({ verifier: 'v', state: 's' })));
+await page.goto(new URL('/soundcloud-callback?code=c&state=s', URL_).toString());
+await page.getByText('Free Remix Bait').waitFor({ timeout: 15000 });
+check(new URL(page.url()).pathname === '/' && scCalls.includes('token'), 'SoundCloud sign-in completes from the callback and opens the SoundCloud tab');
+check(
+  (await page.getByRole('button', { name: 'Load Locked Down Banger on deck A' }).count()) === 0 &&
+    (await page.getByRole('link', { name: 'Locked Down Banger by Artist 9 on SoundCloud' }).count()) === 1,
+  'an all-rights-reserved SoundCloud track links out instead of loading',
+);
+check((await page.getByRole('button', { name: 'Load My Own Tune on deck A' }).count()) === 1, 'your own upload can go on a deck');
+await page.getByRole('button', { name: 'Load Free Remix Bait on deck B' }).click();
+await page.locator('section[aria-label="Deck B"]').getByText('Free Remix Bait').waitFor({ timeout: 15000 });
+await page.waitForFunction(() => window.platter.crate.get().tracks.find((t) => t.title === 'Free Remix Bait')?.bpm, null, { timeout: 20000 });
+const sc = await page.evaluate(() => {
+  const t = window.platter.crate.get().tracks.find((x) => x.title === 'Free Remix Bait');
+  return { urn: t.soundcloud, link: t.link, blob: t.blob, bpm: t.bpm };
+});
+check(
+  sc.urn === 'soundcloud:tracks:1' && sc.link === 'https://soundcloud.com/mock/1' && sc.blob === null && Math.round(sc.bpm) === 122,
+  `a CC-BY SoundCloud track streams onto deck B, is analysed (${sc.bpm} BPM) and its audio isn't stored`,
+);
 
 check(errors.length === 0, `no page errors${errors.length ? `: ${errors.join(' | ')}` : ''}`);
 await browser.close();
