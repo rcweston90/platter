@@ -10,6 +10,7 @@ import { StemsControl } from './StemsControl';
 import { Turntable } from './Turntable';
 import { formatTime, Overview } from './Waveforms';
 import { openBrowse } from './browse';
+import { ChevronIcon, PauseIcon, PlayIcon } from './icons';
 import s from '../platter.module.css';
 
 export const TRACK_MIME = 'application/x-dj-track';
@@ -62,6 +63,11 @@ export function DeckPanel({
   const remain = useRef<HTMLSpanElement>(null);
   const [over, setOver] = useState(false);
   const cueHeld = useRef(false);
+  const [bending, setBending] = useState<0 | -1 | 1>(0);
+  const bend = (dir: 0 | -1 | 1) => {
+    setBending(dir);
+    deck.setBend(dir);
+  };
   const longPress = useRef<number | null>(null);
 
   useFrame(loop, () => {
@@ -215,10 +221,10 @@ export function DeckPanel({
             Tap
           </button>
           <button type="button" className={s.mini} onClick={() => deck.nudgeGrid(-0.01)} disabled={!st.bpm} aria-label={`Deck ${deck.label}: move the beat grid 10 ms earlier`}>
-            ‹
+            <ChevronIcon dir={-1} />
           </button>
           <button type="button" className={s.mini} onClick={() => deck.nudgeGrid(0.01)} disabled={!st.bpm} aria-label={`Deck ${deck.label}: move the beat grid 10 ms later`}>
-            ›
+            <ChevronIcon dir={1} />
           </button>
           <button type="button" className={s.mini} onClick={() => deck.eject()} disabled={!st.track || st.playing} aria-label={`Eject deck ${deck.label}`}>
             ⏏
@@ -232,7 +238,7 @@ export function DeckPanel({
         <Turntable deck={deck} loop={loop} still={still} />
         <div className={s.pitchCol}>
           <span className={s.pitchEnd} aria-hidden="true">
-            −
+            −{st.range * 100}
           </span>
           <input
             type="range"
@@ -247,11 +253,18 @@ export function DeckPanel({
             onDoubleClick={() => deck.resetPitch()}
           />
           <span className={s.pitchEnd} aria-hidden="true">
-            +
+            +{st.range * 100}
           </span>
           <div className={s.rangeGroup} role="group" aria-label={`Deck ${deck.label} pitch range`}>
             {PITCH_RANGES.map((r) => (
-              <button key={r} type="button" className={s.mini} aria-pressed={st.range === r} onClick={() => deck.setRange(r)}>
+              <button
+                key={r}
+                type="button"
+                className={`${s.mini} ${s.rangeBtn}`}
+                aria-pressed={st.range === r}
+                onClick={() => deck.setRange(r)}
+                title={`Pitch fader covers −${r * 100}% to +${r * 100}%`}
+              >
                 ±{r * 100}
               </button>
             ))}
@@ -261,18 +274,29 @@ export function DeckPanel({
               <button
                 key={dir}
                 type="button"
-                className={s.mini}
-                aria-label={dir < 0 ? 'Bend slower (hold)' : 'Bend faster (hold)'}
+                className={`${s.mini} ${s.bendBtn}`}
+                data-held={bending === dir}
+                aria-label={`Deck ${deck.label}: ${dir < 0 ? 'bend slower' : 'bend faster'} (hold)`}
+                title={dir < 0 ? 'Hold to slow down 4% — nudge the beat back into line' : 'Hold to speed up 4% — nudge the beat into line'}
                 onPointerDown={(e) => {
+                  if (e.button !== 0) return;
                   e.currentTarget.setPointerCapture(e.pointerId);
-                  deck.setBend(dir);
+                  bend(dir);
                 }}
-                onPointerUp={() => deck.setBend(0)}
-                onPointerCancel={() => deck.setBend(0)}
-                onKeyDown={(e) => (e.key === ' ' || e.key === 'Enter') && !e.repeat && deck.setBend(dir)}
-                onKeyUp={(e) => (e.key === ' ' || e.key === 'Enter') && deck.setBend(0)}
+                onPointerUp={() => bend(0)}
+                onPointerCancel={() => bend(0)}
+                onLostPointerCapture={() => bending === dir && bend(0)}
+                onKeyDown={(e) => {
+                  if ((e.key === ' ' || e.key === 'Enter') && !e.repeat) {
+                    e.preventDefault();
+                    bend(dir);
+                  }
+                }}
+                onKeyUp={(e) => (e.key === ' ' || e.key === 'Enter') && bend(0)}
+                onBlur={() => bending === dir && bend(0)}
+                onContextMenu={(e) => e.preventDefault()}
               >
-                {dir < 0 ? '◂' : '▸'}
+                <ChevronIcon dir={dir} />
               </button>
             ))}
           </div>
@@ -307,7 +331,7 @@ export function DeckPanel({
           onClick={() => deck.togglePlay()}
           aria-label={`Deck ${deck.label} ${st.playing ? 'pause' : 'play'}`}
         >
-          <span aria-hidden="true">{st.playing ? '❚❚' : '▶'}</span>
+          {st.playing ? <PauseIcon /> : <PlayIcon />}
         </button>
         <div className={s.toggles}>
           <button

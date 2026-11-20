@@ -7,6 +7,10 @@ import { HOT_CUES, type TrackCues, type TrackRecord, type WavePeaks } from './ty
 export const PITCH_RANGES = [0.08, 0.16, 0.5] as const;
 export const LOOP_BEATS = [0.25, 0.5, 1, 2, 4, 8, 16, 32] as const;
 export const ROLL_BEATS = [0.125, 0.25, 0.5, 1] as const;
+/** Platter speeds, in rpm. A record cut at 33⅓ played at 45 runs 45 / 33⅓ = 1.35× fast. */
+export const SPEEDS = [33, 45] as const;
+export type Speed = (typeof SPEEDS)[number];
+const SPEED_RATIO: Record<Speed, number> = { 33: 1, 45: 45 / (100 / 3) };
 const BEND = 0.04; // pitch-bend buttons: ±4%, like holding a finger to the platter edge
 const FALLBACK_BPM = 120; // beat-sized loops and jumps still work on an unanalysed track
 
@@ -33,6 +37,8 @@ export interface DeckState {
   /** Fraction: 0.02 = +2%. */
   pitch: number;
   range: number;
+  /** Platter speed: 45 plays 1.35× faster on top of the pitch fader. */
+  speed: Speed;
   keyLock: boolean;
   sync: boolean;
   quantize: boolean;
@@ -60,6 +66,7 @@ function initialState(): DeckState {
     playing: false,
     pitch: 0,
     range: PITCH_RANGES[0],
+    speed: 33,
     keyLock: false,
     sync: false,
     quantize: true,
@@ -151,6 +158,10 @@ export class Deck {
       if (m.type === 'pos') this.rep = { t: m.t, pos: m.pos, rate: m.rate, shadow: m.shadow };
       else if (m.type === 'ended') this.store.set({ playing: false });
     };
+    // A fresh worklet starts at rate 1: give it the fader and speed set
+    // before the audio engine existed.
+    this.post({ type: 'pitch', value: this.motor() });
+    this.post({ type: 'bend', value: this.bend });
     // Key lock or a key shift remembered from last time needs the stretcher.
     const st = this.store.get();
     if (st.keyLock || st.keyShift) void this.ensureStretch().then(() => this.applyKeyLock());
@@ -176,9 +187,9 @@ export class Deck {
   /** Where slip mode will return to, in track seconds, while it differs from
    *  the heard playhead; null otherwise. */
   slipPosition(): number | null {
-    const { track, playing, pitch } = this.store.get();
+    const { track, playing } = this.store.get();
     if (!track || !this.engine || this.rep.shadow < 0) return null;
-    const motor = playing ? 1 + pitch + this.bend : 0;
+    const motor = playing ? this.motor() + this.bend : 0;
     const frames = this.rep.shadow + motor * (this.engine.now() - this.rep.t) * this.sr;
     return clamp(frames / this.sr, 0, track.duration);
   }
@@ -186,9 +197,9 @@ export class Deck {
   /** The key you hear: the analysed key, moved by pitch (unless key lock
    *  holds it) and by key shift. */
   effectiveKey(): string | null {
-    const { key, keyLock, pitch, keyShift } = this.store.get();
+    const { key, keyLock, keyShift } = this.store.get();
     if (!key) return null;
-    const fromPitch = keyLock ? 0 : 12 * Math.log2(1 + pitch);
+    const fromPitch = keyLock ? 0 : 12 * Math.log2(this.motor());
     return shiftKey(key, Math.round(fromPitch) + keyShift);
   }
 
@@ -201,9 +212,18 @@ export class Deck {
     return 60 / (this.store.get().bpm ?? FALLBACK_BPM);
   }
 
+  /** The tempo you hear: the track's BPM moved by the pitch fader and the
+   *  platter speed. */
   effectiveBpm(): number | null {
-    const { bpm, pitch } = this.store.get();
-    return bpm ? bpm * (1 + pitch) : null;
+    const { bpm } = this.store.get();
+    return bpm ? bpm * this.motor() : null;
+  }
+
+  /** The motor's speed as a playback rate: pitch fader × platter speed
+   *  (1 = the record as cut). Bend rides on top of this. */
+  private motor(): number {
+    const { pitch, speed } = this.store.get();
+    return (1 + pitch) * SPEED_RATIO[speed];
   }
 
   private snap(t: number): number {
@@ -547,13 +567,24 @@ export class Deck {
   private applyPitch(pitch: number, range: number) {
     const p = clamp(pitch, -range, range);
     this.store.set({ pitch: p, range });
-    this.post({ type: 'pitch', value: 1 + p });
+    this.post({ type: 'pitch', value: this.motor() });
     this.applyKeyLock();
     this.other?.followTempo();
   }
 
+  /** The pitch fader's range (0.08 = ±8%). The tempo stays where it is,
+   *  unless it falls outside the new range, which clamps it. */
   setRange(range: number) {
     this.applyPitch(this.store.get().pitch, range);
+  }
+
+  /** 33 or 45 rpm. 45 runs 1.35× fast on top of the pitch fader. A synced
+   *  deck re-pitches to stay on the master's tempo. */
+  setSpeed(speed: Speed) {
+    if (this.store.get().speed === speed) return;
+    this.store.set({ speed });
+    if (this.store.get().sync && this.master()) this.followTempo();
+    else this.applyPitch(this.store.get().pitch, this.store.get().range);
   }
 
   resetPitch() {
@@ -577,9 +608,9 @@ export class Deck {
   /** Shift to the nearest key that mixes harmonically with the other deck. */
   keySync() {
     const target = this.other?.effectiveKey();
-    const { key, keyLock, pitch } = this.store.get();
+    const { key, keyLock } = this.store.get();
     if (!key || !target) return;
-    const fromPitch = keyLock ? 0 : Math.round(12 * Math.log2(1 + pitch));
+    const fromPitch = keyLock ? 0 : Math.round(12 * Math.log2(this.motor()));
     const base = shiftKey(key, fromPitch);
     void this.setKeyShift(nearestCompatibleShift(base, target));
   }
@@ -633,7 +664,7 @@ export class Deck {
     const shifting = s.keyLock || s.keyShift !== 0;
     const wantWet = shifting && !!this.stretch && !this.touched;
     if (this.stretch && shifting) {
-      const lock = s.keyLock ? -12 * Math.log2(1 + s.pitch + this.bend) : 0;
+      const lock = s.keyLock ? -12 * Math.log2(this.motor() + this.bend) : 0;
       void this.stretch.schedule({ active: true, semitones: lock + s.keyShift });
     }
     if (wantWet === this.wetOn) return;
@@ -664,7 +695,7 @@ export class Deck {
     const s = this.store.get();
     const m = this.master();
     if (!s.sync || !m || !s.bpm) return;
-    const target = m.effectiveBpm()! / s.bpm - 1;
+    const target = m.effectiveBpm()! / (s.bpm * SPEED_RATIO[s.speed]) - 1;
     let range = s.range;
     for (const r of PITCH_RANGES) {
       if (Math.abs(target) <= range) break;
@@ -711,7 +742,7 @@ export class Deck {
     const span = this.taps[this.taps.length - 1] - this.taps[0];
     const bpmHeard = (60000 * (this.taps.length - 1)) / span;
     // Taps are in heard time; the grid is in track time.
-    const bpm = bpmHeard / (1 + this.store.get().pitch);
+    const bpm = bpmHeard / this.motor();
     this.setBpm(Math.round(bpm * 10) / 10, this.position());
   }
 

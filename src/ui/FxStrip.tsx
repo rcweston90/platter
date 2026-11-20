@@ -1,5 +1,6 @@
 import { beatsLabel, FX_BEATS, FX_TYPES, type FxState, type FxType } from '../engine/fx';
 import type { DjSession } from '../engine/session';
+import { ChevronIcon } from './icons';
 import { Knob } from './Knob';
 import s from '../platter.module.css';
 
@@ -27,7 +28,7 @@ export function FxStrip({ session, index, fx }: { session: DjSession; index: 0 |
       </select>
       <div className={s.fxBeats}>
         <button type="button" className={s.mini} onClick={() => step(-1)} disabled={at <= 0} aria-label="Shorter (fewer beats)">
-          ‹
+          <ChevronIcon dir={-1} />
         </button>
         <span className={s.fxBeatValue} aria-live="polite" aria-label={`${beatsLabel(fx.beats)} beat`}>
           {beatsLabel(fx.beats)}
@@ -39,7 +40,7 @@ export function FxStrip({ session, index, fx }: { session: DjSession; index: 0 |
           disabled={at >= FX_BEATS.length - 1}
           aria-label="Longer (more beats)"
         >
-          ›
+          <ChevronIcon dir={1} />
         </button>
       </div>
       <Knob
