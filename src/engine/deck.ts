@@ -286,6 +286,21 @@ export class Deck {
     this.followTempo();
   }
 
+  /** Stems for the loaded track (drums, bass, vocals as 16-bit PCM at
+   *  `rate`), or null to drop them. The buffers move to the worklet. See
+   *  engine/stems. */
+  setStems(stems: { left: Int16Array; right: Int16Array }[] | null, rate: number) {
+    if (!this.loaded) return;
+    // Moved, not copied: a long track's stems run to hundreds of megabytes.
+    const transfer = stems?.flatMap((s) => [s.left.buffer, s.right.buffer]) ?? [];
+    this.post({ type: 'stems', stems, ratio: rate / this.sr }, transfer);
+  }
+
+  /** Per-part level, 0–1: drums, bass, vocals, other. */
+  setStemGains(gains: [number, number, number, number]) {
+    this.post({ type: 'stemGains', gains });
+  }
+
   /** Analysis finished after the track was loaded: fill in what was missing. */
   applyAnalysis(trackId: string, patch: Partial<TrackRecord>) {
     const s = this.store.get();

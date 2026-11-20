@@ -6,6 +6,7 @@ import type { DjSession } from '../engine/session';
 import { useStore } from '../engine/store';
 import { useDropTarget, useFrame, type FrameLoop } from './frame';
 import { FxStrip } from './FxStrip';
+import { StemsControl } from './StemsControl';
 import { Turntable } from './Turntable';
 import { formatTime, Overview } from './Waveforms';
 import { openBrowse } from './browse';
@@ -488,6 +489,8 @@ export function DeckPanel({
       </div>
 
       <FxStrip session={session} index={idx} fx={mixer.channels[idx].fx} />
+
+      <StemsControl stems={session.stems[idx]} label={deck.label} />
 
       <div className={s.keyRow} role="group" aria-label={`Deck ${deck.label} key`}>
         <span className={s.keyLabel}>Key</span>
