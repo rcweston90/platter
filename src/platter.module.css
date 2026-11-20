@@ -1481,102 +1481,6 @@
   color: var(--dj-dim);
 }
 
-/* ── Sampler ────────────────────────────────────────────────────────────── */
-
-.sampler {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-  padding-top: 12px;
-  border-top: 1px solid var(--dj-line);
-}
-
-.samplerHead {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-
-.samplerTitle {
-  flex: 1;
-  margin: 0;
-  color: var(--dj-dim);
-  font-family: var(--font-label);
-  font-size: 14px;
-  font-weight: 600;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-}
-
-.padGrid {
-  display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
-  gap: 6px;
-}
-
-.padCell {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-}
-
-.samplePad {
-  display: flex;
-  flex-direction: column;
-  align-items: flex-start;
-  justify-content: space-between;
-  min-height: 52px;
-  padding: 6px 8px;
-  border: 1px solid var(--dj-line-2);
-  border-radius: 6px;
-  background: var(--dj-panel-2);
-  color: var(--dj-text);
-  font: inherit;
-  cursor: pointer;
-  touch-action: manipulation;
-  user-select: none;
-}
-
-.samplePad:active {
-  border-color: var(--dj-cue);
-  background: color-mix(in srgb, var(--dj-cue) 30%, var(--dj-panel-2));
-}
-
-.samplePad[data-custom='true'] {
-  border-color: var(--dj-cue);
-}
-
-.samplePadOver {
-  outline: 2px dashed var(--dj-cue);
-}
-
-.padNum {
-  color: var(--dj-dim);
-  font-family: var(--font-mono);
-  font-size: 13px;
-}
-
-.padName {
-  max-width: 100%;
-  overflow: hidden;
-  font-family: var(--font-label);
-  font-size: 14px;
-  font-weight: 600;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.padReset {
-  min-height: 32px;
-  border: 1px solid var(--dj-line-2);
-  border-radius: 4px;
-  background: none;
-  color: var(--dj-dim);
-  font-family: var(--font-label);
-  font-size: 13px;
-  cursor: pointer;
-}
-
 /* ── Library tabs and panels ────────────────────────────────────────────── */
 
 .library {
@@ -1716,9 +1620,6 @@
   margin-top: 4px;
 }
 
-.padReset {
-  min-height: 44px;
-}
 
 /* ── MIDI ───────────────────────────────────────────────────────────────── */
 

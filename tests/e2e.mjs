@@ -1,7 +1,7 @@
 /**
  * End-to-end check in Chromium: the rig opens cued up, plays, syncs,
  * scratches, key-locks, imports a file, records a mix; then key matching,
- * beat FX, rolls, the sampler, MIDI learn, Auto-DJ, backup and Rekordbox
+ * beat FX, rolls, the sampler's sound library and kits, the beat board, MIDI learn, Auto-DJ, backup and Rekordbox
  * import, recordings, Audius and SoundCloud (with their APIs mocked).
  *
  *   npm run dev            # or: npm run build && npm run preview
@@ -50,7 +50,11 @@ function kickWav(seconds = 20, bpm = 120, sr = 44100) {
   return buf;
 }
 
-const browser = await chromium.launch({ args: ['--autoplay-policy=no-user-gesture-required'] });
+const browser = await chromium.launch({
+  args: ['--autoplay-policy=no-user-gesture-required'],
+  // Any recent Chrome works too, e.g. PLATTER_CHROME=/path/to/chrome.
+  ...(process.env.PLATTER_CHROME ? { executablePath: process.env.PLATTER_CHROME } : {}),
+});
 const page = await browser.newPage({ viewport: { width: 1440, height: 900 }, acceptDownloads: true });
 const errors = [];
 page.on('pageerror', (e) => errors.push(e.message));
@@ -159,6 +163,53 @@ check(r1 - r0 <= 1 && r2 - r0 >= 2, `a held roll holds the playhead (${r0}s → 
 const before0 = await page.$eval('[aria-label="Master left level meter"] [class*="meterCover"]', (e) => parseFloat(e.style.height));
 await page.getByRole('button', { name: 'Sampler pad 7: Boom' }).click();
 check(true, `sampler pad fires (master meter ${before0.toFixed(0)}% covered before)`);
+
+// ── Sounds library, kits and the beat board ──
+const libSize = await page.evaluate(() => window.platter.sampler.count());
+check(libSize >= 800, `the sampler's library has ${libSize} sounds`);
+await page.getByRole('button', { name: /^Sounds \d+/ }).click();
+const sounds = page.locator('aside[aria-label="Sounds"]');
+await sounds.getByRole('searchbox', { name: 'Search sounds' }).fill('vinyl scratch');
+await sounds.getByRole('button', { name: 'Hear Vinyl scratch' }).first().click();
+await page.waitForFunction(() => window.platter.sampler.store.get().preview !== null || window.platter.sampler.store.get().loading.length === 0, null, { timeout: 8000 });
+await sounds.getByRole('button', { name: /^Put Vinyl scratch on pad A7$/ }).click();
+check((await page.evaluate(() => window.platter.sampler.store.get().pads[6].sound)) === 'cc0:vinyl_scratch', 'a recorded sound from the library goes on the selected pad');
+await sounds.getByRole('searchbox', { name: 'Search sounds' }).fill('');
+await sounds.getByRole('button', { name: /^Bass \d+/ }).click();
+const bassCount = await sounds.locator('li').count();
+check(bassCount >= 20, `the Bass category lists ${bassCount} sounds`);
+await sounds.getByRole('tab', { name: 'Kits' }).click();
+await sounds.getByRole('button', { name: 'Load Acoustic Room onto bank C' }).click();
+check((await page.evaluate(() => window.platter.sampler.store.get().bankKits[2])) === 'acoustic', 'a kit loads onto a bank');
+await sounds.getByRole('button', { name: 'Close sounds' }).click();
+await page.getByRole('button', { name: 'Bank A' }).click();
+check((await page.getByRole('button', { name: /^Sampler pad 7: Vinyl scratch$/ }).count()) === 1, 'bank A shows the new sound on pad 7');
+
+const board = page.locator('section[aria-label="Beat board"]');
+await board.getByLabel('Start from a groove').selectOption('boombap');
+const on = await board.locator('[role="gridcell"][aria-pressed="true"]').count();
+check(on >= 10, `a groove writes ${on} steps onto the beat board`);
+const beat = await page.evaluate(async () => {
+  const { beats, sampler, decks } = window.platter;
+  const hits = [];
+  const off = sampler.onHit((h) => h.from === 'board' && hits.push(h.when));
+  beats.setTempo('free');
+  beats.setFreeBpm(120);
+  beats.play();
+  await new Promise((r) => setTimeout(r, 1600));
+  const free = { n: hits.length, bpm: beats.store.get().bpm };
+  // Now lock to deck A, playing.
+  if (!decks[0].store.get().playing) decks[0].togglePlay();
+  beats.setTempo('A');
+  await new Promise((r) => setTimeout(r, 1200));
+  const st = beats.store.get();
+  const out = { free, following: st.following, bpm: st.bpm, deckBpm: decks[0].effectiveBpm(), heard: beats.heardStep() };
+  beats.stop();
+  off();
+  return out;
+});
+check(beat.free.n >= 6 && beat.free.bpm === 120, `the beat board plays a groove on its own clock (${beat.free.n} hits at ${beat.free.bpm} BPM)`);
+check(beat.following === 0 && Math.abs(beat.bpm - (beat.deckBpm ?? 0)) < 0.2 && beat.heard !== null, `the beat board locks to deck A (${beat.bpm} vs ${beat.deckBpm?.toFixed(1)} BPM)`);
 
 // ── MIDI (simulated messages through the same parser a controller feeds) ──
 const midiResult = await page.evaluate(async () => {

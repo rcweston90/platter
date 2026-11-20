@@ -40,3 +40,32 @@ The deck and mixer workflow (CDJ-style cue, quantised hot cues and loops,
 isolator EQ, crossfader curves, split cue) follows conventions documented by
 [Mixxx](https://mixxx.org), the open-source DJ application. No Mixxx code is
 included.
+
+## Sampler sounds
+
+Most of the sampler's library is synthesised in the browser by Platter's own
+code (`src/engine/sounds/`), so it carries Platter's MIT licence.
+
+The 189 recordings in `public/sounds/cc0/` come from the sample set that ships
+with [Sonic Pi](https://github.com/sonic-pi-net/sonic-pi) (`etc/samples`),
+whose README states that every sample is released under
+[CC0 1.0](https://creativecommons.org/publicdomain/zero/1.0/) (public domain).
+Most were originally shared on [Freesound](https://freesound.org); the
+arovane_ sounds were donated by Uwe Zahn (Arovane). CC0 asks for no credit, but
+each sound's maker is credited in the Sounds browser and in
+`src/engine/sounds/cc0.ts`. They were converted to 112 kbps MP3 and renamed;
+nothing else was changed. Three of Sonic Pi's loops (the Amen and other break
+loops cut from commercial records) and the samples its README doesn't list
+were left out.
+
+## Beat board
+
+The beat board's scheduler uses the lookahead technique from Chris Wilson's
+[metronome](https://github.com/cwilso/metronome) and his article "A Tale of
+Two Clocks" (MIT License, Copyright (c) 2014 Chris Wilson). The swing setting
+uses MPC-style percentages, as in [Tone.js](https://github.com/Tonejs/Tone.js)
+(MIT). Both were references for technique; no code is copied. The step grid
+and the pads-beside-sequence layout follow the open-source drum machines
+[Hydrogen](http://hydrogen-music.org) and [LMMS](https://lmms.io) for
+workflow only; both are GPL, and no code from either is included.
+

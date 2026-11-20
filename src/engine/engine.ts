@@ -112,6 +112,11 @@ export class DjEngine {
     return this.ctx.currentTime - (this.ctx.outputLatency || this.ctx.baseLatency || 0);
   }
 
+  /** The headphone (cue) bus: the sampler auditions sounds here. */
+  get cueInput(): AudioNode {
+    return this.cueBus;
+  }
+
   resume() {
     if (this.ctx.state !== 'running') void this.ctx.resume();
   }

@@ -5,7 +5,6 @@ import type { DjSession } from '../engine/session';
 import { useStore } from '../engine/store';
 import { useFrame, type FrameLoop } from './frame';
 import { Knob } from './Knob';
-import { SamplerPads } from './SamplerPads';
 import s from '../platter.module.css';
 
 const db = (v: number) => `${v >= 0 ? '+' : '−'}${Math.abs(v).toFixed(1)} dB`;
@@ -131,7 +130,6 @@ export function Mixer({ session, loop }: { session: DjSession; loop: FrameLoop }
           </button>
         ))}
       </div>
-      <SamplerPads session={session} />
     </section>
   );
 }
