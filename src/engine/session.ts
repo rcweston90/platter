@@ -1,5 +1,6 @@
 import { analyseTrack, computePeaks, decodeAudio, detectTempo, newTrackId, trackFromFile } from './analysis';
 import { fetchArtwork, fetchAudiusAudio, type AudiusTrack } from './audius';
+import { fetchSoundCloudAudio, SoundCloudError, type ScTrack } from './soundcloud';
 import { AutoDj } from './autodj';
 import { backupToImported, makeBackup, matchTrack, parseBackup, parseRekordboxXml, type ImportedTrack } from './backup';
 import { Deck, PITCH_RANGES } from './deck';
@@ -457,6 +458,33 @@ export class DjSession {
     return rec.id;
   }
 
+  /** A SoundCloud track the uploader lets you remix: the crate keeps its id, not its audio. */
+  async addSoundCloud(t: ScTrack) {
+    if (!t.mixable) return null;
+    const have = this.crate.get().tracks.find((c) => c.soundcloud === t.urn);
+    if (have) return have.id;
+    const rec: TrackRecord = {
+      id: newTrackId(),
+      title: t.title,
+      artist: t.artist,
+      fileName: '',
+      duration: t.duration,
+      bpm: null,
+      gridOffset: 0,
+      key: null,
+      peaks: null,
+      art: await fetchArtwork(t.artwork),
+      blob: null,
+      soundcloud: t.urn,
+      link: t.link,
+      cues: emptyCues(),
+      addedAt: Date.now(),
+      status: 'analysing',
+    };
+    this.addRecords([rec]);
+    return rec.id;
+  }
+
   addDemos() {
     const have = new Set(this.crate.get().tracks.map((t) => t.id));
     const missing = demoRecords().filter((d) => !have.has(d.id));
@@ -484,6 +512,7 @@ export class DjSession {
     if (rec.blob) return rec.blob;
     if (rec.handle) return fileFromHandle(rec.handle, interactive);
     if (rec.audius) return fetchAudiusAudio(rec.audius);
+    if (rec.soundcloud) return fetchSoundCloudAudio(rec.soundcloud);
     return null;
   }
 
@@ -501,10 +530,15 @@ export class DjSession {
           // No access yet (a linked file): analysed when it's first loaded.
           if (!blob) this.updateTrack(next.id, { status: 'ready' });
           else this.updateTrack(next.id, await analyseTrack(next, blob));
-        } catch {
+        } catch (err) {
+          if (next.soundcloud && err instanceof SoundCloudError) {
+            // Signed out, or offline: analysed when it next loads.
+            this.updateTrack(next.id, { status: 'ready' });
+            continue;
+          }
           this.updateTrack(next.id, {
             status: 'error',
-            error: next.audius ? 'Audius couldn’t be reached from here.' : 'This file could not be decoded.',
+            error: next.audius ? 'Audius couldn’t be reached from here.' : next.soundcloud ? 'SoundCloud’s stream couldn’t be decoded.' : 'This file could not be decoded.',
           });
         }
       }
@@ -554,7 +588,8 @@ export class DjSession {
       if (!rec.demo && rec.bpm === null && rec.status !== 'error') void this.analyseLoaded(rec, buffer);
     } catch (err) {
       if (token === this.loadTokens[i]) {
-        const why = err instanceof Error && err.message.startsWith('No access') ? err.message : `“${rec.title}” could not be loaded.`;
+        const why =
+          err instanceof SoundCloudError || (err instanceof Error && err.message.startsWith('No access')) ? err.message : `“${rec.title}” could not be loaded.`;
         deck.setLoading(false, why);
       }
     } finally {

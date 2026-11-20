@@ -1,7 +1,11 @@
 import { StrictMode } from 'react';
 import { createRoot } from 'react-dom/client';
 import App from './App';
+import { finishSoundCloudSignIn } from './engine/soundcloud';
 import './global.css';
+
+// Back from SoundCloud's sign-in page: settle it before the library reads the state.
+void finishSoundCloudSignIn();
 
 createRoot(document.getElementById('platter')!).render(
   <StrictMode>

@@ -214,7 +214,11 @@ export default function App() {
           <a href="https://audius.co" target="_blank" rel="noopener noreferrer">
             Audius
           </a>
-          ’s open API. The deck and mixer follow the conventions of{' '}
+          ’s open API, and your own and remix-licensed tracks from{' '}
+          <a href="https://soundcloud.com" target="_blank" rel="noopener noreferrer">
+            SoundCloud
+          </a>
+          . The deck and mixer follow the conventions of{' '}
           <a href="https://mixxx.org" target="_blank" rel="noopener noreferrer">
             Mixxx
           </a>
