@@ -17,7 +17,13 @@ export interface DeckTrack {
   duration: number;
   peaks: WavePeaks | null;
   artUrl: string | null;
+  /** Where a streamed track came from, with its page there, for the attribution link. */
+  source: { name: 'SoundCloud' | 'Audius'; link: string } | null;
 }
+
+/** The streaming service a track came from, if any, for its attribution link. */
+const sourceOf = (rec: { soundcloud?: string; audius?: string; link?: string }): DeckTrack['source'] =>
+  rec.link && (rec.soundcloud || rec.audius) ? { name: rec.soundcloud ? 'SoundCloud' : 'Audius', link: rec.link } : null;
 
 export interface DeckState {
   track: DeckTrack | null;
@@ -217,7 +223,7 @@ export class Deck {
     const prevArt = this.store.get().track?.artUrl;
     if (prevArt && prevArt !== artUrl) URL.revokeObjectURL(prevArt);
     this.store.set({
-      track: { id: rec.id, title: rec.title, artist: rec.artist, duration: rec.duration, peaks, artUrl },
+      track: { id: rec.id, title: rec.title, artist: rec.artist, duration: rec.duration, peaks, artUrl, source: sourceOf(rec) },
       loading: false,
       error: null,
       playing: false,
@@ -260,6 +266,7 @@ export class Deck {
         duration: buffer.duration,
         peaks: rec.peaks,
         artUrl,
+        source: sourceOf(rec),
       },
       loading: false,
       error: null,

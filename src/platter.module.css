@@ -1139,13 +1139,19 @@
   gap: 8px;
 }
 
-.crateTitle {
-  margin: 0 8px 0 0;
-  font-family: var(--font-label);
-  font-size: 18px;
-  font-weight: 700;
-  letter-spacing: 0.12em;
-  text-transform: uppercase;
+.crateActions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+/* Adding music first, then the housekeeping (folder, import, backup). */
+.crateActionsGap {
+  width: 8px;
+  height: 24px;
+  border-left: 1px solid var(--dj-line-2);
+  margin-left: 4px;
 }
 
 .search {
@@ -1266,6 +1272,10 @@
   white-space: nowrap;
 }
 
+.rowActions {
+  display: flex;
+}
+
 .loadBtn,
 .removeBtn {
   min-width: 44px;
@@ -1299,6 +1309,38 @@
 
   .rowArtistInline {
     display: block;
+  }
+
+  /* Search gets its own line; the buttons scroll sideways instead of stacking. */
+  .crateHead .search {
+    flex-basis: 100%;
+  }
+
+  .crateActions {
+    flex-wrap: nowrap;
+    margin: 0 -12px;
+    padding: 0 12px 4px;
+    overflow-x: auto;
+    scrollbar-width: none;
+  }
+
+  .crateActions > * {
+    flex: none;
+  }
+
+  /* A, B, +Q and ✕ sit two by two so a row fits a phone. */
+  .table td.colActions {
+    padding: 4px;
+  }
+
+  .rowActions {
+    display: grid;
+    grid-template-columns: repeat(2, 44px);
+    gap: 4px;
+  }
+
+  .rowActions > button {
+    margin: 0;
   }
 }
 
@@ -1762,4 +1804,487 @@
 .audiusRow[data-mixable='false'] .rowTitle {
   color: var(--dj-dim);
   font-weight: 500;
+}
+
+/* ── Shared: primary button, chips, switch ──────────────────────────────── */
+
+.primaryBtn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 44px;
+  padding: 0 16px;
+  border: 1px solid var(--dj-play);
+  border-radius: 6px;
+  background: var(--dj-play);
+  color: var(--dj-ink);
+  font-family: var(--font-label);
+  font-size: 15px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.primaryBtn:hover:not(:disabled) {
+  filter: brightness(1.08);
+}
+
+.primaryBtn:disabled {
+  cursor: not-allowed;
+  opacity: 0.45;
+}
+
+.chip {
+  min-height: 36px;
+  padding: 0 12px;
+  border: 1px solid var(--dj-line-2);
+  border-radius: 999px;
+  background: var(--dj-panel-2);
+  color: var(--dj-text);
+  font: inherit;
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.chip[aria-pressed='true'] {
+  border-color: var(--dj-text);
+  background: var(--dj-text);
+  color: var(--dj-ink);
+}
+
+.switch {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 44px;
+  color: var(--dj-text);
+  font-size: 14px;
+  cursor: pointer;
+}
+
+.switch input {
+  width: 18px;
+  height: 18px;
+  accent-color: var(--dj-play);
+}
+
+.deckSource {
+  color: inherit;
+  text-underline-offset: 3px;
+}
+
+/* ── Browse music flyout ────────────────────────────────────────────────── */
+
+.flyout {
+  position: fixed;
+  z-index: 40;
+  inset: 0 0 0 auto;
+  display: flex;
+  flex-direction: column;
+  width: min(620px, 100vw);
+  border-left: 1px solid var(--dj-line-2);
+  background: var(--dj-panel);
+  box-shadow: -24px 0 48px var(--dj-shadow);
+  transform: translateX(105%);
+  transition: transform 220ms cubic-bezier(0.2, 0.7, 0.2, 1);
+}
+
+.flyout[data-open='true'] {
+  transform: none;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .flyout {
+    transition: none;
+  }
+}
+
+.flyoutHead {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  align-items: center;
+  gap: 12px 8px;
+  padding: 16px 16px 0;
+  border-bottom: 1px solid var(--dj-line);
+}
+
+.flyoutTitle {
+  margin: 0;
+  font-family: var(--font-label);
+  font-size: 20px;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+
+.flyoutClose {
+  width: 44px;
+  height: 44px;
+  border: 1px solid var(--dj-line-2);
+  border-radius: 6px;
+  background: var(--dj-panel-2);
+  color: var(--dj-text);
+  font-size: 16px;
+  cursor: pointer;
+}
+
+.sourceTabs {
+  display: flex;
+  grid-column: 1 / -1;
+  gap: 4px;
+}
+
+.sourceTab {
+  min-height: 44px;
+  padding: 0 16px;
+  border: 0;
+  border-bottom: 2px solid transparent;
+  background: none;
+  color: var(--dj-dim);
+  font-family: var(--font-label);
+  font-size: 16px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  cursor: pointer;
+}
+
+.sourceTab[aria-selected='true'] {
+  border-bottom-color: var(--dj-text);
+  color: var(--dj-text);
+}
+
+.flyoutBody {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  overscroll-behavior: contain;
+}
+
+.sourceBody {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 0 16px 24px;
+}
+
+.sourceTop {
+  position: sticky;
+  z-index: 1;
+  top: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 16px 0 8px;
+  background: var(--dj-panel);
+}
+
+.sourceNote,
+.sourceFoot {
+  margin: 0;
+  color: var(--dj-dim);
+  font-size: 13px;
+  line-height: 1.45;
+}
+
+.sourceFoot {
+  padding-top: 8px;
+  border-top: 1px solid var(--dj-line);
+}
+
+.sourceError {
+  margin: 0;
+  color: var(--dj-rec);
+  font-size: 14px;
+}
+
+.sourceEmpty {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 12px;
+  padding: 32px 16px;
+}
+
+.sourceEmptyTitle {
+  margin: 0;
+  font-size: 20px;
+  font-weight: 700;
+}
+
+.searchBar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 4px 4px 12px;
+  border: 1px solid var(--dj-field-line);
+  border-radius: 8px;
+  background: var(--dj-panel-2);
+}
+
+.searchBar:focus-within {
+  border-color: var(--dj-focus);
+}
+
+.searchIcon {
+  color: var(--dj-dim);
+  font-size: 20px;
+}
+
+.searchInput {
+  flex: 1;
+  min-width: 0;
+  min-height: 44px;
+  border: 0;
+  background: none;
+  color: var(--dj-text);
+  font: inherit;
+  font-size: 16px;
+  outline: none;
+}
+
+.searchInput::placeholder {
+  color: var(--dj-dim);
+}
+
+.searchInput::-webkit-search-cancel-button {
+  display: none;
+}
+
+.searchClear {
+  width: 36px;
+  height: 36px;
+  border: 0;
+  border-radius: 50%;
+  background: var(--dj-panel-3);
+  color: var(--dj-text);
+  cursor: pointer;
+}
+
+.shelfRow {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.segmented {
+  display: inline-flex;
+  padding: 3px;
+  border: 1px solid var(--dj-line-2);
+  border-radius: 8px;
+  background: var(--dj-bg);
+}
+
+.segment {
+  min-height: 38px;
+  padding: 0 14px;
+  border: 0;
+  border-radius: 6px;
+  background: none;
+  color: var(--dj-dim);
+  font: inherit;
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.segment[aria-pressed='true'] {
+  background: var(--dj-panel-3);
+  color: var(--dj-text);
+}
+
+.backLink {
+  align-self: flex-start;
+  min-height: 36px;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--dj-text);
+  font: inherit;
+  font-size: 14px;
+  cursor: pointer;
+}
+
+.resultsFor {
+  margin: 0;
+  font-size: 15px;
+  font-weight: 600;
+}
+
+.trackList {
+  display: flex;
+  flex-direction: column;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.trackRow {
+  display: grid;
+  grid-template-columns: 64px 1fr auto;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 0;
+  border-top: 1px solid var(--dj-line);
+}
+
+.trackRow:first-child {
+  border-top: 0;
+}
+
+.trackArt {
+  width: 64px;
+  height: 64px;
+  border-radius: 6px;
+  background: var(--dj-panel-3);
+  object-fit: cover;
+}
+
+.trackInfo,
+.playlistOpen {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.playlistOpen {
+  align-items: flex-start;
+  min-height: 64px;
+  justify-content: center;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.trackRowTitle {
+  display: -webkit-box;
+  overflow: hidden;
+  font-size: 15px;
+  font-weight: 600;
+  line-height: 1.3;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+}
+
+.trackRowArtist {
+  overflow: hidden;
+  color: var(--dj-dim);
+  font-size: 14px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.trackFacts {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 10px;
+  margin-top: 4px;
+  color: var(--dj-dim);
+  font-family: var(--font-mono);
+  font-size: 12px;
+}
+
+.badge {
+  padding: 2px 8px;
+  border-radius: 999px;
+  font-family: var(--font-label);
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.badge[data-tone='go'] {
+  background: rgb(69 216 140 / 0.16);
+  color: var(--dj-play);
+}
+
+.badge[data-tone='muted'] {
+  background: var(--dj-panel-3);
+  color: var(--dj-dim);
+}
+
+.trackNote {
+  color: var(--dj-dim);
+  font-size: 13px;
+}
+
+.trackActions {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.trackActions .loadBtn {
+  margin-left: 0;
+}
+
+.trackLink {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 44px;
+  min-height: 44px;
+  padding: 0 8px;
+  color: var(--dj-dim);
+  font-size: 13px;
+  text-underline-offset: 3px;
+  white-space: nowrap;
+}
+
+.moreBtn {
+  align-self: center;
+  min-height: 44px;
+  padding: 0 24px;
+  border: 1px solid var(--dj-line-2);
+  border-radius: 6px;
+  background: var(--dj-panel-2);
+  color: var(--dj-text);
+  font: inherit;
+  cursor: pointer;
+}
+
+@media (max-width: 560px) {
+  /* Browse music gets a full-width line; the other top-bar buttons share the next. */
+  .topActions {
+    width: 100%;
+  }
+
+  .topActions > * {
+    flex: 1 1 0;
+  }
+
+  .topActions > .browseBtn {
+    flex-basis: 100%;
+  }
+
+  .topActions > details > summary {
+    justify-content: center;
+    width: 100%;
+  }
+
+  .trackRow {
+    grid-template-columns: 52px 1fr;
+    align-items: start;
+  }
+
+  .trackArt {
+    width: 52px;
+    height: 52px;
+  }
+
+  .trackActions {
+    grid-column: 2;
+    justify-content: flex-start;
+  }
 }

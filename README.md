@@ -53,10 +53,14 @@ GitHub Actions).
   boom, stab — all synthesised). Drop your own sound on a pad to replace it.
 
 **Library**
-- **Crate**: drop files, or **link a music folder** (Chrome and Edge) so the
-  crate reads files in place. Title, artist, cover art and key come from the
+- **Crate**: drop files, use **Add files**, or **link a music folder**
+  (Chrome and Edge) so the crate reads files in place. Title, artist, cover art and key come from the
   tags, or from an `Artist - Title` file name. Tempo, beat grid and key are
   analysed on import.
+- **Browse music** (top bar, or **Browse online** in the crate) opens a panel
+  beside the decks with Audius and SoundCloud, so you can search and load
+  while you mix. Each track shows its artwork, length, tempo and whether it
+  can go on the decks.
 - **Audius**: search or browse trending tracks on
   [Audius](https://audius.co) — open, free music — and stream them onto the
   decks. Tracks keep a link back to the artist.
@@ -151,7 +155,7 @@ refresh token in an HttpOnly cookie. Register an app at SoundCloud with the
 redirect URI `https://<your-site>/soundcloud-callback` (`vercel.json`
 rewrites that path to the app), then set `SOUNDCLOUD_CLIENT_ID` and
 `SOUNDCLOUD_CLIENT_SECRET` in the Vercel project. On a static host the
-SoundCloud tab says it isn't available.
+SoundCloud side of Browse music says it isn't available.
 
 `npm run artifact` packages the build as a claude.ai artifact. That sandbox
 keeps pages away from other sites and devices, so Audius, MIDI, folder

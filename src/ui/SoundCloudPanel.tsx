@@ -16,54 +16,59 @@ import {
   type ScTrack,
 } from '../engine/soundcloud';
 import { useStore } from '../engine/store';
+import { SearchBar } from './SearchBar';
+import { TrackRow } from './TrackRow';
 import { formatTime } from './Waveforms';
 import s from '../platter.module.css';
 
-type View = { kind: 'likes' } | { kind: 'uploads' } | { kind: 'playlists' } | { kind: 'playlist'; list: ScPlaylist } | { kind: 'search'; q: string };
+type Shelf = 'likes' | 'playlists' | 'uploads';
+type View = { kind: Shelf } | { kind: 'playlist'; list: ScPlaylist } | { kind: 'search'; q: string };
+
+const SHELVES: { id: Shelf; label: string }[] = [
+  { id: 'likes', label: 'Likes' },
+  { id: 'playlists', label: 'Playlists' },
+  { id: 'uploads', label: 'Your uploads' },
+];
 
 const label = (v: View) =>
-  v.kind === 'likes' ? 'your likes' : v.kind === 'uploads' ? 'your uploads' : v.kind === 'playlists' ? 'your playlists' : v.kind === 'playlist' ? `“${v.list.title}”` : `“${v.q}”`;
+  v.kind === 'likes' ? 'your likes' : v.kind === 'uploads' ? 'your uploads' : v.kind === 'playlists' ? 'your playlists' : v.kind === 'playlist' ? `“${v.list.title}”` : v.kind === 'search' ? `“${v.q}”` : '';
 
-/** Your SoundCloud: likes, playlists and uploads, onto the decks where the artist allows it. */
+/** Your SoundCloud: search, likes, playlists and uploads, onto the decks where the artist allows it. */
 export function SoundCloudPanel({ session }: { session: DjSession }) {
   const auth = useStore(soundcloud);
   useEffect(() => void checkSoundCloud(), []);
 
   if (auth.state === 'checking') {
     return (
-      <div className={s.panelBody}>
-        <p className={s.crateNote} role="status">
-          Checking SoundCloud…
-        </p>
-      </div>
+      <p className={s.sourceNote} role="status">
+        Checking SoundCloud…
+      </p>
     );
   }
   if (auth.state === 'unavailable') {
     return (
-      <div className={s.panelBody}>
-        <p className={s.crateNote}>
-          SoundCloud needs Platter’s server side, which runs on its Vercel site with the SoundCloud app keys set. This copy is a static page, so it can’t
-          sign in.
-        </p>
+      <div className={s.sourceEmpty}>
+        <p className={s.sourceEmptyTitle}>SoundCloud isn’t available on this copy</p>
+        <p className={s.sourceNote}>It needs Platter’s Vercel site, where the SoundCloud app keys are set. This copy is a static page, so it can’t sign in.</p>
       </div>
     );
   }
   if (auth.state !== 'signed-in') {
     return (
-      <div className={s.panelBody}>
-        <div className={s.crateHead}>
-          <button type="button" className={s.action} disabled={auth.state === 'signing-in'} onClick={() => void signInToSoundCloud()}>
-            {auth.state === 'signing-in' ? 'Signing in…' : 'Sign in with SoundCloud'}
-          </button>
-        </div>
-        <p className={s.crateNote} role="status">
-          {auth.error ? `${auth.error} ` : ''}
-          Sign in to see your likes, playlists and uploads. Your own tracks, and tracks whose artist chose a Creative Commons license that allows remixes,
-          can go on the decks; SoundCloud’s terms keep everything else on{' '}
-          <a href="https://soundcloud.com" target="_blank" rel="noopener noreferrer">
-            SoundCloud
-          </a>
-          . Audio streams each time a track loads and is never saved.
+      <div className={s.sourceEmpty}>
+        <p className={s.sourceEmptyTitle}>Play your SoundCloud on the decks</p>
+        <p className={s.sourceNote}>Sign in to search SoundCloud and see your likes, playlists and uploads.</p>
+        <button type="button" className={s.primaryBtn} data-autofocus disabled={auth.state === 'signing-in'} onClick={() => void signInToSoundCloud()}>
+          {auth.state === 'signing-in' ? 'Signing in…' : 'Sign in with SoundCloud'}
+        </button>
+        {auth.error && (
+          <p className={s.sourceError} role="alert">
+            {auth.error}
+          </p>
+        )}
+        <p className={s.sourceNote}>
+          Your own uploads, and tracks whose artist chose a Creative Commons license that allows remixes, load onto the decks. SoundCloud’s terms keep every
+          other track on SoundCloud, so those link out. Audio streams each time a track loads and is never saved.
         </p>
       </div>
     );
@@ -84,10 +89,9 @@ function Browser({ session }: { session: DjSession }) {
   const abort = useRef<AbortController | null>(null);
   const a = useStore(session.decks[0].store);
   const b = useStore(session.decks[1].store);
-  const searchId = useId();
   const onlyId = useId();
 
-  const run = <T,>(fn: (signal: AbortSignal) => Promise<ScPage<T>>, apply: (page: ScPage<T>) => number, what: string, append = false) => {
+  const run = <T,>(fn: (signal: AbortSignal) => Promise<ScPage<T>>, apply: (page: ScPage<T>) => void, what: string, append = false) => {
     abort.current?.abort();
     const ctl = new AbortController();
     abort.current = ctl;
@@ -95,9 +99,9 @@ function Browser({ session }: { session: DjSession }) {
     if (!append) setStatus(`Loading ${what}…`);
     fn(ctl.signal)
       .then((page) => {
-        const n = apply(page);
+        apply(page);
         setNext(page.next);
-        setStatus(n ? '' : `Nothing in ${what}.`);
+        setStatus('');
       })
       .catch((err: unknown) => {
         if ((err as Error).name === 'AbortError') return;
@@ -113,10 +117,11 @@ function Browser({ session }: { session: DjSession }) {
     setNext(null);
     if (v.kind === 'playlists') {
       setTracks([]);
-      run((sig) => myPlaylists(sig), (p) => (setLists(p.items), p.items.length), label(v));
+      run((sig) => myPlaylists(sig), (p) => setLists(p.items), label(v));
       return;
     }
     setLists([]);
+    if (!(v.kind === 'search' && view.kind === 'search')) setTracks([]);
     const fn =
       v.kind === 'likes'
         ? likedTracks
@@ -124,14 +129,16 @@ function Browser({ session }: { session: DjSession }) {
           ? myUploads
           : v.kind === 'playlist'
             ? (sig: AbortSignal) => playlistTracks(v.list.urn, sig)
-            : (sig: AbortSignal) => searchTracks(v.q, sig);
-    run(fn, (p) => (setTracks(p.items), p.items.length), label(v));
+            : v.kind === 'search'
+              ? (sig: AbortSignal) => searchTracks(v.q, sig)
+              : likedTracks;
+    run(fn, (p) => setTracks(p.items), label(v));
   };
 
   const more = () => {
     if (!next) return;
-    if (view.kind === 'playlists') run((sig) => myPlaylists(sig, next), (p) => (setLists((l) => [...l, ...p.items]), p.items.length), label(view), true);
-    else run((sig) => moreTracks(next, sig), (p) => (setTracks((t) => [...t, ...p.items]), p.items.length), label(view), true);
+    if (view.kind === 'playlists') run((sig) => myPlaylists(sig, next), (p) => setLists((l) => [...l, ...p.items]), label(view), true);
+    else run((sig) => moreTracks(next, sig), (p) => setTracks((t) => [...t, ...p.items]), label(view), true);
   };
 
   useEffect(() => {
@@ -145,44 +152,119 @@ function Browser({ session }: { session: DjSession }) {
     if (id) void session.loadToDeck(id, deck);
   };
 
+  const mixable = tracks.filter((t) => t.mixable).length;
   const shown = mixableOnly ? tracks.filter((t) => t.mixable) : tracks;
-  const hidden = tracks.length - shown.length;
+  const shelf = view.kind === 'playlist' ? 'playlists' : view.kind;
+
+  const summary =
+    status ||
+    (view.kind === 'playlists'
+      ? `${lists.length} playlist${lists.length === 1 ? '' : 's'}`
+      : tracks.length
+        ? `${tracks.length} tracks in ${label(view)} · ${mixable} can go on the decks`
+        : `Nothing in ${label(view)}.`);
 
   return (
-    <div className={s.panelBody}>
-      <form
-        className={s.crateHead}
-        onSubmit={(e) => {
-          e.preventDefault();
-          const q = query.trim();
-          if (q) show({ kind: 'search', q });
-        }}
-      >
-        <label htmlFor={searchId} className={s.srOnly}>
-          Search SoundCloud
-        </label>
-        <input id={searchId} type="search" className={s.search} placeholder="Search SoundCloud" value={query} onChange={(e) => setQuery(e.target.value)} />
-        <button type="submit" className={s.action} disabled={busy || !query.trim()}>
-          Search
-        </button>
-      </form>
-      <div className={s.genres} role="group" aria-label="Your SoundCloud">
-        {(['likes', 'playlists', 'uploads'] as const).map((k) => (
-          <button key={k} type="button" className={s.mini} aria-pressed={view.kind === k} onClick={() => show({ kind: k })}>
-            {k === 'likes' ? 'Likes' : k === 'playlists' ? 'Playlists' : 'Your uploads'}
-          </button>
-        ))}
+    <div className={s.sourceBody}>
+      <div className={s.sourceTop}>
+        <SearchBar
+          label="Search SoundCloud"
+          placeholder="Search tracks and artists"
+          value={query}
+          onChange={setQuery}
+          busy={busy && view.kind === 'search'}
+          onSearch={(q) => show({ kind: 'search', q })}
+          onClear={() => {
+            setQuery('');
+            if (view.kind === 'search') show({ kind: 'likes' });
+          }}
+        />
+        <div className={s.shelfRow}>
+          <div className={s.segmented} role="group" aria-label="Your SoundCloud">
+            {SHELVES.map((t) => (
+              <button key={t.id} type="button" className={s.segment} aria-pressed={shelf === t.id} onClick={() => show({ kind: t.id })}>
+                {t.label}
+              </button>
+            ))}
+          </div>
+          <label htmlFor={onlyId} className={s.switch}>
+            <input id={onlyId} type="checkbox" role="switch" checked={mixableOnly} onChange={(e) => setMixableOnly(e.target.checked)} />
+            <span>Mixable only</span>
+          </label>
+        </div>
         {view.kind === 'playlist' && (
-          <button type="button" className={s.mini} aria-pressed onClick={() => show({ kind: 'playlists' })}>
-            ‹ {view.list.title}
+          <button type="button" className={s.backLink} onClick={() => show({ kind: 'playlists' })}>
+            ‹ All playlists <span className={s.dim}>/ {view.list.title}</span>
           </button>
         )}
-        <label htmlFor={onlyId} className={s.scToggle}>
-          <input id={onlyId} type="checkbox" checked={mixableOnly} onChange={(e) => setMixableOnly(e.target.checked)} /> Playable on decks only
-        </label>
+        {view.kind === 'search' && <p className={s.resultsFor}>Results for “{view.q}”</p>}
+        <p className={s.sourceNote} role="status">
+          {summary}
+        </p>
       </div>
-      <p className={s.crateNote} role="status">
-        {status || (view.kind === 'playlists' ? `${lists.length} playlists.` : `${shown.length} tracks in ${label(view)}${hidden ? ` (${hidden} hidden)` : ''}.`)}{' '}
+
+      {view.kind === 'playlists' && lists.length > 0 && (
+        <ul className={s.trackList}>
+          {lists.map((p) => (
+            <li key={p.urn} className={s.trackRow}>
+              {p.artwork ? <img src={p.artwork} alt="" className={s.trackArt} loading="lazy" /> : <span className={s.trackArt} aria-hidden="true" />}
+              <button type="button" className={s.playlistOpen} onClick={() => show({ kind: 'playlist', list: p })} aria-label={`Open ${p.title}`}>
+                <span className={s.trackRowTitle}>{p.title}</span>
+                <span className={s.trackRowArtist}>
+                  {p.count} track{p.count === 1 ? '' : 's'}
+                </span>
+              </button>
+              <div className={s.trackActions}>
+                <a className={s.trackLink} href={p.link} target="_blank" rel="noopener noreferrer" aria-label={`${p.title} on SoundCloud`}>
+                  ↗
+                </a>
+              </div>
+            </li>
+          ))}
+        </ul>
+      )}
+
+      {view.kind !== 'playlists' && shown.length > 0 && (
+        <ul className={s.trackList}>
+          {shown.map((t) => (
+            <TrackRow
+              key={t.urn}
+              title={t.title}
+              artist={t.artist}
+              artwork={t.artwork}
+              meta={[formatTime(t.duration), t.bpm ? `${t.bpm} BPM` : '', t.genre, t.mine ? 'Your upload' : t.licenseName]}
+              badge={t.mixable ? { text: 'Mixable', tone: 'go' } : { text: 'SoundCloud only', tone: 'muted' }}
+              note={t.reason}
+              load={
+                t.mixable
+                  ? {
+                      a: () => void load(t, 0),
+                      b: () => void load(t, 1),
+                      add: () => void session.addSoundCloud(t),
+                      aDisabled: a.playing,
+                      bDisabled: b.playing,
+                    }
+                  : undefined
+              }
+              link={t.link}
+              linkLabel={t.mixable ? '↗' : 'Play on SoundCloud ↗'}
+              linkName={`${t.title} by ${t.artist} on SoundCloud`}
+            />
+          ))}
+        </ul>
+      )}
+
+      {view.kind !== 'playlists' && tracks.length > 0 && shown.length === 0 && (
+        <p className={s.sourceNote}>None of these can go on the decks. Turn off “Mixable only” to see them, or try your uploads.</p>
+      )}
+
+      {next && (
+        <button type="button" className={s.moreBtn} disabled={busy} onClick={more}>
+          {busy ? 'Loading…' : 'Load more'}
+        </button>
+      )}
+
+      <p className={s.sourceFoot}>
         Signed in as{' '}
         <a href={user?.link} target="_blank" rel="noopener noreferrer">
           {user?.name}
@@ -191,73 +273,8 @@ function Browser({ session }: { session: DjSession }) {
         <button type="button" className={s.linkBtn} onClick={() => void signOutOfSoundCloud()}>
           Sign out
         </button>
-        . Tracks stream from SoundCloud and are never saved; each links back to its artist.
+        . Tracks stream from SoundCloud, are never saved, and link back to their artist.
       </p>
-
-      {view.kind === 'playlists' && lists.length > 0 && (
-        <ul className={s.audiusList}>
-          {lists.map((p) => (
-            <li key={p.urn} className={s.audiusRow}>
-              {p.artwork ? <img src={p.artwork} alt="" className={s.audiusArt} loading="lazy" /> : <span className={s.audiusArt} />}
-              <span className={s.audiusMeta}>
-                <span className={s.rowTitle}>{p.title}</span>
-                <span className={s.dim}>
-                  {p.count} track{p.count === 1 ? '' : 's'}
-                </span>
-              </span>
-              <span className={s.audiusActions}>
-                <button type="button" className={s.loadBtn} onClick={() => show({ kind: 'playlist', list: p })} aria-label={`Open ${p.title}`}>
-                  Open
-                </button>
-                <a className={s.rowLink} href={p.link} target="_blank" rel="noopener noreferrer" aria-label={`${p.title} on SoundCloud`}>
-                  ↗
-                </a>
-              </span>
-            </li>
-          ))}
-        </ul>
-      )}
-
-      {view.kind !== 'playlists' && shown.length > 0 && (
-        <ul className={s.audiusList}>
-          {shown.map((t) => (
-            <li key={t.urn} className={s.audiusRow} data-mixable={t.mixable}>
-              {t.artwork ? <img src={t.artwork} alt="" className={s.audiusArt} loading="lazy" /> : <span className={s.audiusArt} />}
-              <span className={s.audiusMeta}>
-                <span className={s.rowTitle}>{t.title}</span>
-                <span className={s.dim}>
-                  {t.artist} · {formatTime(t.duration)} · {t.mine ? 'your upload' : t.licenseName}
-                </span>
-                {t.reason && <span className={s.dim}>{t.reason}</span>}
-              </span>
-              <span className={s.audiusActions}>
-                {t.mixable && (
-                  <>
-                    <button type="button" className={s.loadBtn} data-deck="A" disabled={a.playing} onClick={() => void load(t, 0)} aria-label={`Load ${t.title} on deck A`}>
-                      A
-                    </button>
-                    <button type="button" className={s.loadBtn} data-deck="B" disabled={b.playing} onClick={() => void load(t, 1)} aria-label={`Load ${t.title} on deck B`}>
-                      B
-                    </button>
-                    <button type="button" className={s.loadBtn} onClick={() => void session.addSoundCloud(t)} aria-label={`Add ${t.title} to the crate`}>
-                      +
-                    </button>
-                  </>
-                )}
-                <a className={s.rowLink} href={t.link} target="_blank" rel="noopener noreferrer" aria-label={`${t.title} by ${t.artist} on SoundCloud`}>
-                  {t.mixable ? '↗' : 'Play on SoundCloud ↗'}
-                </a>
-              </span>
-            </li>
-          ))}
-        </ul>
-      )}
-
-      {next && (
-        <button type="button" className={s.action} disabled={busy} onClick={more}>
-          {busy ? 'Loading…' : 'Load more'}
-        </button>
-      )}
     </div>
   );
 }

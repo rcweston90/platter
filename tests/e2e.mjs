@@ -227,8 +227,10 @@ await page.route('https://api.audius.co/**', async (route) => {
     body: JSON.stringify({ data: [{ id: 'abc1', title: 'Mocked Groove', duration: 8, genre: 'House', permalink: '/artist/mocked', is_streamable: true, artwork: null, user: { name: 'Mock Artist' } }] }),
   });
 });
-await page.getByRole('tab', { name: 'Audius' }).click();
-await page.getByRole('button', { name: 'House' }).click();
+await page.getByRole('button', { name: 'Browse music' }).click();
+const flyout = page.getByRole('complementary', { name: 'Browse music' });
+await flyout.getByRole('tab', { name: 'Audius' }).click();
+await flyout.getByRole('button', { name: 'House' }).click();
 await page.getByText('Mocked Groove').waitFor({ timeout: 5000 });
 await page.getByRole('button', { name: 'Load Mocked Groove on deck A' }).click().catch(() => {});
 const aPlaying = await A.getByRole('button', { name: /Deck A (play|pause)/ }).getAttribute('aria-pressed');
@@ -238,6 +240,13 @@ await A.getByText('Mocked Groove').waitFor({ timeout: 15000 });
 await page.waitForFunction(() => window.platter.crate.get().tracks.find((t) => t.title === 'Mocked Groove')?.bpm, null, { timeout: 20000 });
 const mocked = await page.evaluate(() => window.platter.crate.get().tracks.find((t) => t.title === 'Mocked Groove'));
 check(mocked.link === 'https://audius.co/artist/mocked' && Math.round(mocked.bpm) === 126, `an Audius track streams onto deck A and is analysed (${mocked.bpm} BPM, link kept)`);
+await page.keyboard.press('Escape');
+await page.waitForFunction(() => document.querySelector('aside[aria-label="Browse music"]')?.inert === true, null, { timeout: 3000 });
+check(
+  (await page.getByRole('button', { name: 'Browse music' }).getAttribute('aria-expanded')) === 'false' &&
+    (await page.evaluate(() => document.activeElement?.textContent?.trim())) === 'Browse music',
+  'Escape closes the browse flyout and puts focus back on its button',
+);
 
 // ── SoundCloud (its Vercel function and media host mocked). Last: the
 // sign-in comes back through /soundcloud-callback, which reloads the page. ──
@@ -268,13 +277,24 @@ await page.route('**/api/soundcloud?**', async (route) => {
   if (op === 'api' && q.get('path').startsWith('/me/likes/tracks')) {
     return json({ collection: [scTrack(1, 'Free Remix Bait', 'cc-by', 9), scTrack(2, 'Locked Down Banger', 'all-rights-reserved', 9), scTrack(3, 'My Own Tune', 'all-rights-reserved', 7)], next_href: null });
   }
+  if (op === 'api' && q.get('path').startsWith('/tracks?')) {
+    const query = new URLSearchParams(q.get('path').split('?')[1]).get('q');
+    return json({ collection: [scTrack(4, `Searched ${query}`, 'cc-by-sa', 5)], next_href: null });
+  }
   return json({ error: 'unmocked' }, 404);
 });
 await page.route('https://cf-media.sndcdn.com/**', (route) => route.fulfill({ status: 200, contentType: 'audio/wav', body: kickWav(8, 122) }));
 await page.evaluate(() => sessionStorage.setItem('platter.sc.pkce', JSON.stringify({ verifier: 'v', state: 's' })));
 await page.goto(new URL('/soundcloud-callback?code=c&state=s', URL_).toString());
 await page.getByText('Free Remix Bait').waitFor({ timeout: 15000 });
-check(new URL(page.url()).pathname === '/' && scCalls.includes('token'), 'SoundCloud sign-in completes from the callback and opens the SoundCloud tab');
+check(
+  new URL(page.url()).pathname === '/' && scCalls.includes('token') && (await page.getByRole('tab', { name: 'SoundCloud' }).getAttribute('aria-selected')) === 'true',
+  'SoundCloud sign-in completes from the callback and opens the browse flyout on SoundCloud',
+);
+check((await page.getByText('3 tracks in your likes · 2 can go on the decks').count()) === 1, 'the likes list says how many tracks can go on the decks');
+await page.getByRole('switch', { name: 'Mixable only' }).check();
+check((await page.getByText('Locked Down Banger').count()) === 0, '“Mixable only” hides tracks that can’t go on the decks');
+await page.getByRole('switch', { name: 'Mixable only' }).uncheck();
 check(
   (await page.getByRole('button', { name: 'Load Locked Down Banger on deck A' }).count()) === 0 &&
     (await page.getByRole('link', { name: 'Locked Down Banger by Artist 9 on SoundCloud' }).count()) === 1,
@@ -292,6 +312,10 @@ check(
   sc.urn === 'soundcloud:tracks:1' && sc.link === 'https://soundcloud.com/mock/1' && sc.blob === null && Math.round(sc.bpm) === 122,
   `a CC-BY SoundCloud track streams onto deck B, is analysed (${sc.bpm} BPM) and its audio isn't stored`,
 );
+await page.getByRole('searchbox', { name: 'Search SoundCloud' }).fill('acid');
+await page.getByRole('searchbox', { name: 'Search SoundCloud' }).press('Enter');
+await page.getByText('Searched acid').waitFor({ timeout: 5000 });
+check(scCalls.some((c) => c.startsWith('api /tracks?') && c.includes('q=acid')), 'SoundCloud search asks for matching tracks and lists them');
 
 check(errors.length === 0, `no page errors${errors.length ? `: ${errors.join(' | ')}` : ''}`);
 await browser.close();

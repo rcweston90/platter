@@ -6,6 +6,7 @@ import { useStore } from '../engine/store';
 import type { TrackRecord } from '../engine/types';
 import { TRACK_MIME } from './DeckPanel';
 import { canLinkFolder } from '../engine/folder';
+import { openBrowse } from './browse';
 import { useDropTarget } from './frame';
 import { saveFile } from './save';
 import { formatTime } from './Waveforms';
@@ -90,7 +91,7 @@ export function Crate({ session }: { session: DjSession }) {
   return (
     <section ref={section} className={`${s.crate} ${over ? s.crateOver : ''}`} aria-label="Crate">
       <header className={s.crateHead}>
-        <h2 className={s.crateTitle}>Crate</h2>
+        <h2 className={s.srOnly}>Crate</h2>
         <label htmlFor={searchId} className={s.srOnly}>
           Search the crate
         </label>
@@ -102,54 +103,60 @@ export function Crate({ session }: { session: DjSession }) {
           value={query}
           onChange={(e) => setQuery(e.target.value)}
         />
-        <button type="button" className={s.action} onClick={() => fileInput.current?.click()}>
-          Add music
-        </button>
-        {canLinkFolder() && (
-          <button type="button" className={s.action} onClick={() => void session.linkFolder()} title="Link a folder: the crate reads your files in place">
-            Link folder
+        <div className={s.crateActions}>
+          <button type="button" className={s.action} onClick={() => fileInput.current?.click()}>
+            Add files
           </button>
-        )}
-        <button
-          type="button"
-          className={s.action}
-          onClick={() => importInput.current?.click()}
-          title="Import cues, tempo and key from a Platter backup (.json) or a Rekordbox collection (.xml)"
-        >
-          Import
-        </button>
-        <button
-          type="button"
-          className={s.action}
-          onClick={() => {
-            const { name, blob } = session.exportBackup();
-            const url = URL.createObjectURL(blob);
-            void saveFile(name, blob, url).then((msg) => {
-              setNote(msg);
-              window.setTimeout(() => URL.revokeObjectURL(url), 60_000);
-            });
-          }}
-          title="Save cue points, tempo, keys, settings and MIDI mappings (not the audio)"
-        >
-          Backup
-        </button>
-        <input
-          ref={importInput}
-          type="file"
-          accept=".json,.xml,application/json,text/xml"
-          hidden
-          aria-label="Backup or Rekordbox file to import"
-          onChange={(e) => {
-            const f = e.target.files?.[0];
-            if (f) void session.importFile(f);
-            e.target.value = '';
-          }}
-        />
-        {!session.hasAllDemos() && loaded && (
-          <button type="button" className={s.action} onClick={() => session.addDemos()}>
-            Add demo tracks
+          <button type="button" className={s.action} onClick={() => openBrowse()}>
+            Browse online
           </button>
-        )}
+          <span className={s.crateActionsGap} aria-hidden="true" />
+          {canLinkFolder() && (
+            <button type="button" className={s.action} onClick={() => void session.linkFolder()} title="Link a folder: the crate reads your files in place">
+              Link folder
+            </button>
+          )}
+          <button
+            type="button"
+            className={s.action}
+            onClick={() => importInput.current?.click()}
+            title="Import cues, tempo and key from a Platter backup (.json) or a Rekordbox collection (.xml)"
+          >
+            Import
+          </button>
+          <button
+            type="button"
+            className={s.action}
+            onClick={() => {
+              const { name, blob } = session.exportBackup();
+              const url = URL.createObjectURL(blob);
+              void saveFile(name, blob, url).then((msg) => {
+                setNote(msg);
+                window.setTimeout(() => URL.revokeObjectURL(url), 60_000);
+              });
+            }}
+            title="Save cue points, tempo, keys, settings and MIDI mappings (not the audio)"
+          >
+            Backup
+          </button>
+          <input
+            ref={importInput}
+            type="file"
+            accept=".json,.xml,application/json,text/xml"
+            hidden
+            aria-label="Backup or Rekordbox file to import"
+            onChange={(e) => {
+              const f = e.target.files?.[0];
+              if (f) void session.importFile(f);
+              e.target.value = '';
+            }}
+          />
+          {!session.hasAllDemos() && loaded && (
+            <button type="button" className={s.action} onClick={() => session.addDemos()}>
+              Add demo tracks
+            </button>
+          )}
+        </div>
         <input
           ref={fileInput}
           type="file"
@@ -169,7 +176,13 @@ export function Crate({ session }: { session: DjSession }) {
       </p>
 
       {loaded && !tracks.length ? (
-        <p className={s.crateEmpty}>The crate is empty. Add some music, or bring back the demo tracks.</p>
+        <p className={s.crateEmpty}>
+          The crate is empty. Add your own files, or{' '}
+          <button type="button" className={s.linkBtn} onClick={() => openBrowse()}>
+            browse SoundCloud and Audius
+          </button>
+          .
+        </p>
       ) : (
         <div className={s.tableWrap}>
           <table className={s.table}>
@@ -250,49 +263,51 @@ export function Crate({ session }: { session: DjSession }) {
                     </td>
                     <td className={`${s.colNum} ${s.colTime}`}>{t.duration ? formatTime(t.duration) : '—'}</td>
                     <td className={s.colActions}>
-                      <button
-                        type="button"
-                        className={s.loadBtn}
-                        data-deck="A"
-                        disabled={t.status === 'error' || a.playing}
-                        title={a.playing ? 'Deck A is playing' : undefined}
-                        onClick={() => void session.loadToDeck(t.id, 0)}
-                        aria-label={`Load ${t.title} on deck A`}
-                      >
-                        A
-                      </button>
-                      <button
-                        type="button"
-                        className={s.loadBtn}
-                        data-deck="B"
-                        disabled={t.status === 'error' || b.playing}
-                        title={b.playing ? 'Deck B is playing' : undefined}
-                        onClick={() => void session.loadToDeck(t.id, 1)}
-                        aria-label={`Load ${t.title} on deck B`}
-                      >
-                        B
-                      </button>
-                      <button
-                        type="button"
-                        className={s.loadBtn}
-                        aria-pressed={queue.includes(t.id)}
-                        disabled={t.status === 'error'}
-                        onClick={() => (queue.includes(t.id) ? session.autoDj.dequeue(t.id) : session.autoDj.enqueue(t.id))}
-                        aria-label={queue.includes(t.id) ? `Take ${t.title} off the Auto-DJ queue` : `Queue ${t.title} for Auto-DJ`}
-                        title="Auto-DJ queue"
-                      >
-                        {queue.includes(t.id) ? `Q${queue.indexOf(t.id) + 1}` : '+Q'}
-                      </button>
-                      <button
-                        type="button"
-                        className={s.removeBtn}
-                        disabled={!!on}
-                        onClick={() => session.removeTrack(t.id)}
-                        aria-label={`Remove ${t.title} from the crate`}
-                        title={on ? 'Loaded on a deck' : 'Remove from the crate'}
-                      >
-                        ×
-                      </button>
+                      <div className={s.rowActions}>
+                        <button
+                          type="button"
+                          className={s.loadBtn}
+                          data-deck="A"
+                          disabled={t.status === 'error' || a.playing}
+                          title={a.playing ? 'Deck A is playing' : undefined}
+                          onClick={() => void session.loadToDeck(t.id, 0)}
+                          aria-label={`Load ${t.title} on deck A`}
+                        >
+                          A
+                        </button>
+                        <button
+                          type="button"
+                          className={s.loadBtn}
+                          data-deck="B"
+                          disabled={t.status === 'error' || b.playing}
+                          title={b.playing ? 'Deck B is playing' : undefined}
+                          onClick={() => void session.loadToDeck(t.id, 1)}
+                          aria-label={`Load ${t.title} on deck B`}
+                        >
+                          B
+                        </button>
+                        <button
+                          type="button"
+                          className={s.loadBtn}
+                          aria-pressed={queue.includes(t.id)}
+                          disabled={t.status === 'error'}
+                          onClick={() => (queue.includes(t.id) ? session.autoDj.dequeue(t.id) : session.autoDj.enqueue(t.id))}
+                          aria-label={queue.includes(t.id) ? `Take ${t.title} off the Auto-DJ queue` : `Queue ${t.title} for Auto-DJ`}
+                          title="Auto-DJ queue"
+                        >
+                          {queue.includes(t.id) ? `Q${queue.indexOf(t.id) + 1}` : '+Q'}
+                        </button>
+                        <button
+                          type="button"
+                          className={s.removeBtn}
+                          disabled={!!on}
+                          onClick={() => session.removeTrack(t.id)}
+                          aria-label={`Remove ${t.title} from the crate`}
+                          title={on ? 'Loaded on a deck' : 'Remove from the crate'}
+                        >
+                          ×
+                        </button>
+                      </div>
                     </td>
                   </tr>
                 );
