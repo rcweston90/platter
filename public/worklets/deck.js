@@ -20,6 +20,12 @@
  *                  rolling in a slip loop; when that ends, playback jumps to
  *                  the shadow, so the track carries on as if nothing happened.
  *
+ *   · stems      — with a track split (engine/stems), the read also takes
+ *                  drums, bass and vocals at the same position and the
+ *                  output becomes  g_other · track + Σ (g_k − g_other) · stem_k,
+ *                  "other" being the track minus the three. All parts up is
+ *                  the track itself; levels glide over STEM_SLEW.
+ *
  * Reads use 4-point Hermite interpolation. Position is reported every
  * REPORT_EVERY frames stamped with the context time it applies to, and the
  * main thread extrapolates between reports for drawing.
@@ -34,6 +40,8 @@ const REPORT_EVERY = 512; // ≈ 12 ms — the UI extrapolates in between
 const SCRATCH_TAU = 0.012; // s — how hard the record chases the hand: lower is tighter but grainier
 const SCRATCH_MAX = 8; // fastest a hand can throw a record, as a rate
 const PITCH_SLEW = 8; // rate units per second for pitch fader moves while spinning
+const STEM_SLEW = 0.015; // s — a stem mute or solo fades over this, so it doesn't click
+const I16 = 1 / 32768;
 
 function hermite(x, i, f, len) {
   const xm1 = x[i > 0 ? i - 1 : 0];
@@ -75,6 +83,13 @@ class DjDeckProcessor extends AudioWorkletProcessor {
     this.shadow = 0;
     this.stopSlope = 0; // brake/spinback override, rate units per second
     this.sinceReport = 0;
+    this.stems = null; // [{ left: Int16Array, right: Int16Array }] × 3: drums, bass, vocals
+    this.stemLen = 0;
+    this.stemRatio = 1; // stem frames per track frame
+    this.stemTarget = [1, 1, 1, 1]; // drums, bass, vocals, other
+    this.stemGain = [1, 1, 1, 1];
+    this.outL = 0;
+    this.outR = 0;
     this.port.onmessage = (e) => this.message(e.data);
   }
 
@@ -105,8 +120,10 @@ class DjDeckProcessor extends AudioWorkletProcessor {
         this.dir = 1;
         this.censor = false;
         this.shadow = 0;
+        this.clearStems();
         break;
       case 'unload':
+        this.clearStems();
         this.left = this.right = null;
         this.length = 0;
         this.pos = 0;
@@ -168,6 +185,17 @@ class DjDeckProcessor extends AudioWorkletProcessor {
       case 'scratch':
         this.touchTarget = this.touchBase + m.delta;
         break;
+      case 'stems':
+        if (!m.stems) this.clearStems();
+        else {
+          this.stems = m.stems;
+          this.stemLen = m.stems[0].left.length;
+          this.stemRatio = m.ratio;
+        }
+        break;
+      case 'stemGains':
+        this.stemTarget = m.gains.slice(0, 4);
+        break;
       case 'loop':
         if (m.in >= 0) {
           if (this.loopIn < 0) this.loopSlip = m.slip ?? this.slip;
@@ -189,6 +217,48 @@ class DjDeckProcessor extends AudioWorkletProcessor {
     if (wasOut && !this.excursion() && returnTo) this.jump(this.shadow);
     if (!this.tracking()) this.shadow = this.pos;
     this.report();
+  }
+
+  clearStems() {
+    this.stems = null;
+    this.stemLen = 0;
+    this.stemTarget = [1, 1, 1, 1];
+    this.stemGain = [1, 1, 1, 1];
+  }
+
+  /** The track at fractional frame `p`, into outL/outR — stems mixed in at
+   *  coefficients `c` (drums, bass, vocals, then the track itself). */
+  read(p, c) {
+    const a = this.left;
+    const b = this.right;
+    const len = this.length;
+    if (!(p >= 0 && p < len)) {
+      this.outL = this.outR = 0;
+      return;
+    }
+    const ip = p | 0;
+    const f = p - ip;
+    let l = hermite(a, ip, f, len);
+    let r = b === a ? l : hermite(b, ip, f, len);
+    if (c) {
+      l *= c[3];
+      r *= c[3];
+      const sp = p * this.stemRatio;
+      const sl = this.stemLen;
+      if (sp < sl) {
+        const si = sp | 0;
+        const sf = sp - si;
+        for (let k = 0; k < 3; k++) {
+          const ck = c[k];
+          if (ck === 0) continue;
+          const st = this.stems[k];
+          l += ck * I16 * hermite(st.left, si, sf, sl);
+          r += ck * I16 * hermite(st.right, si, sf, sl);
+        }
+      }
+    }
+    this.outL = l;
+    this.outR = r;
   }
 
   jump(frame) {
@@ -249,8 +319,28 @@ class DjDeckProcessor extends AudioWorkletProcessor {
       r1 = Math.abs(d) <= step ? target : r0 + Math.sign(d) * step;
     }
 
-    const a = this.left;
-    const b = this.right;
+    // Stem levels: glide from this block's start to its end, as coefficients
+    // on drums, bass, vocals and the track (see read). null: the plain track.
+    let c = null;
+    const dc = [0, 0, 0, 0];
+    if (this.stems) {
+      const g0 = this.stemGain;
+      const g1 = g0.slice();
+      const step = n / (STEM_SLEW * sampleRate);
+      let flat = true;
+      for (let k = 0; k < 4; k++) {
+        const d = this.stemTarget[k] - g0[k];
+        g1[k] = Math.abs(d) <= step ? this.stemTarget[k] : g0[k] + Math.sign(d) * step;
+        if (g0[k] !== 1 || g1[k] !== 1) flat = false;
+      }
+      if (!flat) {
+        const c0 = [g0[0] - g0[3], g0[1] - g0[3], g0[2] - g0[3], g0[3]];
+        const c1 = [g1[0] - g1[3], g1[1] - g1[3], g1[2] - g1[3], g1[3]];
+        for (let k = 0; k < 4; k++) dc[k] = (c1[k] - c0[k]) / n;
+        c = c0;
+      }
+      this.stemGain = g1;
+    }
     const hasLoop = this.loopIn >= 0 && this.loopOut > this.loopIn;
     const loopLen = this.loopOut - this.loopIn;
     const dr = (r1 - r0) / n;
@@ -260,29 +350,18 @@ class DjDeckProcessor extends AudioWorkletProcessor {
 
     for (let i = 0; i < n; i++) {
       r += dr;
-      let l = 0;
-      let rr = 0;
-      if (pos >= 0 && pos < len) {
-        const ip = pos | 0;
-        const f = pos - ip;
-        l = hermite(a, ip, f, len);
-        rr = b === a ? l : hermite(b, ip, f, len);
+      if (c) {
+        for (let k = 0; k < 4; k++) c[k] += dc[k];
       }
+      this.read(pos, c);
+      let l = this.outL;
+      let rr = this.outR;
       if (this.xLeft > 0) {
         const g = this.xLeft / XFADE;
-        const xp = this.xPos;
-        if (xp >= 0 && xp < len) {
-          const ip = xp | 0;
-          const f = xp - ip;
-          const ol = hermite(a, ip, f, len);
-          const or = b === a ? ol : hermite(b, ip, f, len);
-          l = l * (1 - g) + ol * g;
-          rr = rr * (1 - g) + or * g;
-        } else {
-          l *= 1 - g;
-          rr *= 1 - g;
-        }
-        this.xPos = xp + r;
+        this.read(this.xPos, c);
+        l = l * (1 - g) + this.outL * g;
+        rr = rr * (1 - g) + this.outR * g;
+        this.xPos += r;
         this.xLeft--;
       }
       L[i] = l;

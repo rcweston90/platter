@@ -1,0 +1,26 @@
+/* The stems row on each deck (StemsControl). Buttons reuse platter.module.css's
+   .mini; only what is new to this row lives here. */
+
+.status {
+  font-family: var(--font-mono);
+  font-size: 13px;
+  font-variant-numeric: tabular-nums;
+  color: var(--dj-dim);
+}
+
+.note {
+  flex-basis: 100%;
+  margin: 0;
+  font-size: 12px;
+  color: var(--dj-dim);
+}
+
+/* A part you can't hear: struck through and faded. */
+.stem[aria-pressed='false'] {
+  opacity: 0.45;
+  text-decoration: line-through;
+}
+
+.solo {
+  border-style: dashed;
+}
