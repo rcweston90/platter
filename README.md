@@ -80,6 +80,16 @@ GitHub Actions).
   (Chrome and Edge) so the crate reads files in place. Title, artist, cover art and key come from the
   tags, or from an `Artist - Title` file name. Tempo, beat grid and key are
   analysed on import.
+- **Mashups**: every track in a linked folder is analysed in the background
+  for tempo (with half and double time), key in Camelot, loudness (LUFS),
+  energy (1–10) and beat grid. Sort and filter by any of them, pick a track
+  and **Mix with…** lists what mashes with it (same key or a neighbour on the
+  wheel, tempo within ±6% or half/double, similar energy), with the reason,
+  and loads the pair onto decks A and B. FLAC is first-class, Vorbis tags
+  and cover art included. The record of your library (`library/tracks.json`,
+  never audio) can be kept in sync with a folder, and `npm run library --
+  <folder>` builds the same record from the terminal. See
+  [library/README.md](library/README.md).
 - **Browse music** (top bar, or **Browse online** in the crate) opens a panel
   beside the decks with Audius and SoundCloud, so you can search and load
   while you mix. Each track shows its artwork, length, tempo and whether it
@@ -158,6 +168,8 @@ that's when browsers reveal device names — nothing is recorded.
 ```bash
 npm run test:e2e     # against a running dev or preview server
 npm run test:controls  # clicks every deck and mixer control and checks its effect
+npm run test:library      # tags, fingerprints, mashup scorer, folder scanner
+npm run test:library-dsp  # tempo, loudness and energy on synthetic audio
 ```
 
 The end-to-end check drives a real browser through cueing, playing, sync,
@@ -207,6 +219,9 @@ src/engine/
   stems/        stem separation: which tracks may be split, the worker, the HTDemucs loop
   soundcloud.ts SoundCloud sign-in (PKCE), browsing, streaming, licence checks
   folder.ts     linked music folders (File System Access)
+src/library/    track analysis (tempo, key, loudness, energy), tags, fingerprints,
+                the library record and folder sync, mashup scoring
+scripts/library.mjs  the same analysis from the terminal, writing library/tracks.json
   backup.ts     JSON backup, Rekordbox XML import
   library.ts    everything kept in IndexedDB
   demo.ts       the two demo tracks, synthesised sample by sample
@@ -264,5 +279,8 @@ the conventions of [Mixxx](https://mixxx.org), the open-source DJ app. The
 sampler's recorded sounds are from [Sonic Pi](https://github.com/sonic-pi-net/sonic-pi)'s
 CC0 sample set (Freesound contributors, credited per sound in the app), and
 the beat board's timing follows Chris Wilson's MIT-licensed
-[metronome](https://github.com/cwilso/metronome). See
+[metronome](https://github.com/cwilso/metronome).
+The library analysis is written for Platter from published methods: the
+Fourier tempogram of Grosche and Müller, Krumhansl–Kessler key profiles,
+ITU-R BS.1770-4 loudness and EBU Tech 3342 loudness range. See
 [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).

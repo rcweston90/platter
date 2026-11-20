@@ -111,6 +111,13 @@ const BASS_WEIGHT = 2; // when the chords alone fit two keys (F minor vs C minor
 /** Detects the key of a decoded track. Returns a Camelot code, or null for
  *  silence or no tonal content. */
 export function detectKey(buf: AudioBuffer): string | null {
+  return detectKeyDetailed(buf)?.code ?? null;
+}
+
+/** detectKey with a confidence: the winning profile's margin (0…1) over the
+ *  best key that isn't the winner's relative major/minor (confusing those two
+ *  costs little in a mix — they share every note). */
+export function detectKeyDetailed(buf: AudioBuffer): { code: string; confidence: number; r: number } | null {
   // Mono at a quarter rate: chroma lives below 2 kHz.
   const factor = Math.max(1, Math.floor(buf.sampleRate / 11025));
   const sr = buf.sampleRate / factor;
@@ -169,20 +176,18 @@ export function detectKey(buf: AudioBuffer): string | null {
   }
   if (chroma.every((v) => v === 0)) return null;
 
-  let best: Key | null = null;
-  let bestR = -Infinity;
+  const scores: { key: Key; r: number }[] = [];
   for (let pc = 0; pc < 12; pc++) {
     const rotated = chroma.map((_, i) => chroma[(i + pc) % 12]);
-    const rMaj = pearson(rotated, MAJOR);
-    const rMin = pearson(rotated, MINOR);
-    if (rMaj > bestR) {
-      bestR = rMaj;
-      best = { pc, minor: false };
-    }
-    if (rMin > bestR) {
-      bestR = rMin;
-      best = { pc, minor: true };
-    }
+    scores.push({ key: { pc, minor: false }, r: pearson(rotated, MAJOR) });
+    scores.push({ key: { pc, minor: true }, r: pearson(rotated, MINOR) });
   }
-  return best && bestR > 0.2 ? camelot(best) : null;
+  scores.sort((a, b) => b.r - a.r);
+  const best = scores[0];
+  if (!best || best.r <= 0.2) return null;
+  const code = camelot(best.key);
+  const num = parseInt(code, 10);
+  const rival = scores.find((s) => parseInt(camelot(s.key), 10) !== num);
+  const margin = rival ? best.r - rival.r : best.r;
+  return { code, confidence: Math.max(0, Math.min(1, margin * 6)), r: best.r };
 }

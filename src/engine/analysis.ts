@@ -1,6 +1,10 @@
-import { camelot, detectKey, parseKeyName } from './key';
+import { detectKey } from './key';
 import { EQ_HIGH_HZ, EQ_LOW_HZ } from './mixer';
 import { emptyCues, type TrackRecord, type WavePeaks } from './types';
+import { analyzeBuffer } from '../library/client';
+import { fingerprintBlob } from '../library/fingerprint';
+import { formatOf, normaliseTags } from '../library/tags';
+import type { TrackTags } from '../library/types';
 
 /** Waveform bins per second: enough for the zoomed view to stay crisp at
  *  ~150 px/s without storing a full-resolution copy of the track. */
@@ -77,30 +81,20 @@ export async function detectTempo(buf: AudioBuffer): Promise<{ bpm: number; offs
   }
 }
 
-function stripExtension(name: string) {
-  return name.replace(/\.[a-z0-9]{2,5}$/i, '');
-}
-
-/** Title, artist and cover art via music-metadata (MIT); falls back to an
- *  "Artist - Title" file name, then the bare file name. */
-export async function readTags(file: File): Promise<{ title: string; artist: string; art: Blob | null; key: string | null }> {
-  const base = stripExtension(file.name);
-  const dash = base.split(/\s+[-–]\s+/);
-  const fallback = dash.length >= 2 ? { artist: dash[0], title: dash.slice(1).join(' - ') } : { artist: '', title: base };
+/** Title, artist, cover art and the rest of the tags via music-metadata
+ *  (MIT) — ID3, FLAC/Ogg Vorbis comments and MP4 atoms alike — falling back
+ *  to an "Artist - Title" file name, then the bare file name. */
+export async function readTags(file: File): Promise<{ title: string; artist: string; art: Blob | null; key: string | null; tags: TrackTags }> {
   try {
     const { parseBlob, selectCover } = await import('music-metadata');
-    const { common } = await parseBlob(file, { duration: false, skipCovers: false });
-    const pic = selectCover(common.picture);
+    const meta = await parseBlob(file, { duration: false, skipCovers: false });
+    const pic = selectCover(meta.common.picture);
     // A key already in the tags (Rekordbox, Mixed In Key …) beats detection.
-    const tagged = common.key ? parseKeyName(common.key) : null;
-    return {
-      title: common.title?.trim() || fallback.title,
-      artist: common.artist?.trim() || fallback.artist,
-      art: pic ? new Blob([new Uint8Array(pic.data)], { type: pic.format }) : null,
-      key: tagged ? camelot(tagged) : null,
-    };
+    const tags = normaliseTags(meta, file.name);
+    return { title: tags.title, artist: tags.artist, art: pic ? new Blob([new Uint8Array(pic.data)], { type: pic.format }) : null, key: tags.key, tags };
   } catch {
-    return { ...fallback, art: null, key: null };
+    const tags = normaliseTags(null, file.name);
+    return { title: tags.title, artist: tags.artist, art: null, key: null, tags };
   }
 }
 
@@ -125,28 +119,49 @@ export async function trackFromFile(file: File): Promise<TrackRecord> {
     peaks: null,
     art: tags.art,
     blob: file,
+    library: { tags: tags.tags, analysis: null, fileSize: file.size, modified: file.lastModified || null, format: formatOf(file.name) },
     cues: emptyCues(),
     addedAt: Date.now(),
     status: 'analysing',
   };
 }
 
-/** Decode, draw, beat-detect and key-detect a crate track. Analysis runs at
- *  44.1 kHz whatever the output rate — only the picture, tempo and key come
- *  from it. */
+/** Decode, draw, beat-detect and key-detect a crate track, plus the library
+ *  analysis (energy, loudness, tempo confidence — src/library), all from one
+ *  decode. Analysis runs at 44.1 kHz whatever the output rate — only the
+ *  picture, tempo and key come from it. */
 export async function analyseTrack(rec: TrackRecord, audio: Blob): Promise<Partial<TrackRecord>> {
   const buf = await decodeAudio(audio, 44100);
   const peaks = computePeaks(buf);
-  const tempo = await detectTempo(buf);
+  // Records from before the library carry no tags beyond title/artist: read them now.
+  const tags = rec.library?.tags ?? (await readTags(audio instanceof File ? audio : new File([audio], rec.fileName))).tags;
+  const [tempo, deep, fingerprint] = await Promise.all([
+    detectTempo(buf),
+    analyzeBuffer(buf, tags).catch(() => null),
+    fingerprintBlob(audio).catch(() => undefined),
+  ]);
+  const grid = pickGrid(tempo, deep);
   const patch: Partial<TrackRecord> = {
     duration: buf.duration,
     peaks,
-    key: rec.key ?? detectKey(buf),
-    bpm: tempo ? Math.round(tempo.bpm * 100) / 100 : null,
-    gridOffset: tempo ? tempo.offset : 0,
+    key: rec.key ?? deep?.key ?? detectKey(buf),
+    bpm: grid?.bpm ?? null,
+    gridOffset: grid?.offset ?? 0,
     status: 'ready',
   };
+  patch.library = { ...rec.library, tags, analysis: deep, fingerprint, fileSize: audio.size, format: rec.library?.format ?? formatOf(rec.fileName) };
   // Auto-cue to the first beat unless the DJ has already set one.
-  if (tempo && rec.cues.main === 0) patch.cues = { ...rec.cues, main: tempo.offset };
+  if (grid && rec.cues.main === 0) patch.cues = { ...rec.cues, main: grid.offset };
   return patch;
+}
+
+/** The decks' tempo and grid: the library analysis when it's confident or
+ *  its tempo came from the tags, else web-audio-beat-detector's reading. */
+export function pickGrid(
+  beatDetector: { bpm: number; offset: number } | null,
+  deep: { bpm: number | null; bpmConfidence: number; bpmSource: string; firstBeat: number } | null,
+): { bpm: number; offset: number } | null {
+  const round = (n: number) => Math.round(n * 100) / 100;
+  if (deep?.bpm && (deep.bpmSource === 'tag' || deep.bpmConfidence >= 0.5 || !beatDetector)) return { bpm: round(deep.bpm), offset: deep.firstBeat };
+  return beatDetector ? { bpm: round(beatDetector.bpm), offset: beatDetector.offset } : null;
 }
