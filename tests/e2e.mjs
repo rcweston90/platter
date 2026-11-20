@@ -1,14 +1,17 @@
 /**
  * End-to-end check in Chromium: the rig opens cued up, plays, syncs,
  * scratches, key-locks, imports a file, records a mix; then key matching,
- * beat FX, rolls, the sampler's sound library and kits, the beat board, MIDI learn, Auto-DJ, backup and Rekordbox
- * import, recordings, Audius and SoundCloud (with their APIs mocked).
+ * beat FX, rolls, the sampler's sound library and kits, the beat board, MIDI
+ * learn, Auto-DJ, backup and Rekordbox import, recordings, stems (with a tiny
+ * stand-in for the separation model), Audius and SoundCloud (with their APIs
+ * mocked).
  *
  *   npm run dev            # or: npm run build && npm run preview
  *   npm run test:e2e       # URL defaults to http://localhost:5173/
  *
  * Needs a Chromium for Playwright (`npx playwright install chromium`).
  */
+import { readFileSync } from 'node:fs';
 import { chromium } from 'playwright';
 
 const URL_ = process.env.PLATTER_URL ?? 'http://localhost:5173/';
@@ -268,6 +271,40 @@ check(backup.rbKey === '8A' && backup.rbHot0 === 8.05 && backup.rbGrid === 0.05,
 await page.getByRole('tab', { name: /Recordings/ }).click();
 check((await page.locator('[role="tabpanel"] li').count()) >= 1, 'the recorded mix is listed under Recordings');
 
+// ── Stems: the 170 MB HTDemucs model is swapped for a stand-in with the same
+// shapes (tests/fixtures/make-fake-demucs.py), so the whole path runs: worker,
+// ONNX Runtime, the split, the worklet mix. ──
+const modelRequests = [];
+const otherDuringSplit = [];
+await page.route('https://huggingface.co/**', (route) => {
+  modelRequests.push(route.request().method());
+  return route.fulfill({ status: 200, contentType: 'application/octet-stream', body: readFileSync(new URL('./fixtures/fake-demucs.onnx', import.meta.url)) });
+});
+const watchUploads = (req) => req.method() !== 'GET' && otherDuringSplit.push(`${req.method()} ${req.url()}`);
+page.on('request', watchUploads);
+const stemsB = page.getByRole('group', { name: 'Deck B stems' });
+await stemsB.getByRole('button', { name: 'Split' }).click();
+await stemsB.getByRole('button', { name: 'Vocals' }).waitFor({ timeout: 60000 });
+page.off('request', watchUploads);
+check(modelRequests.length === 1 && modelRequests[0] === 'GET', 'splitting deck B fetches the separation model once');
+check(otherDuringSplit.length === 0, `nothing is sent anywhere while splitting${otherDuringSplit.length ? `: ${otherDuringSplit.join(', ')}` : ''}`);
+await stemsB.getByRole('button', { name: 'Vocals' }).click();
+await stemsB.getByRole('button', { name: 'Drums' }).click({ modifiers: ['Shift'] });
+const pressed = await stemsB.getByRole('button').evaluateAll((bs) => bs.map((b) => `${b.textContent}:${b.getAttribute('aria-pressed')}`));
+check(pressed.includes('Drums:true') && pressed.includes('Vocals:false') && pressed.includes('Bass:false'), `soloing drums on deck B (${pressed.join(' ')})`);
+const bState = await page.evaluate(() => ({ playing: window.platter.decks[1].store.get().playing, title: window.platter.decks[1].store.get().track?.title }));
+if (!bState.playing) await B.getByRole('button', { name: 'Deck B play' }).click();
+await page.waitForTimeout(800);
+const bMeter = await page.$eval('[aria-label="Channel B level meter"] [class*="meterCover"]', (e) => parseFloat(e.style.height));
+check(bMeter < 95, `deck B still sounds with drums soloed (${bMeter.toFixed(0)}% covered, ${bState.title}${bState.playing ? '' : ', started'})`);
+const cached = await page.evaluate(async () => {
+  const keys = [];
+  for (const name of await caches.keys()) for (const r of await (await caches.open(name)).keys()) keys.push(`${name} ${r.url}`);
+  return keys.filter((k) => !k.startsWith('platter-v1 '));
+});
+check(cached.length === 1 && cached[0].includes('huggingface.co'), `only the model is cached, never stems or audio (${cached.join(', ')})`);
+await stemsB.getByRole('button', { name: 'Hear every part' }).click();
+
 // ── Audius (API mocked: the test shouldn't depend on the network) ──
 await page.route('https://api.audius.co/**', async (route) => {
   const url = route.request().url();
@@ -291,6 +328,11 @@ await A.getByText('Mocked Groove').waitFor({ timeout: 15000 });
 await page.waitForFunction(() => window.platter.crate.get().tracks.find((t) => t.title === 'Mocked Groove')?.bpm, null, { timeout: 20000 });
 const mocked = await page.evaluate(() => window.platter.crate.get().tracks.find((t) => t.title === 'Mocked Groove'));
 check(mocked.link === 'https://audius.co/artist/mocked' && Math.round(mocked.bpm) === 126, `an Audius track streams onto deck A and is analysed (${mocked.bpm} BPM, link kept)`);
+check(
+  (await page.getByRole('group', { name: 'Deck A stems' }).getByRole('button', { name: 'Split' }).isDisabled()) &&
+    (await page.getByRole('group', { name: 'Deck A stems' }).getByText('doesn’t allow remixing').count()) === 1,
+  'an all-rights-reserved Audius track can’t be split',
+);
 await page.keyboard.press('Escape');
 await page.waitForFunction(() => document.querySelector('aside[aria-label="Browse music"]')?.inert === true, null, { timeout: 3000 });
 check(
@@ -362,6 +404,10 @@ const sc = await page.evaluate(() => {
 check(
   sc.urn === 'soundcloud:tracks:1' && sc.link === 'https://soundcloud.com/mock/1' && sc.blob === null && Math.round(sc.bpm) === 122,
   `a CC-BY SoundCloud track streams onto deck B, is analysed (${sc.bpm} BPM) and its audio isn't stored`,
+);
+check(
+  await page.getByRole('group', { name: 'Deck B stems' }).getByRole('button', { name: 'Split' }).isDisabled(),
+  'no SoundCloud track can be split, CC-BY included',
 );
 await page.getByRole('searchbox', { name: 'Search SoundCloud' }).fill('acid');
 await page.getByRole('searchbox', { name: 'Search SoundCloud' }).press('Enter');

@@ -37,6 +37,9 @@ export interface TrackRecord {
   audius?: string;
   /** A SoundCloud track URN, streamed when the track loads (its audio is never stored). */
   soundcloud?: string;
+  /** The license an online track is published under, as its platform words it
+   *  (Audius: "All rights reserved", "Attribution CC BY", …). Decides stems. */
+  license?: string;
   /** Where the track lives online (an Audius or SoundCloud page), for attribution. */
   link?: string;
   cues: TrackCues;

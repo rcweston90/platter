@@ -19,6 +19,8 @@ export interface AudiusTrack {
   artwork: string | null;
   genre: string;
   link: string;
+  /** As Audius words it, e.g. "All rights reserved" or "Attribution CC BY". */
+  license: string;
 }
 
 interface ApiTrack {
@@ -28,6 +30,7 @@ interface ApiTrack {
   genre?: string;
   permalink?: string;
   is_streamable?: boolean;
+  license?: string | null;
   artwork?: Record<string, string> | null;
   user?: { name?: string; handle?: string };
 }
@@ -47,6 +50,7 @@ async function get(path: string, params: Record<string, string>, signal?: AbortS
       artwork: t.artwork?.['480x480'] ?? t.artwork?.['150x150'] ?? null,
       genre: t.genre ?? '',
       link: t.permalink ? `https://audius.co${t.permalink}` : 'https://audius.co',
+      license: t.license || 'All rights reserved',
     }));
 }
 

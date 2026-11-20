@@ -24,6 +24,7 @@ import { MidiController, type MidiHandlers } from './midi';
 import { BeatBoard } from './beatboard';
 import { crossfaderGains, defaultChannel, faderGain, type ChannelState, type CrossfaderCurve } from './mixer';
 import { PADS, Sampler } from './sampler';
+import { DeckStems, STEM_RATE } from './stems';
 import { createStore, type Store } from './store';
 import { emptyCues, type TrackRecord } from './types';
 
@@ -94,6 +95,11 @@ const JOG_TICKS_PER_TURN = 256; // controller jog resolution assumed for scratch
  */
 export class DjSession {
   readonly decks: [Deck, Deck] = [new Deck(0), new Deck(1)];
+  /** Each deck's stems (vocals, drums, bass, other): split on request, held in memory only. */
+  readonly stems: [DeckStems, DeckStems] = [
+    new DeckStems(this.decks[0], (id) => this.decodeForStems(id)),
+    new DeckStems(this.decks[1], (id) => this.decodeForStems(id)),
+  ];
   readonly mixer: Store<MixerState> = createStore(initialMixer());
   readonly crate: Store<CrateState> = createStore<CrateState>({ tracks: [], loaded: false, note: null });
   readonly recordings: Store<{ list: RecordingRecord[] }> = createStore({ list: [] as RecordingRecord[] });
@@ -452,7 +458,11 @@ export class DjSession {
   }
 
   async addAudius(t: AudiusTrack) {
-    if (this.crate.get().tracks.some((c) => c.audius === t.id)) return this.crate.get().tracks.find((c) => c.audius === t.id)!.id;
+    const have = this.crate.get().tracks.find((c) => c.audius === t.id);
+    if (have) {
+      if (have.license !== t.license) this.updateTrack(have.id, { license: t.license });
+      return have.id;
+    }
     const rec: TrackRecord = {
       id: newTrackId(),
       title: t.title,
@@ -467,6 +477,7 @@ export class DjSession {
       blob: null,
       audius: t.id,
       link: t.link,
+      license: t.license,
       cues: emptyCues(),
       addedAt: Date.now(),
       status: 'analysing',
@@ -564,6 +575,16 @@ export class DjSession {
     }
   }
 
+  /** A loaded track's audio again, at the stems model's rate (engine/stems). */
+  private async decodeForStems(trackId: string): Promise<AudioBuffer> {
+    const rec = this.crate.get().tracks.find((t) => t.id === trackId);
+    if (!rec) throw new Error('gone');
+    if (rec.demo) return renderDemo(rec.demo, STEM_RATE);
+    const blob = await this.audioBlob(rec, true);
+    if (!blob) throw new Error('No access to that file.');
+    return decodeAudio(blob, STEM_RATE);
+  }
+
   /** Decode (or synthesise) a track onto a deck; `play` starts it once loaded. */
   async loadToDeck(trackId: string, i: 0 | 1, play = false) {
     const deck = this.decks[i];
@@ -600,6 +621,7 @@ export class DjSession {
         this.updateTrack(rec.id, { peaks, duration: buffer.duration });
       }
       deck.load(ready, buffer, rec.art ? URL.createObjectURL(rec.art) : null);
+      this.stems[i].trackLoaded(this.crate.get().tracks.find((t) => t.id === rec.id) ?? rec);
       if (this.inflight[i]?.play) deck.play();
       // Never analysed (no access in the background): do it now.
       if (!rec.demo && rec.bpm === null && rec.status !== 'error') void this.analyseLoaded(rec, buffer);

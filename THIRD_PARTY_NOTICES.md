@@ -1,6 +1,6 @@
 # Third-party notices
 
-Platter bundles three MIT-licensed libraries, each loaded the first time it
+Platter bundles these MIT-licensed libraries, each loaded the first time it
 is needed:
 
 - [Signalsmith Stretch](https://github.com/Signalsmith-Audio/signalsmith-stretch)
@@ -13,6 +13,16 @@ is needed:
   Copyright (c) 2026 Christoph Guttandin
 - [music-metadata](https://github.com/Borewit/music-metadata) — title, artist
   and cover art from audio files. Copyright © 2026 Borewit
+- [ONNX Runtime Web](https://github.com/microsoft/onnxruntime)
+  (`onnxruntime-web`) — runs the stem separation model, on WebGPU or WebAssembly.
+  Copyright (c) Microsoft Corporation
+- [demucs-web](https://github.com/timcsy/demucs-web) — the STFT and model
+  input/output handling around HTDemucs. Copyright (c) 2024 timcsy
+
+The stem separation model itself is [HTDemucs](https://github.com/facebookresearch/demucs)
+(Hybrid Transformer Demucs, MIT, Copyright (c) Meta Platforms, Inc. and
+affiliates), exported to ONNX by demucs-web. It is not bundled: the browser
+downloads it from Hugging Face the first time you split a track.
 
 Each is distributed under the MIT License:
 

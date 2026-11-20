@@ -31,6 +31,14 @@ GitHub Actions).
   between the waveforms shows each deck's beat in the bar and how far apart
   their beats are.
 - **Keylock** holds the key while you change tempo.
+- **Stems**: split a track into vocals, drums, bass and other, then tap a part
+  to mute it or hold it to hear it alone. The split runs in your browser
+  (Meta's HTDemucs on ONNX Runtime Web, on the GPU through WebGPU where it
+  can, otherwise the CPU) and the stems stay in memory with the deck; nothing
+  is saved or uploaded. The ~170 MB model downloads once and is cached. Your
+  own files can be split; SoundCloud tracks never (its API terms forbid AI
+  source separation); Audius tracks only under a Creative Commons license
+  that allows adaptations.
 
 **Harmonic mixing**
 - Each track's key is detected (or read from its tags) and shown in Camelot
@@ -179,7 +187,7 @@ linking and offline install are only on a normal host.
 ## How it works
 
 ```
-public/worklets/deck.js   the turntable: a signed, variable-rate playhead, plus slip
+public/worklets/deck.js   the turntable: a signed, variable-rate playhead, plus slip and stems
 src/engine/
   deck.ts       transport, cues, loops, rolls, tricks, pitch, sync, key lock/shift
   mixer.ts      channel strip: trim → isolator EQ → filter → beat FX → fader/cue/meter
@@ -194,6 +202,7 @@ src/engine/
   midi.ts       MIDI learn, mappings, LED feedback
   autodj.ts     queue and automatic transitions
   audius.ts     Audius search, trending and streaming
+  stems/        stem separation: which tracks may be split, the worker, the HTDemucs loop
   soundcloud.ts SoundCloud sign-in (PKCE), browsing, streaming, licence checks
   folder.ts     linked music folders (File System Access)
   backup.ts     JSON backup, Rekordbox XML import
