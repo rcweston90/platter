@@ -62,3 +62,23 @@ body {
   background: var(--dj-bg);
   color: var(--dj-text);
 }
+
+/* Sound categories: one colour each for pads, beat-board lanes and the sound
+ * browser, so a kick reads as a kick everywhere. */
+:root {
+  --cat-kick: #ff5f6d;
+  --cat-snare: #ffb347;
+  --cat-clap: #ffd84d;
+  --cat-hat: #63e6be;
+  --cat-cymbal: #3fd0d4;
+  --cat-tom: #ff8a5c;
+  --cat-perc: #a3e36b;
+  --cat-bass: #6c8cff;
+  --cat-stab: #c38bff;
+  --cat-keys: #f78fd2;
+  --cat-fx: #5ec4ff;
+  --cat-vox: #ff9ecf;
+  --cat-loop: #ffe08a;
+  --cat-texture: #9aa5b8;
+  --cat-none: #4a4e56;
+}

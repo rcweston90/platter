@@ -1,5 +1,6 @@
 import { getValue, setValue } from './library';
 import { createStore, type Store } from './store';
+import { PADS } from './sampler';
 
 /**
  * MIDI controllers, by MIDI learn: pick an action, move a control, done.
@@ -87,7 +88,8 @@ export const MIDI_ACTIONS: MidiAction[] = [
   { id: 'xfader', label: 'Crossfader', group: 'Mixer', kind: 'knob' },
   { id: 'master', label: 'Master level', group: 'Mixer', kind: 'knob' },
   { id: 'cueMix', label: 'Headphone cue mix', group: 'Mixer', kind: 'knob' },
-  ...Array.from({ length: 8 }, (_, i) => ({ id: `pad${i + 1}`, label: `Sampler pad ${i + 1}`, group: 'Sampler', kind: 'button' as const })),
+  ...Array.from({ length: PADS }, (_, i) => ({ id: `pad${i + 1}`, label: `Sampler pad ${i + 1}`, group: 'Sampler', kind: 'button' as const })),
+  { id: 'beatsPlay', label: 'Beat board play / stop', group: 'Sampler', kind: 'button' },
 ];
 
 export function describeKey(key: string) {

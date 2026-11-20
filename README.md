@@ -58,8 +58,22 @@ GitHub Actions).
 - Crossfader with Smooth, Full and Cut (scratch) curves.
 - Headphone cue (PFL) with a cue/master blend: split one output (master left,
   cue right, for a splitter cable) or send the cue to a second audio device.
-- **Sampler**: eight one-shot pads (horn, siren, laser, rewind, clap, riser,
-  boom, stab — all synthesised). Drop your own sound on a pad to replace it.
+- **Sampler**: 64 pads in four banks of 16, and a library of 860+ sounds
+  (kicks, snares, claps, hats, cymbals, toms, percussion, bass, chord stabs,
+  keys, FX, vox, loops and textures) with categories, search, favourites and
+  click-to-hear in the headphones. Tonal sounds carry a Camelot key, and
+  "In key" keeps to the ones that mix with the loaded tracks. Twenty kits
+  load a whole bank at once; drop your own audio files on a pad or into the
+  library. Each pad has its own volume, tune and choke group; drag a pad onto
+  another to swap them. Most sounds are synthesised in the browser on first
+  use; 189 are recordings from Sonic Pi's public-domain (CC0) sample set,
+  fetched only when you use them.
+- **Beat board**: a 16- or 32-step sequencer over one bank's 16 pads, with
+  eight patterns (switched on the bar), accents, MPC-style swing, per-lane
+  volume, mute and solo, eight starter grooves, tap tempo and live recording
+  from the pads. It locks to a playing deck's beat grid, not just its tempo,
+  so it stays on the beat through tempo changes, hot cues and beat jumps, and
+  falls back to its own clock when the decks stop.
 
 **Library**
 - **Crate**: drop files, use **Add files**, or **link a music folder**
@@ -148,10 +162,11 @@ npm run test:controls  # clicks every deck and mixer control and checks its effe
 
 The end-to-end check drives a real browser through cueing, playing, sync,
 scratching, key lock, import, recording, key matching, beat FX, rolls, the
-sampler, MIDI learn, Auto-DJ, backup and Rekordbox import, recordings,
+sampler, its sound library and kits, the beat board (on its own clock and
+locked to a deck), MIDI learn, Auto-DJ, backup and Rekordbox import, recordings,
 Audius and SoundCloud (with their APIs mocked). It needs a Playwright Chromium
-(`npx playwright install chromium`); set `PLATTER_URL` to test another
-address. `window.platter` is the running rig, for the console.
+(`npx playwright install chromium`), or any recent Chrome named in
+`PLATTER_CHROME`; set `PLATTER_URL` to test another address. `window.platter` is the running rig, for the console.
 
 ### Deploying
 
@@ -183,7 +198,9 @@ src/engine/
   session.ts    the rig: decks, mixer, crate, sampler, MIDI, Auto-DJ, saves
   analysis.ts   decoding, three-band waveform peaks, tempo, tags
   key.ts        key detection and Camelot arithmetic
-  sampler.ts    the pads and their synthesised sounds
+  sampler.ts    the 64 pads: playing, choke groups, kits, your own sounds
+  beatboard.ts  the step sequencer and its lock to the decks' beat grid
+  sounds/       the sound library: synth voices, kits, grooves, CC0 credits
   midi.ts       MIDI learn, mappings, LED feedback
   autodj.ts     queue and automatic transitions
   audius.ts     Audius search, trending and streaming
@@ -194,7 +211,9 @@ src/engine/
   library.ts    everything kept in IndexedDB
   demo.ts       the two demo tracks, synthesised sample by sample
 api/soundcloud.ts  Vercel Function: OAuth token exchange, API and media relay
-src/ui/         React: turntables, waveforms, phase meter, mixer, pads, panels
+src/ui/         React: turntables, waveforms, phase meter, mixer, panels
+src/ui/beats/   pads, beat board and the Sounds browser
+public/sounds/cc0/  the CC0 recordings, fetched on first use
 ```
 
 - **The playhead is an AudioWorklet.** An `AudioBufferSourceNode` can't play
@@ -241,5 +260,9 @@ Platter is MIT-licensed. It stands on three MIT libraries —
 [web-audio-beat-detector](https://github.com/chrisguttandin/web-audio-beat-detector)
 and [music-metadata](https://github.com/Borewit/music-metadata) — streams
 from [Audius](https://audius.co)'s open API, and its deck and mixer follow
-the conventions of [Mixxx](https://mixxx.org), the open-source DJ app. See
+the conventions of [Mixxx](https://mixxx.org), the open-source DJ app. The
+sampler's recorded sounds are from [Sonic Pi](https://github.com/sonic-pi-net/sonic-pi)'s
+CC0 sample set (Freesound contributors, credited per sound in the app), and
+the beat board's timing follows Chris Wilson's MIT-licensed
+[metronome](https://github.com/cwilso/metronome). See
 [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).

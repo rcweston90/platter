@@ -10,6 +10,8 @@ import { Mixer } from './ui/Mixer';
 import { PhaseMeter } from './ui/PhaseMeter';
 import { TopBar } from './ui/TopBar';
 import { MusicFlyout } from './ui/MusicFlyout';
+import { PadsAndBeats } from './ui/beats/PadsAndBeats';
+import { SoundsFlyout } from './ui/beats/SoundsFlyout';
 import { openBrowse } from './ui/browse';
 import { cameBackFromSoundCloud } from './engine/soundcloud';
 import { ScrollingWave } from './ui/Waveforms';
@@ -202,8 +204,10 @@ export default function App() {
         <DeckPanel session={session} deck={deckB} loop={loop} still={still} />
       </div>
 
+      <PadsAndBeats session={session} loop={loop} />
       <Library session={session} />
       <MusicFlyout session={session} />
+      <SoundsFlyout session={session} />
 
       <footer className={s.credits}>
         <p>
@@ -231,7 +235,15 @@ export default function App() {
           <a href="https://mixxx.org" target="_blank" rel="noopener noreferrer">
             Mixxx
           </a>
-          , the open-source DJ app.
+          , the open-source DJ app. The sampler's recorded sounds are from{' '}
+          <a href="https://github.com/sonic-pi-net/sonic-pi" target="_blank" rel="noopener noreferrer">
+            Sonic Pi
+          </a>
+          ’s public-domain (CC0) sample set, by Freesound contributors, and the beat board keeps time the way Chris Wilson’s{' '}
+          <a href="https://github.com/cwilso/metronome" target="_blank" rel="noopener noreferrer">
+            metronome
+          </a>{' '}
+          (MIT) does.
         </p>
       </footer>
     </div>

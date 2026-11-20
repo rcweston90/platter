@@ -4,7 +4,7 @@ import type { TrackRecord } from './types';
  * Everything Platter keeps lives in this browser, in IndexedDB — nothing is
  * uploaded:
  *   tracks      the crate: files (or references), analysis, cue points
- *   samples     sounds you've put on sampler pads
+ *   samples     your own sounds in the sampler's library
  *   recordings  mixes you've recorded
  *   kv          small things: settings, MIDI mappings, the last session
  * Every call degrades to "no persistence" if storage is blocked (private
@@ -75,10 +75,13 @@ export function removeTrack(id: string) {
 /* ── Sampler pads ───────────────────────────────────────────────────────── */
 
 export interface SampleRecord {
-  /** Pad index as a string. */
+  /** A sound of yours: "user:…", or a pad index ("0" … "7") from before
+   *  the sampler had a library. */
   id: string;
   name: string;
   blob: Blob;
+  /** Library category, e.g. "kick". */
+  category?: string;
 }
 
 export async function loadSamples(): Promise<SampleRecord[]> {

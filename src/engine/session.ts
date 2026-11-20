@@ -21,8 +21,9 @@ import {
   type RecordingRecord,
 } from './library';
 import { MidiController, type MidiHandlers } from './midi';
-import { defaultChannel, type ChannelState, type CrossfaderCurve } from './mixer';
-import { Sampler } from './sampler';
+import { BeatBoard } from './beatboard';
+import { crossfaderGains, defaultChannel, faderGain, type ChannelState, type CrossfaderCurve } from './mixer';
+import { PADS, Sampler } from './sampler';
 import { DeckStems, STEM_RATE } from './stems';
 import { createStore, type Store } from './store';
 import { emptyCues, type TrackRecord } from './types';
@@ -103,6 +104,7 @@ export class DjSession {
   readonly crate: Store<CrateState> = createStore<CrateState>({ tracks: [], loaded: false, note: null });
   readonly recordings: Store<{ list: RecordingRecord[] }> = createStore({ list: [] as RecordingRecord[] });
   readonly sampler = new Sampler();
+  readonly beats: BeatBoard;
   readonly midi: MidiController;
   readonly autoDj: AutoDj;
   engine: DjEngine | null = null;
@@ -127,6 +129,11 @@ export class DjSession {
       d.onPersist = (id, patch) => this.updateTrack(id, patch);
       d.onNeedAudio = (id, play) => void this.loadToDeck(id, d.index, play);
     }
+    this.beats = new BeatBoard(this.sampler, this.decks, (i) => {
+      const m = this.mixer.get();
+      return faderGain(m.channels[i].fader) * crossfaderGains(m.crossfader, m.curve)[i];
+    });
+    this.sampler.previewToCue = () => this.mixer.get().cueRouting.kind !== 'off';
     this.midi = new MidiController(this.midiHandlers());
     this.autoDj = new AutoDj(this);
   }
@@ -154,6 +161,7 @@ export class DjSession {
     await this.armDecks();
     this.watchForSaves();
     void this.sampler.init();
+    void this.beats.init();
     void this.midi.init();
     void loadRecordings().then((list) => this.recordings.set({ list }));
     void this.runAnalysis();
@@ -249,8 +257,9 @@ export class DjSession {
           }
           this.engine = engine;
           this.decks.forEach((d) => d.attach(engine));
-          this.sampler.attach(engine.ctx, engine.bus);
-          this.sampler.warm();
+          this.sampler.attach(engine.ctx, engine.bus, engine.cueInput);
+          this.sampler.warm(this.sampler.store.get().bank);
+          this.beats.attach(engine);
           this.applyMixer();
           // Beat FX follow each deck's live tempo.
           for (const d of this.decks) {
@@ -277,6 +286,8 @@ export class DjSession {
   dispose() {
     this.disposed = true;
     void this.autoDj.setOn(false);
+    this.beats.stop();
+    this.sampler.silence();
     if (this.saveTimer !== null) window.clearTimeout(this.saveTimer);
     this.decks.forEach((d) => d.destroy());
     const rec = this.mixer.get().lastRecording;
@@ -323,9 +334,15 @@ export class DjSession {
     this.applyMixer();
   }
 
+  /** Pad `i` (0–15) of the bank on screen — the MIDI pads and the keyboard. */
   async triggerPad(i: number) {
+    await this.hitPad(this.sampler.store.get().bank * 16 + i);
+  }
+
+  /** Any of the 64 pads, by its number across all four banks. */
+  async hitPad(pad: number) {
     await this.ensureEngine();
-    void this.sampler.trigger(i);
+    void this.sampler.hit(pad);
   }
 
   async refreshDevices(unlock = false) {
@@ -742,7 +759,8 @@ export class DjSession {
     knob('xfader', (v) => this.setCrossfader(v * 2 - 1));
     knob('master', (v) => this.setLevels({ master: v }));
     knob('cueMix', (v) => this.setLevels({ cueMix: v }));
-    for (let p = 0; p < 8; p++) press(`pad${p + 1}`, () => void this.triggerPad(p));
+    for (let p = 0; p < PADS; p++) press(`pad${p + 1}`, () => void this.triggerPad(p));
+    press('beatsPlay', () => void this.ensureEngine().then(() => this.beats.toggle()));
     return h;
   }
 
