@@ -399,7 +399,10 @@ export class DjSession {
     const seconds = (performance.now() - m.recordStarted) / 1000;
     this.mixer.set({ recording: false });
     const blob = await engine.stopRecording();
-    if (!blob) return;
+    if (!blob || !blob.size) {
+      this.mixer.set({ audioError: 'That recording came out empty, so it was not saved. Try recording again.' });
+      return;
+    }
     if (m.lastRecording) URL.revokeObjectURL(m.lastRecording.url);
     const ext = blob.type.includes('mp4') ? 'mp4' : blob.type.includes('ogg') ? 'ogg' : 'webm';
     const d = new Date();
