@@ -12,6 +12,9 @@ import { TopBar } from './ui/TopBar';
 import { MusicFlyout } from './ui/MusicFlyout';
 import { PadsAndBeats } from './ui/beats/PadsAndBeats';
 import { SoundsFlyout } from './ui/beats/SoundsFlyout';
+import { CrateDock, openCrate } from './ui/crate/CrateDock';
+import { crateBrowser } from './ui/crate/model';
+import { focusCrateSearch } from './ui/crate/TrackBrowser';
 import { openBrowse } from './ui/browse';
 import { cameBackFromSoundCloud } from './engine/soundcloud';
 import { ScrollingWave } from './ui/Waveforms';
@@ -130,6 +133,13 @@ export default function App() {
         BracketLeft: () => session.setCrossfader(x() - step),
         BracketRight: () => session.setCrossfader(x() + step),
         Backslash: () => session.setCrossfader(0),
+        // The track list, from anywhere: opens the mini window, or jumps back
+        // to the search if it's already showing.
+        Slash: () => {
+          if (!once || e.shiftKey) return;
+          if (crateBrowser.get().view === 'page') openCrate('mini');
+          else focusCrateSearch();
+        },
       };
       const fn = map[e.code];
       if (!fn) return;
@@ -208,6 +218,7 @@ export default function App() {
       <Library session={session} />
       <MusicFlyout session={session} />
       <SoundsFlyout session={session} />
+      <CrateDock session={session} />
 
       <footer className={s.credits}>
         <p>

@@ -1,9 +1,11 @@
-import { useId, useRef, useState, useSyncExternalStore } from 'react';
+import { useEffect, useId, useRef, useState, useSyncExternalStore } from 'react';
 import { DjEngine } from '../engine/engine';
 import type { DjSession } from '../engine/session';
 import { useStore } from '../engine/store';
 import { useFrame, type FrameLoop } from './frame';
 import { browse, openBrowse } from './browse';
+import { openCrate } from './crate/CrateDock';
+import { crateBrowser, crateSlot } from './crate/model';
 import { MidiPanel } from './MidiPanel';
 import { saveFile } from './save';
 import { formatTime } from './Waveforms';
@@ -22,6 +24,7 @@ export const SHORTCUTS: { keys: string; action: string }[] = [
   { keys: 'V · .', action: 'Slip on / off' },
   { keys: '[ ]', action: 'Crossfader left / right (Shift: all the way)' },
   { keys: '\\', action: 'Crossfader to centre' },
+  { keys: '/', action: 'Track list: open it, or jump to its search' },
 ];
 
 const noSubscribe = () => () => {};
@@ -31,6 +34,16 @@ const useCapability = (check: () => boolean) => useSyncExternalStore(noSubscribe
 export function TopBar({ session, loop }: { session: DjSession; loop: FrameLoop }) {
   const m = useStore(session.mixer);
   const { open: browsing } = useStore(browse);
+  const { view: crateView } = useStore(crateBrowser);
+  const { tracks } = useStore(session.crate);
+  const tracksBtn = useRef<HTMLButtonElement>(null);
+  useEffect(() => {
+    const el = tracksBtn.current;
+    crateSlot.set({ launcher: el });
+    return () => {
+      if (crateSlot.get().launcher === el) crateSlot.set({ launcher: null });
+    };
+  }, []);
   const [saveNote, setSaveNote] = useState<string | null>(null);
   const clock = useRef<HTMLSpanElement>(null);
   const masterId = useId();
@@ -60,6 +73,16 @@ export function TopBar({ session, loop }: { session: DjSession; loop: FrameLoop 
       </div>
 
       <div className={s.topActions}>
+        <button
+          ref={tracksBtn}
+          type="button"
+          className={`${s.action} ${s.tracksBtn}`}
+          aria-expanded={crateView !== 'page'}
+          onClick={(e) => openCrate('mini', e.currentTarget)}
+          title="Open the track list (/)"
+        >
+          Tracks <span className={s.tracksCount}>{tracks.length}</span>
+        </button>
         <button type="button" className={`${s.primaryBtn} ${s.browseBtn}`} aria-expanded={browsing} onClick={() => openBrowse()}>
           Browse music
         </button>
