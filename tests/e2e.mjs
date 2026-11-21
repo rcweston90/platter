@@ -297,6 +297,23 @@ if (!bState.playing) await B.getByRole('button', { name: 'Deck B play' }).click(
 await page.waitForTimeout(800);
 const bMeter = await page.$eval('[aria-label="Channel B level meter"] [class*="meterCover"]', (e) => parseFloat(e.style.height));
 check(bMeter < 95, `deck B still sounds with drums soloed (${bMeter.toFixed(0)}% covered, ${bState.title}${bState.playing ? '' : ', started'})`);
+// The row says the split worked, and each part's own meter shows what it plays.
+check(await stemsB.getByRole('status').filter({ hasText: 'Stems ready' }).isVisible(), 'deck B says "Stems ready" once split');
+const stemBars = async () => {
+  const best = { Vocals: 0, Drums: 0, Bass: 0, Other: 0 };
+  for (let i = 0; i < 6; i++) {
+    await page.waitForTimeout(100);
+    const now = await stemsB.getByRole('button').evaluateAll((bs) => bs.map((b) => [b.textContent, parseFloat(b.querySelector('[data-level]')?.dataset.level ?? 'NaN')]));
+    for (const [name, v] of now) if (name in best) best[name] = Math.max(best[name], v);
+  }
+  return best;
+};
+const soloBars = await stemBars();
+check(soloBars.Drums > 0.3 && soloBars.Vocals < 0.05 && soloBars.Bass < 0.05 && soloBars.Other < 0.05, `with drums soloed only the drums meter moves (${JSON.stringify(soloBars)})`);
+await stemsB.getByRole('button', { name: 'Hear every part' }).click();
+await page.waitForTimeout(300);
+const allBars = await stemBars();
+check(Object.values(allBars).every((v) => v > 0.3), `with every part on, every part's meter moves (${JSON.stringify(allBars)})`);
 // Muting every part has to be heard, not just shown on the buttons.
 await stemsB.getByRole('button', { name: 'Hear every part' }).click();
 for (const part of ['Vocals', 'Drums', 'Bass', 'Other']) await stemsB.getByRole('button', { name: part }).click();
@@ -307,6 +324,8 @@ for (let i = 0; i < 8; i++) {
   mutedMeter = Math.max(mutedMeter, 100 - (await page.$eval('[aria-label="Channel B level meter"] [class*="meterCover"]', (e) => parseFloat(e.style.height))));
 }
 check(mutedMeter < 3, `muting every part silences deck B (peak ${mutedMeter.toFixed(0)}% while ${bMeter < 95 ? 'it was sounding' : 'quiet'} before)`);
+const mutedBars = await stemBars();
+check(Object.values(mutedBars).every((v) => v < 0.05), `muted parts' meters drop to nothing (${JSON.stringify(mutedBars)})`);
 const cached = await page.evaluate(async () => {
   const keys = [];
   for (const name of await caches.keys()) for (const r of await (await caches.open(name)).keys()) keys.push(`${name} ${r.url}`);

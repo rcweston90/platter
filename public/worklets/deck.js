@@ -88,6 +88,7 @@ class DjDeckProcessor extends AudioWorkletProcessor {
     this.stemRatio = 1; // stem frames per track frame
     this.stemTarget = [1, 1, 1, 1]; // drums, bass, vocals, other
     this.stemGain = [1, 1, 1, 1];
+    this.stemPeak = [0, 0, 0, 0]; // each part's heard peak since the last report
     this.outL = 0;
     this.outR = 0;
     this.port.onmessage = (e) => this.message(e.data);
@@ -224,6 +225,32 @@ class DjDeckProcessor extends AudioWorkletProcessor {
     this.stemLen = 0;
     this.stemTarget = [1, 1, 1, 1];
     this.stemGain = [1, 1, 1, 1];
+    this.stemPeak = [0, 0, 0, 0];
+  }
+
+  /** What each part adds to the output at frame `p`, at gains `g` (drums,
+   *  bass, vocals, other): the peak since the last report, for the stems
+   *  row's meters. Nearest samples are plenty for a meter. */
+  meter(p, g) {
+    if (!(p >= 0 && p < this.length)) return;
+    const ip = p | 0;
+    let ol = this.left[ip];
+    let or = this.right[ip];
+    const si = (p * this.stemRatio) | 0;
+    const pk = this.stemPeak;
+    if (si < this.stemLen) {
+      for (let k = 0; k < 3; k++) {
+        const st = this.stems[k];
+        const l = st.left[si] * I16;
+        const r = st.right[si] * I16;
+        ol -= l;
+        or -= r;
+        const v = g[k] * Math.max(Math.abs(l), Math.abs(r));
+        if (v > pk[k]) pk[k] = v;
+      }
+    }
+    const v = g[3] * Math.max(Math.abs(ol), Math.abs(or));
+    if (v > pk[3]) pk[3] = v;
   }
 
   /** The track at fractional frame `p`, into outL/outR — stems mixed in at
@@ -279,7 +306,10 @@ class DjDeckProcessor extends AudioWorkletProcessor {
       playing: this.playing,
       // The shadow playhead, when it differs from the heard one.
       shadow: this.tracking() ? this.shadow : -1,
+      // Each part's peak since the last report (drums, bass, vocals, other).
+      stems: this.stems ? this.stemPeak : null,
     });
+    if (this.stems) this.stemPeak = [0, 0, 0, 0];
   }
 
   process(_inputs, outputs) {
@@ -366,6 +396,7 @@ class DjDeckProcessor extends AudioWorkletProcessor {
       }
       L[i] = l;
       R[i] = rr;
+      if (this.stems && (i & 3) === 0 && r !== 0) this.meter(pos, this.stemGain);
 
       const prev = pos;
       pos += r;

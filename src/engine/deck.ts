@@ -87,7 +87,7 @@ const clamp = (v: number, lo: number, hi: number) => Math.min(hi, Math.max(lo, v
 const frac = (v: number) => v - Math.floor(v);
 
 type WorkletMessage =
-  | { type: 'pos'; t: number; pos: number; rate: number; playing: boolean; shadow: number }
+  | { type: 'pos'; t: number; pos: number; rate: number; playing: boolean; shadow: number; stems?: number[] | null }
   | { type: 'ended' };
 
 /**
@@ -107,6 +107,8 @@ export class Deck {
 
   private engine: DjEngine | null = null;
   private node: AudioWorkletNode | null = null;
+  /** Stem peaks the worklet reported since takeStemLevels last ran. */
+  private readonly stemPeaks = [0, 0, 0, 0];
   /** The worklet holds this track's audio (false while merely armed). */
   private loaded = false;
   private dry: GainNode | null = null;
@@ -155,7 +157,10 @@ export class Deck {
     this.wet.connect(input);
     this.node.port.onmessage = (e: MessageEvent<WorkletMessage>) => {
       const m = e.data;
-      if (m.type === 'pos') this.rep = { t: m.t, pos: m.pos, rate: m.rate, shadow: m.shadow };
+      if (m.type === 'pos') {
+        this.rep = { t: m.t, pos: m.pos, rate: m.rate, shadow: m.shadow };
+        if (m.stems) for (let k = 0; k < 4; k++) this.stemPeaks[k] = Math.max(this.stemPeaks[k], m.stems[k]);
+      }
       else if (m.type === 'ended') this.store.set({ playing: false });
     };
     // A fresh worklet starts at rate 1: give it the fader and speed set
@@ -314,6 +319,15 @@ export class Deck {
     // Moved, not copied: a long track's stems run to hundreds of megabytes.
     const transfer = stems?.flatMap((s) => [s.left.buffer, s.right.buffer]) ?? [];
     this.post({ type: 'stems', stems, ratio: rate / this.sr }, transfer);
+  }
+
+  /** Each part's heard peak (drums, bass, vocals, other; 0 when muted or
+   *  stopped) since the last call — for the stems row's meters. */
+  takeStemLevels(): [number, number, number, number] {
+    const p = this.stemPeaks;
+    const out: [number, number, number, number] = [p[0], p[1], p[2], p[3]];
+    p.fill(0);
+    return out;
   }
 
   /** Per-part level, 0–1: drums, bass, vocals, other. */

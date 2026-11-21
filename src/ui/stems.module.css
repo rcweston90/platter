@@ -17,10 +17,42 @@
 
 /* A part you can't hear: struck through and faded. */
 .stem[aria-pressed='false'] {
-  opacity: 0.45;
+  color: var(--dj-dim);
   text-decoration: line-through;
 }
 
 .solo {
   border-style: dashed;
+}
+
+/* Split done: the row's label says so, in the deck's colour. */
+.ready {
+  color: var(--deck, var(--dj-play));
+  font-weight: 600;
+}
+.ready::before {
+  content: '✓ ';
+}
+
+/* Each part's live level, along the bottom of its button. */
+.stem {
+  position: relative;
+  overflow: hidden;
+}
+.meter {
+  position: absolute;
+  left: 6px;
+  right: 6px;
+  bottom: 5px;
+  height: 3px;
+  border-radius: 2px;
+  background: var(--dj-line-2);
+}
+.fill {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: var(--deck, var(--dj-play));
+  transform: scaleX(0);
+  transform-origin: left;
 }
