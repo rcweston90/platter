@@ -88,14 +88,24 @@ GitHub Actions).
   (Chrome and Edge) so the crate reads files in place. Title, artist, cover art and key come from the
   tags, or from an `Artist - Title` file name. Tempo, beat grid and key are
   analysed on import.
-- **Track list**: the crate opens in a mini window beside the decks
-  (**Tracks** in the top bar, or <kbd>/</kbd>) and expands to full screen,
-  with sources and the linked folder's subfolders down the side. Search,
-  sort and filters carry between the three. **Mix with** keeps to keys and
-  tempos that fit the deck you're on. Keyboard: <kbd>↑</kbd>/<kbd>↓</kbd>
-  pick, <kbd>←</kbd>/<kbd>→</kbd> load to deck A or B, <kbd>Enter</kbd>
-  loads to the idle deck, <kbd>+</kbd> queues for Auto-DJ; or drag a row
-  onto a deck. Long crates stay smooth: only the rows on screen are drawn.
+- **Library dock**: on a laptop or bigger, Platter fills the window like DJ
+  software. The waveforms stay pinned at the top, the decks and mixer scroll
+  in the middle, and the library is docked along the bottom, always in
+  reach. Drag the handle between them (or focus it and use the arrow keys)
+  to give either more room; double-click it to give the library the window.
+  The library's header shows decks A and B as drop targets, with the deck
+  <kbd>Enter</kbd> would load to marked **Next**. On a phone the library sits
+  under the decks.
+- **Track list**: search, sort by any column, and filter by source, folder
+  (down the side when there's room) or **Mix with**, which keeps to keys and
+  tempos that fit the deck you're on. With a deck loaded, every row shows its
+  tempo change and Camelot move from that deck (+1, −1, rel, +2…), green when
+  it's an easy mix. <kbd>/</kbd> jumps to the search from anywhere. The list
+  can also pop out into a mini window or go full screen; search, sort and
+  filters carry over. Keyboard: <kbd>↑</kbd>/<kbd>↓</kbd> pick,
+  <kbd>←</kbd>/<kbd>→</kbd> load to deck A or B, <kbd>Enter</kbd> loads to
+  the idle deck, <kbd>+</kbd> queues for Auto-DJ; or drag a row onto a deck.
+  Long crates stay smooth: only the rows on screen are drawn.
 - **Mashups**: every track in a linked folder is analysed in the background
   for tempo (with half and double time), key in Camelot, loudness (LUFS),
   energy (1–10) and beat grid. Sort and filter by any of them, pick a track
@@ -106,9 +116,10 @@ GitHub Actions).
   never audio) can be kept in sync with a folder, and `npm run library --
   <folder>` builds the same record from the terminal. See
   [library/README.md](library/README.md).
-- **Up next** (a tab beside the crate): for the track you're mixing out of,
-  the tracks that would follow it best, with the reasons and a button to load
-  one on the other deck. It reads the deck as it sounds now (tempo with the
+- **Up next** (a rail beside the crate on a wide window, and a tab): for the
+  track you're mixing out of, the tracks that would follow it best, each with
+  its score, Camelot move, tempo change and energy step, and A and B buttons
+  to load it (or drag it onto a deck). The tab adds the reasons in full. It reads the deck as it sounds now (tempo with the
   pitch fader, key with any key shift), weighs key, tempo (half and double
   time too) and energy, and lets you say where the energy should go: keep
   it level, build, or bring it down. Tracks you've played this session are

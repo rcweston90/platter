@@ -1,4 +1,5 @@
 import { useEffect, useId, useMemo, useRef } from 'react';
+import { useWidth } from '../library/dock';
 import type { DjSession } from '../../engine/session';
 import { useStore } from '../../engine/store';
 import { canLinkFolder } from '../../engine/folder';
@@ -12,6 +13,9 @@ import c from './crate.module.css';
 type Mode = 'page' | 'mini' | 'full';
 
 const KINDS: SourceKind[] = ['folder', 'file', 'soundcloud', 'audius', 'demo'];
+
+/** The browser's own width from which the library shows the sidebar. */
+const SIDEBAR_FROM = 860;
 
 /** Asks the open track list to put the cursor in its search field. */
 export const searchFocus = { request: 0, listeners: new Set<() => void>() };
@@ -32,6 +36,9 @@ export function TrackBrowser({ session, mode }: { session: DjSession; mode: Mode
   const search = useRef<HTMLInputElement>(null);
   const list = useRef<HTMLDivElement>(null);
   const searchId = useId();
+  const [outer, width] = useWidth();
+  // In the library, wide enough for the sources and folders as a sidebar.
+  const withSidebar = mode === 'full' || (mode === 'page' && width >= SIDEBAR_FROM);
 
   const rows = useMemo(() => filterTracks(tracks, st, rig.ref), [tracks, st, rig.ref?.bpm, rig.ref?.key]);
   const counts = useMemo(() => {
@@ -39,7 +46,7 @@ export function TrackBrowser({ session, mode }: { session: DjSession; mode: Mode
     tracks.forEach((t) => m.set(sourceOf(t), (m.get(sourceOf(t)) ?? 0) + 1));
     return m;
   }, [tracks]);
-  const folders = useMemo(() => (mode === 'full' ? foldersOf(tracks) : []), [tracks, mode]);
+  const folders = useMemo(() => (withSidebar ? foldersOf(tracks) : []), [tracks, withSidebar]);
   const showEnergy = useMemo(() => tracks.some((t) => energyOf(t) !== null), [tracks]);
   const analysing = tracks.filter((t) => t.status === 'analysing').length;
   const kinds = KINDS.filter((k) => counts.get(k));
@@ -62,7 +69,7 @@ export function TrackBrowser({ session, mode }: { session: DjSession; mode: Mode
     }
   };
 
-  const sourceChips = kinds.length > 1 && mode !== 'full' && (
+  const sourceChips = kinds.length > 1 && !withSidebar && (
     <div className={c.chips} role="group" aria-label="Source">
       <button type="button" className={c.chip} aria-pressed={!st.source} onClick={() => crateBrowser.set({ source: null })}>
         All <span className={c.count}>{tracks.length}</span>
@@ -84,7 +91,7 @@ export function TrackBrowser({ session, mode }: { session: DjSession; mode: Mode
 
   // Full screen shows the folder in its sidebar; elsewhere a folder picked
   // there would filter invisibly, so it gets a chip to take it off.
-  const folderChip = st.folder !== null && mode !== 'full' && (
+  const folderChip = st.folder !== null && !withSidebar && (
     <button
       type="button"
       className={c.chip}
@@ -223,14 +230,13 @@ export function TrackBrowser({ session, mode }: { session: DjSession; mode: Mode
             ✕
           </button>
         ) : (
-          mode !== 'page' && (
-            <kbd className={c.kbd} aria-hidden="true">
-              /
-            </kbd>
-          )
+          <kbd className={c.kbd} aria-hidden="true">
+            /
+          </kbd>
         )}
       </div>
       {mode === 'full' && <CrateActions session={session} />}
+      {mode === 'page' && <CrateActions session={session} overflow />}
     </div>
   );
 
@@ -266,72 +272,78 @@ export function TrackBrowser({ session, mode }: { session: DjSession; mode: Mode
     </div>
   );
 
-  const legend = mode !== 'page' && rows.length > 0 && (
+  const legend = rows.length > 0 && (
     <p className={c.legend} aria-hidden="true">
       <kbd>↑</kbd>
       <kbd>↓</kbd> pick <kbd>←</kbd> deck A <kbd>→</kbd> deck B <kbd>Enter</kbd>{' '}
       {rig.target === null ? 'both decks are playing' : `deck ${rig.target === 0 ? 'A' : 'B'}`}
-      {mode === 'full' && (
+      {mode !== 'mini' && (
         <>
           {' '}
-          <kbd>+</kbd> queue · drag a row onto a deck
+          <kbd>+</kbd> queue · or drag a row onto a deck
         </>
       )}
     </p>
   );
 
-  if (mode === 'full') {
-    return (
-      <div className={c.fullLayout}>
-        <nav className={c.sidebar} aria-label="Crate sections">
-          <p className={c.sideHead}>Sources</p>
+  const sidebar = (
+    <nav className={c.sidebar} aria-label="Crate sections">
+      <p className={c.sideHead}>Sources</p>
+      <ul className={c.sideList}>
+        <li>
+          <button type="button" className={c.sideItem} aria-pressed={!st.source && st.folder === null} onClick={() => crateBrowser.set({ source: null, folder: null })}>
+            All tracks <span className={c.count}>{tracks.length}</span>
+          </button>
+        </li>
+        {kinds.map((k) => (
+          <li key={k}>
+            <button
+              type="button"
+              className={c.sideItem}
+              data-kind={k}
+              aria-pressed={st.source === k && st.folder === null}
+              onClick={() => crateBrowser.set({ source: k, folder: null })}
+            >
+              <span className={c.dot} data-kind={k} aria-hidden="true" />
+              {SOURCE_LABEL[k]} <span className={c.count}>{counts.get(k)}</span>
+            </button>
+          </li>
+        ))}
+      </ul>
+      {folders.length > 1 && (
+        <>
+          <p className={c.sideHead}>Folders</p>
           <ul className={c.sideList}>
-            <li>
-              <button type="button" className={c.sideItem} aria-pressed={!st.source && st.folder === null} onClick={() => crateBrowser.set({ source: null, folder: null })}>
-                All tracks <span className={c.count}>{tracks.length}</span>
-              </button>
-            </li>
-            {kinds.map((k) => (
-              <li key={k}>
+            {folders.map((f) => (
+              <li key={f.path}>
                 <button
                   type="button"
                   className={c.sideItem}
-                  data-kind={k}
-                  aria-pressed={st.source === k && st.folder === null}
-                  onClick={() => crateBrowser.set({ source: k, folder: null })}
+                  style={{ paddingLeft: 12 + f.depth * 14 }}
+                  aria-pressed={st.folder === f.path}
+                  title={f.path || 'Top level of the linked folder'}
+                  onClick={() => crateBrowser.set({ folder: st.folder === f.path ? null : f.path, source: null })}
                 >
-                  <span className={c.dot} data-kind={k} aria-hidden="true" />
-                  {SOURCE_LABEL[k]} <span className={c.count}>{counts.get(k)}</span>
+                  <span className={c.folderName}>{f.name}</span> <span className={c.count}>{f.count}</span>
                 </button>
               </li>
             ))}
           </ul>
-          {folders.length > 1 && (
-            <>
-              <p className={c.sideHead}>Folders</p>
-              <ul className={c.sideList}>
-                {folders.map((f) => (
-                  <li key={f.path}>
-                    <button
-                      type="button"
-                      className={c.sideItem}
-                      style={{ paddingLeft: 12 + f.depth * 14 }}
-                      aria-pressed={st.folder === f.path}
-                      title={f.path || 'Top level of the linked folder'}
-                      onClick={() => crateBrowser.set({ folder: st.folder === f.path ? null : f.path, source: null })}
-                    >
-                      <span className={c.folderName}>{f.name}</span> <span className={c.count}>{f.count}</span>
-                    </button>
-                  </li>
-                ))}
-              </ul>
-            </>
-          )}
-        </nav>
+        </>
+      )}
+    </nav>
+  );
+
+  if (withSidebar) {
+    return (
+      <div ref={outer} className={c.fullLayout} data-mode={mode}>
+        {sidebar}
         <div className={c.main}>
           {toolbar}
-          <div className={c.filterRow}>{matchChips}</div>
-          {status}
+          <div className={c.filterRow}>
+            {matchChips}
+            <div className={c.filterStatus}>{status}</div>
+          </div>
           <div className={c.listArea}>{body}</div>
           {legend}
         </div>
@@ -340,14 +352,15 @@ export function TrackBrowser({ session, mode }: { session: DjSession; mode: Mode
   }
 
   return (
-    <div className={c.browser} data-mode={mode}>
+    <div ref={outer} className={c.browser} data-mode={mode}>
       {toolbar}
       <div className={c.filterRow}>
         {matchChips}
         {sourceChips}
         {folderChip}
+        {mode === 'page' && <div className={c.filterStatus}>{status}</div>}
       </div>
-      {status}
+      {mode !== 'page' && status}
       <div className={c.listArea}>{body}</div>
       {legend}
     </div>

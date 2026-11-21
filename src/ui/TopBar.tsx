@@ -6,6 +6,8 @@ import { useFrame, type FrameLoop } from './frame';
 import { browse, openBrowse } from './browse';
 import { openCrate } from './crate/CrateDock';
 import { crateBrowser, crateSlot } from './crate/model';
+import { focusCrateSearch } from './crate/TrackBrowser';
+import { useDocked } from './library/dock';
 import { MidiPanel } from './MidiPanel';
 import { saveFile } from './save';
 import { formatTime } from './Waveforms';
@@ -37,6 +39,7 @@ export function TopBar({ session, loop }: { session: DjSession; loop: FrameLoop 
   const { view: crateView } = useStore(crateBrowser);
   const { tracks } = useStore(session.crate);
   const tracksBtn = useRef<HTMLButtonElement>(null);
+  const docked = useDocked();
   useEffect(() => {
     const el = tracksBtn.current;
     crateSlot.set({ launcher: el });
@@ -77,9 +80,9 @@ export function TopBar({ session, loop }: { session: DjSession; loop: FrameLoop 
           ref={tracksBtn}
           type="button"
           className={`${s.action} ${s.tracksBtn}`}
-          aria-expanded={crateView !== 'page'}
-          onClick={(e) => openCrate('mini', e.currentTarget)}
-          title="Open the track list (/)"
+          aria-expanded={docked ? undefined : crateView !== 'page'}
+          onClick={(e) => (docked && crateView === 'page' ? focusCrateSearch() : openCrate('mini', e.currentTarget))}
+          title={docked ? 'Search the crate (/)' : 'Open the track list (/)'}
         >
           Tracks <span className={s.tracksCount}>{tracks.length}</span>
         </button>
