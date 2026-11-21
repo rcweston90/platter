@@ -80,6 +80,14 @@ GitHub Actions).
   (Chrome and Edge) so the crate reads files in place. Title, artist, cover art and key come from the
   tags, or from an `Artist - Title` file name. Tempo, beat grid and key are
   analysed on import.
+- **Track list**: the crate opens in a mini window beside the decks
+  (**Tracks** in the top bar, or <kbd>/</kbd>) and expands to full screen,
+  with sources and the linked folder's subfolders down the side. Search,
+  sort and filters carry between the three. **Mix with** keeps to keys and
+  tempos that fit the deck you're on. Keyboard: <kbd>↑</kbd>/<kbd>↓</kbd>
+  pick, <kbd>←</kbd>/<kbd>→</kbd> load to deck A or B, <kbd>Enter</kbd>
+  loads to the idle deck, <kbd>+</kbd> queues for Auto-DJ; or drag a row
+  onto a deck. Long crates stay smooth: only the rows on screen are drawn.
 - **Mashups**: every track in a linked folder is analysed in the background
   for tempo (with half and double time), key in Camelot, loudness (LUFS),
   energy (1–10) and beat grid. Sort and filter by any of them, pick a track
@@ -228,6 +236,7 @@ scripts/library.mjs  the same analysis from the terminal, writing library/tracks
 api/soundcloud.ts  Vercel Function: OAuth token exchange, API and media relay
 src/ui/         React: turntables, waveforms, phase meter, mixer, panels
 src/ui/beats/   pads, beat board and the Sounds browser
+src/ui/crate/   the track list: page, mini window and full screen
 public/sounds/cc0/  the CC0 recordings, fetched on first use
 ```
 

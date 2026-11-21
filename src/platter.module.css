@@ -113,6 +113,18 @@
   text-decoration: none;
 }
 
+.tracksBtn[aria-expanded='true'] {
+  border-color: var(--dj-text);
+}
+
+.tracksCount {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  font-weight: 500;
+  letter-spacing: 0;
+  color: var(--dj-dim);
+}
+
 /* ── Top bar ────────────────────────────────────────────────────────────── */
 
 .topBar {
@@ -2217,7 +2229,7 @@
 }
 
 @media (max-width: 560px) {
-  /* Browse music gets a full-width line; the other top-bar buttons share the next. */
+  /* Tracks and Browse music share the first line; the other top-bar buttons share the next. */
   .topActions {
     width: 100%;
   }
@@ -2226,8 +2238,9 @@
     flex: 1 1 0;
   }
 
-  .topActions > .browseBtn {
-    flex-basis: 100%;
+  .topActions > .browseBtn,
+  .topActions > .tracksBtn {
+    flex-basis: 40%;
   }
 
   .topActions > details > summary {
