@@ -7,7 +7,8 @@ import { DeckPanel } from './ui/DeckPanel';
 import { FrameLoop } from './ui/frame';
 import { usePrefersReducedMotion } from './ui/hooks';
 import { Mixer } from './ui/Mixer';
-import { PhaseMeter } from './ui/PhaseMeter';
+import { SyncStrip } from './ui/SyncStrip';
+import { WaveTag } from './ui/WaveTag';
 import { TopBar } from './ui/TopBar';
 import { MusicFlyout } from './ui/MusicFlyout';
 import { PadsAndBeats } from './ui/beats/PadsAndBeats';
@@ -234,16 +235,12 @@ export default function App() {
   const waves = (
     <div className={s.waves}>
       <div className={s.waveRow} data-deck="A">
-        <span className={s.waveTag} aria-hidden="true">
-          A
-        </span>
+        <WaveTag deck={deckA} />
         <ScrollingWave deck={deckA} loop={loop} zoom={zoom} label="Deck A waveform around the playhead" />
       </div>
-      <PhaseMeter decks={session.decks} loop={loop} />
+      <SyncStrip decks={session.decks} loop={loop} zoom={zoom} />
       <div className={s.waveRow} data-deck="B">
-        <span className={s.waveTag} aria-hidden="true">
-          B
-        </span>
+        <WaveTag deck={deckB} />
         <ScrollingWave deck={deckB} loop={loop} zoom={zoom} label="Deck B waveform around the playhead" />
       </div>
       <div className={s.zoom} role="group" aria-label="Waveform zoom">

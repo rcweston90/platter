@@ -353,9 +353,16 @@ export function DeckPanel({
             type="button"
             className={s.toggle}
             aria-pressed={st.sync}
+            data-leader={(!st.sync && other.sync) || undefined}
             disabled={!st.track || !st.bpm}
             onClick={() => deck.setSync(!st.sync)}
-            title="Match the other deck's tempo and line up the beats"
+            title={
+              st.sync
+                ? `Synced to deck ${deck.other?.label}: tempo and beats locked. Either fader moves both; a nudge is kept. Press to unlock.`
+                : other.sync
+                  ? `Deck ${deck.other?.label} follows this deck. Press to follow deck ${deck.other?.label} instead.`
+                  : "Lock to the other deck: match its tempo and keep the beats together"
+            }
           >
             Sync
           </button>

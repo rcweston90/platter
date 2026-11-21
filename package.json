@@ -15,6 +15,7 @@
     "typecheck": "tsc",
     "test:e2e": "node tests/e2e.mjs",
     "test:controls": "node tests/controls.mjs",
+    "test:sync": "node tests/sync.mjs",
     "artifact": "npm run build && node scripts/artifact.mjs",
     "test:stems": "node tests/stems.mjs",
     "test:returning-visitor": "node tests/returning-visitor.mjs",

@@ -100,6 +100,12 @@
   color: var(--dj-ink);
 }
 
+/* The leader's Sync: outlined, like its Leader tag on the waveform. */
+.toggle[data-leader] {
+  border-color: var(--deck, var(--dj-text));
+  color: var(--deck, var(--dj-text));
+}
+
 .mini:disabled,
 .toggle:disabled,
 .bigBtn:disabled,
@@ -290,11 +296,79 @@
   grid-column: 1;
 }
 
-.phase {
-  display: block;
+/* ── Sync strip: the beat ruler between the waveforms ─────────────────────── */
+
+.syncStrip {
+  position: relative;
   grid-column: 1;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  height: 30px;
+  padding-inline: 4px;
+}
+
+.syncRuler {
+  position: absolute;
+  inset: 0;
+  display: block;
   width: 100%;
-  height: 14px;
+  height: 100%;
+  border-radius: 3px;
+}
+
+/* The readouts sit at the ends, clear of the playhead in the middle. */
+.syncRead {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  max-width: calc(50% - 28px);
+  padding: 1px 7px;
+  overflow: hidden;
+  border-radius: 4px;
+  background: rgb(10 11 13 / 0.82);
+  color: var(--dj-dim);
+  font-family: var(--font-mono);
+  font-size: 12px;
+  line-height: 18px;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.syncRead[data-empty] {
+  visibility: hidden;
+}
+
+.syncRead[data-tone='ok'] {
+  color: var(--dj-play);
+}
+
+.syncRead[data-tone='warn'] {
+  color: var(--dj-cue);
+}
+
+.syncRead > span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.syncAct {
+  flex: none;
+  padding: 0 6px;
+  border: 1px solid currentColor;
+  border-radius: 3px;
+  background: none;
+  color: inherit;
+  font: 600 11px/16px var(--font-label);
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  cursor: pointer;
+}
+
+.syncAct:hover {
+  background: rgb(255 255 255 / 0.12);
 }
 
 .wave {
@@ -304,11 +378,18 @@
   border-radius: 4px;
 }
 
-.waveTag {
+.waveTags {
   position: absolute;
   top: 4px;
   left: 6px;
   z-index: 1;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  pointer-events: none;
+}
+
+.waveTag {
   padding: 0 6px;
   border-radius: 3px;
   background: var(--deck);
@@ -316,7 +397,42 @@
   font-family: var(--font-label);
   font-size: 13px;
   font-weight: 700;
-  pointer-events: none;
+}
+
+/* Leader: outlined in the deck's colour. Sync (follower): filled green,
+   the colour of a lit Sync lock, naming the deck it follows. */
+.waveRole,
+.waveBpm {
+  padding: 0 6px;
+  border-radius: 3px;
+  background: rgb(10 11 13 / 0.82);
+  font-family: var(--font-label);
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  line-height: 18px;
+  text-transform: uppercase;
+}
+
+.waveRole[data-role='leader'] {
+  box-shadow: inset 0 0 0 1px var(--deck);
+  color: var(--deck);
+}
+
+.waveRole[data-role='follower'] {
+  background: var(--dj-play);
+  color: var(--dj-ink);
+}
+
+.waveRole[data-waiting] {
+  opacity: 0.55;
+}
+
+.waveBpm {
+  color: var(--dj-text);
+  font-family: var(--font-mono);
+  font-weight: 500;
+  letter-spacing: 0;
 }
 
 .zoom {
@@ -2406,8 +2522,23 @@
     height: 44px;
   }
 
-  .phoneTop .phase {
-    height: 10px;
+  .phoneTop .syncStrip {
+    height: 18px;
+  }
+
+  .phoneTop .syncRead {
+    font-size: 10px;
+    line-height: 14px;
+  }
+
+  .phoneTop .syncAct {
+    display: none;
+  }
+
+  .phoneTop .waveRole,
+  .phoneTop .waveBpm {
+    font-size: 10px;
+    line-height: 14px;
   }
 
   .phoneTop .zoom {

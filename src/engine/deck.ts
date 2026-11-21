@@ -14,6 +14,15 @@ const SPEED_RATIO: Record<Speed, number> = { 33: 1, 45: 45 / (100 / 3) };
 const BEND = 0.04; // pitch-bend buttons: ±4%, like holding a finger to the platter edge
 const FALLBACK_BPM = 120; // beat-sized loops and jumps still work on an unanalysed track
 
+/* Sync lock: a synced deck keeps chasing the leader's beat, not just lining
+   it up once. Small drift is pulled back with a slight speed trim (inaudible
+   at these sizes); a big gap (the leader jumped to a cue, or was scratched)
+   is closed with one jump to the nearest beat, the way a quantised seek is. */
+const LOCK_DEADBAND = 0.003; // s heard — closer than this counts as together
+const LOCK_JUMP = 0.015; // s heard — further than this, one jump beats seconds of flamming
+const LOCK_TAU = 0.6; // s — the trim closes the gap over about this long
+const LOCK_MAX_TRIM = 0.015; // ±1.5% speed at most while trimming
+
 export interface DeckTrack {
   id: string;
   title: string;
@@ -40,7 +49,11 @@ export interface DeckState {
   /** Platter speed: 45 plays 1.35× faster on top of the pitch fader. */
   speed: Speed;
   keyLock: boolean;
+  /** Sync lock: this deck follows the other's tempo and beat. */
   sync: boolean;
+  /** Beats this deck sits ahead of the leader's beat while synced — set by
+   *  nudging either deck, kept by the lock. 0 = beats land together. */
+  syncOffset: number;
   quantize: boolean;
   bpm: number | null;
   gridOffset: number;
@@ -69,6 +82,7 @@ function initialState(): DeckState {
     speed: 33,
     keyLock: false,
     sync: false,
+    syncOffset: 0,
     quantize: true,
     bpm: null,
     gridOffset: 0,
@@ -84,7 +98,10 @@ function initialState(): DeckState {
 }
 
 const clamp = (v: number, lo: number, hi: number) => Math.min(hi, Math.max(lo, v));
-const frac = (v: number) => v - Math.floor(v);
+/** Into −½…½ — a phase difference, the short way round. */
+export const wrapHalf = (v: number) => v - Math.round(v);
+
+export type SyncRole = 'leader' | 'follower' | 'free';
 
 type WorkletMessage =
   | { type: 'pos'; t: number; pos: number; rate: number; playing: boolean; shadow: number; stems?: number[] | null }
@@ -98,7 +115,7 @@ type WorkletMessage =
  */
 export class Deck {
   readonly store: Store<DeckState> = createStore(initialState());
-  /** The other deck — the tempo and phase master when this one syncs. */
+  /** The other deck — the leader this one follows when it syncs. */
   other: Deck | null = null;
   /** Called when cues, tempo or grid change, so the crate can remember them. */
   onPersist?: (trackId: string, patch: Partial<Pick<TrackRecord, 'cues' | 'bpm' | 'gridOffset'>>) => void;
@@ -124,6 +141,12 @@ export class Deck {
   private previewing = false;
   private previewLatched = false;
   private taps: number[] = [];
+  /** Sync lock's speed trim, on top of bend. */
+  private trim = 0;
+  private trimKeyed = 0;
+  /** Follower beats per leader beat: 1, or 2 / ½ for a double- or half-time match. */
+  private mul = 1;
+  private lastLockJump = -Infinity;
 
   constructor(readonly index: 0 | 1) {}
 
@@ -160,12 +183,14 @@ export class Deck {
       if (m.type === 'pos') {
         this.rep = { t: m.t, pos: m.pos, rate: m.rate, shadow: m.shadow };
         if (m.stems) for (let k = 0; k < 4; k++) this.stemPeaks[k] = Math.max(this.stemPeaks[k], m.stems[k]);
+        if (this.store.get().sync) this.lockStep();
       }
       else if (m.type === 'ended') this.store.set({ playing: false });
     };
     // A fresh worklet starts at rate 1: give it the fader and speed set
     // before the audio engine existed.
     this.post({ type: 'pitch', value: this.motor() });
+    this.trim = 0;
     this.post({ type: 'bend', value: this.bend });
     // Key lock or a key shift remembered from last time needs the stretcher.
     const st = this.store.get();
@@ -181,12 +206,27 @@ export class Deck {
   /** Playhead in track seconds as it is being heard — output latency and the
    *  key-lock stretcher's delay accounted for. */
   position(): number {
+    return this.positionAt(this.engine?.now() ?? 0);
+  }
+
+  /** The heard playhead at context time `t`. Sync measures both decks at the
+   *  same instant, so the clock's jitter cancels out. */
+  private positionAt(t: number): number {
     const { track, cue } = this.store.get();
     if (!track) return 0;
     if (!this.engine || !this.loaded) return cue;
-    let frames = this.rep.pos + this.rep.rate * (this.engine.now() - this.rep.t) * this.sr;
+    let frames = this.rep.pos + this.rep.rate * (t - this.rep.t) * this.sr;
     if (this.wetOn) frames -= this.stretchLatency * this.rep.rate * this.sr;
     return clamp(frames / this.sr, 0, track.duration);
+  }
+
+  /** Beats since the grid's first beat at the heard playhead (fractional;
+   *  every fourth is a bar's 1), or null without a tempo. */
+  beatPosition(at?: number): number | null {
+    const { bpm, gridOffset } = this.store.get();
+    if (!bpm) return null;
+    const pos = at === undefined ? this.position() : this.positionAt(at);
+    return (pos - gridOffset) / (60 / bpm);
   }
 
   /** Where slip mode will return to, in track seconds, while it differs from
@@ -194,7 +234,7 @@ export class Deck {
   slipPosition(): number | null {
     const { track, playing } = this.store.get();
     if (!track || !this.engine || this.rep.shadow < 0) return null;
-    const motor = playing ? this.motor() + this.bend : 0;
+    const motor = playing ? this.motor() + this.bend + this.trim : 0;
     const frames = this.rep.shadow + motor * (this.engine.now() - this.rep.t) * this.sr;
     return clamp(frames / this.sr, 0, track.duration);
   }
@@ -225,8 +265,9 @@ export class Deck {
   }
 
   /** The motor's speed as a playback rate: pitch fader × platter speed
-   *  (1 = the record as cut). Bend rides on top of this. */
-  private motor(): number {
+   *  (1 = the record as cut). Bend rides on top of this. The waveforms scroll
+   *  at this rate so both decks are drawn in heard time. */
+  motor(): number {
     const { pitch, speed } = this.store.get();
     return (1 + pitch) * SPEED_RATIO[speed];
   }
@@ -308,7 +349,14 @@ export class Deck {
     this.post({ type: 'loop', in: -1, out: -1 });
     this.post({ type: 'slip', on: this.store.get().slip });
     this.post({ type: 'seek', frame: rec.cues.main * this.sr });
-    this.followTempo();
+    this.store.set({ syncOffset: 0 });
+    const o = this.other;
+    if (!this.store.get().sync && o?.store.get().sync && o.store.get().playing) {
+      // A new track on the leader while its follower plays: whoever is
+      // playing keeps its tempo, so the new track follows it instead.
+      o.setSync(false);
+      this.setSync(true);
+    } else this.followTempo(true);
   }
 
   /** Stems for the loaded track (drums, bass, vocals as 16-bit PCM at
@@ -347,8 +395,8 @@ export class Deck {
     }
     if (patch.key !== undefined && s.key == null) next.key = patch.key;
     this.store.set(next);
-    this.followTempo();
-    this.other?.followTempo();
+    this.followTempo(true);
+    this.other?.followTempo(true);
   }
 
   eject() {
@@ -371,9 +419,16 @@ export class Deck {
       this.previewLatched = true;
       return;
     }
-    const synced = s.sync && this.other?.store.get().playing;
-    if (synced) this.alignPhase();
-    this.post({ type: 'play', instant: !!synced });
+    // Starting under a playing partner: line up with it first and start at
+    // full speed, so the beats land together from the first one. A follower
+    // moves to the leader's beat; a leader to its playing follower's.
+    const o = this.other;
+    const partnerPlaying = !!o?.store.get().playing;
+    const follows = s.sync && partnerPlaying;
+    const leads = !s.sync && partnerPlaying && !!o?.store.get().sync;
+    if (follows) this.alignPhase();
+    else if (leads) this.alignToFollower(o!);
+    this.post({ type: 'play', instant: follows || leads });
     this.store.set({ playing: true, error: null });
   }
 
@@ -572,10 +627,35 @@ export class Deck {
 
   /* ── Pitch, bend, key lock ────────────────────────────────────────────── */
 
-  /** The pitch fader. Moving it by hand takes the deck out of sync. */
+  /** The pitch fader. While synced the two decks share one tempo, so a
+   *  synced deck's fader moves the leader too (as Mixxx's sync lock does). */
   setPitch(pitch: number) {
-    if (this.store.get().sync) this.store.set({ sync: false });
-    this.applyPitch(pitch, this.store.get().range);
+    const s = this.store.get();
+    const m = s.sync ? this.leaderDeck() : null;
+    if (m && s.bpm) {
+      const p = clamp(pitch, -s.range, s.range);
+      m.setHeardBpm((s.bpm * (1 + p) * SPEED_RATIO[s.speed]) / this.mul);
+      return;
+    }
+    this.applyPitch(pitch, s.range);
+  }
+
+  /** Play at this tempo (as heard), widening the pitch range if it has to. */
+  private setHeardBpm(heard: number) {
+    const t = this.pitchFor(heard);
+    if (t) this.applyPitch(t.pitch, t.range);
+  }
+
+  private pitchFor(heard: number): { pitch: number; range: number } | null {
+    const s = this.store.get();
+    if (!s.bpm) return null;
+    const pitch = heard / (s.bpm * SPEED_RATIO[s.speed]) - 1;
+    let range = s.range;
+    for (const r of PITCH_RANGES) {
+      if (Math.abs(pitch) <= range) break;
+      range = r;
+    }
+    return { pitch, range };
   }
 
   private applyPitch(pitch: number, range: number) {
@@ -590,6 +670,8 @@ export class Deck {
    *  unless it falls outside the new range, which clamps it. */
   setRange(range: number) {
     this.applyPitch(this.store.get().pitch, range);
+    // A synced deck keeps the leader's tempo even if the new range is narrow.
+    this.followTempo();
   }
 
   /** 33 or 45 rpm. 45 runs 1.35× fast on top of the pitch fader. A synced
@@ -597,7 +679,7 @@ export class Deck {
   setSpeed(speed: Speed) {
     if (this.store.get().speed === speed) return;
     this.store.set({ speed });
-    if (this.store.get().sync && this.master()) this.followTempo();
+    if (this.store.get().sync && this.leaderDeck()) this.followTempo();
     else this.applyPitch(this.store.get().pitch, this.store.get().range);
   }
 
@@ -607,9 +689,17 @@ export class Deck {
 
   /** −1, 0 or 1: the nudge buttons (or a hand on the platter's edge). */
   setBend(dir: number) {
+    const was = this.bend;
     this.bend = dir * BEND;
-    this.post({ type: 'bend', value: this.bend });
+    this.post({ type: 'bend', value: this.bend + this.trim });
     this.applyKeyLock();
+    // Nudging either deck of a synced pair moves where the beats sit
+    // relative to each other; the lock keeps that new offset (for a grid
+    // that's a hair off, say) until Sync is pressed again.
+    if (was && !dir) {
+      if (this.store.get().sync) this.keepOffset();
+      else if (this.other?.store.get().sync) this.other.keepOffset();
+    }
   }
 
   /** Move the key up or down in semitones, independent of tempo. */
@@ -678,7 +768,7 @@ export class Deck {
     const shifting = s.keyLock || s.keyShift !== 0;
     const wantWet = shifting && !!this.stretch && !this.touched;
     if (this.stretch && shifting) {
-      const lock = s.keyLock ? -12 * Math.log2(this.motor() + this.bend) : 0;
+      const lock = s.keyLock ? -12 * Math.log2(this.motor() + this.bend + this.trim) : 0;
       void this.stretch.schedule({ active: true, semitones: lock + s.keyShift });
     }
     if (wantWet === this.wetOn) return;
@@ -690,47 +780,174 @@ export class Deck {
   }
 
   /* ── Sync ─────────────────────────────────────────────────────────────── */
+  /*
+   * One deck at a time follows (Sync lit); the other is the leader. The
+   * follower matches the leader's tempo — at double or half time when one
+   * track is twice the other's — and keeps its beat on the leader's for as
+   * long as Sync is on: through the leader's tempo changes, cue jumps, loops
+   * and scratches. Either fader moves both. Pressing Sync on the leader swaps
+   * roles; loading a new track on the leader while its follower plays hands
+   * the lead to the deck that's playing.
+   */
 
-  private master(): Deck | null {
+  /** The deck this one follows when synced: the other, once it has a tempo. */
+  private leaderDeck(): Deck | null {
     const o = this.other;
     return o && o.store.get().track && o.store.get().bpm ? o : null;
   }
 
+  syncRole(): SyncRole {
+    if (this.store.get().sync) return 'follower';
+    return this.other?.store.get().sync ? 'leader' : 'free';
+  }
+
+  /** Follower beats per leader beat: 1, 2 or ½. */
+  syncMultiple(): number {
+    return this.mul;
+  }
+
   setSync(on: boolean) {
-    if (on && this.other?.store.get().sync) this.other.store.set({ sync: false });
-    this.store.set({ sync: on });
+    const o = this.other;
+    if (on && o?.store.get().sync) o.setSync(false);
+    this.store.set({ sync: on, syncOffset: 0 });
+    this.setTrim(0);
     if (!on) return;
-    this.followTempo();
-    if (this.store.get().playing && this.other?.store.get().playing) this.alignPhase();
+    this.followTempo(true);
+    if (this.store.get().playing && o?.store.get().playing) this.alignPhase();
   }
 
-  /** Match the master's tempo, widening the pitch range if it has to. */
-  followTempo() {
+  /** Forget a nudged offset: the beats land together again. */
+  resetSyncOffset() {
+    this.store.set({ syncOffset: 0 });
+  }
+
+  /** Match the leader's tempo, widening the pitch range if it has to.
+   *  `repick` (a new track or tempo) chooses again between straight, double
+   *  and half time. */
+  followTempo(repick = false) {
     const s = this.store.get();
-    const m = this.master();
+    const m = this.leaderDeck();
     if (!s.sync || !m || !s.bpm) return;
-    const target = m.effectiveBpm()! / (s.bpm * SPEED_RATIO[s.speed]) - 1;
-    let range = s.range;
-    for (const r of PITCH_RANGES) {
-      if (Math.abs(target) <= range) break;
-      range = r;
+    const lead = m.effectiveBpm()!;
+    if (repick) {
+      const own = s.bpm * SPEED_RATIO[s.speed];
+      this.mul = 2 ** clamp(Math.round(Math.log2(own / lead)), -1, 1);
     }
-    this.applyPitch(target, range);
+    this.setHeardBpm(lead * this.mul);
   }
 
-  /** Move this deck's playhead so its beats land on the master's. */
+  /** The follower is on the leader's tempo (false while its pitch range
+   *  can't reach it). */
+  tempoLocked(): boolean {
+    const m = this.leaderDeck();
+    const mine = this.effectiveBpm();
+    if (!this.store.get().sync || !m || !mine) return false;
+    return Math.abs(mine - m.effectiveBpm()! * this.mul) < 0.05;
+  }
+
+  /** How far this deck's beat is from where sync wants it, in this deck's
+   *  beats (−½…½; positive = early). Null when there's nothing to measure. */
+  phaseError(at?: number): number | null {
+    const m = this.leaderDeck();
+    const mine = this.beatPosition(at);
+    const theirs = m?.beatPosition(at);
+    if (mine == null || theirs == null) return null;
+    return wrapHalf(mine - theirs * this.mul - this.store.get().syncOffset);
+  }
+
+  /** Whole beats this deck's bar is ahead of the leader's (−1…2; 0 = the 1s
+   *  land together), or null when there's nothing to measure. */
+  barOffset(): number | null {
+    const m = this.leaderDeck();
+    const mine = this.beatPosition();
+    const theirs = m?.beatPosition();
+    if (mine == null || theirs == null) return null;
+    const d = (((Math.round(mine - theirs * this.mul - this.store.get().syncOffset)) % 4) + 4) % 4;
+    return d > 2 ? d - 4 : d;
+  }
+
+  /** Jump by whole beats so this deck's bars start with the leader's. */
+  alignBars() {
+    const off = this.barOffset();
+    if (!off || !this.ready()) return;
+    this.shift(-off * this.beatLength());
+  }
+
+  /** Move this deck's playhead so its beats land on the leader's. */
   private alignPhase() {
+    const e = this.phaseError();
+    if (e !== null && Math.abs(e) > 0.004) this.shift(-e * this.beatLength());
+  }
+
+  /** This (leader) deck is starting under its playing follower: move to meet it. */
+  private alignToFollower(f: Deck) {
+    const e = f.phaseError();
+    if (e !== null && Math.abs(e) > 0.004) this.shift((e / f.mul) * this.beatLength());
+  }
+
+  /** After a nudge: keep wherever the beats now sit as the lock's offset. */
+  private keepOffset() {
+    const e = this.phaseError();
+    if (e === null) return;
+    this.store.set({ syncOffset: wrapHalf(this.store.get().syncOffset + e) });
+  }
+
+  /** Whole-beat loops and rolls keep the phase; shorter ones don't, so the
+   *  lock waits them out. */
+  private holdsPhase(st: DeckState, mul: number) {
+    if (st.reverse) return false;
+    if (st.roll !== null && (st.roll * mul) % 1) return false;
+    if (st.loop.active && (st.loop.beats * mul) % 1) return false;
+    return true;
+  }
+
+  /** Runs on each playhead report while synced: hold the beat on the leader's. */
+  private lockStep() {
     const s = this.store.get();
-    const m = this.master();
-    if (!m || !s.bpm) return;
-    const ms = m.store.get();
-    const beat = 60 / s.bpm;
-    const mine = frac((this.position() - s.gridOffset) / beat);
-    const theirs = frac((m.position() - ms.gridOffset) / (60 / ms.bpm!));
-    let d = theirs - mine;
-    if (d > 0.5) d -= 1;
-    if (d < -0.5) d += 1;
-    if (Math.abs(d) > 0.004) this.shift(d * beat);
+    const m = this.leaderDeck();
+    const ms = m?.store.get();
+    const t = this.rep.t;
+    const steady =
+      !!m &&
+      !!ms &&
+      !!this.engine &&
+      s.playing &&
+      ms.playing &&
+      !this.previewing &&
+      !this.touched &&
+      this.bend === 0 &&
+      m.bend === 0 &&
+      this.rep.shadow < 0 &&
+      this.holdsPhase(s, 1) &&
+      m.holdsPhase(ms, this.mul) &&
+      // Both turning at motor speed: not scratched, braking or spinning up.
+      Math.abs(m.rep.rate - m.motor() - m.trim) < 0.01 &&
+      Math.abs(this.rep.rate - this.motor() - this.trim) < 0.02;
+    if (!steady) return this.setTrim(0);
+    const e = this.phaseError(t);
+    if (e === null) return this.setTrim(0);
+    const beat = this.beatLength();
+    const heard = (e * beat) / this.motor();
+    if (Math.abs(heard) > LOCK_JUMP) {
+      if (t - this.lastLockJump > 0.4) {
+        this.lastLockJump = t;
+        this.shift(-e * beat);
+      }
+      return this.setTrim(0);
+    }
+    if (t - this.lastLockJump < 0.1) return; // let the jump land before trimming
+    this.setTrim(Math.abs(heard) < LOCK_DEADBAND ? 0 : clamp((-e * beat) / LOCK_TAU, -LOCK_MAX_TRIM, LOCK_MAX_TRIM));
+  }
+
+  private setTrim(v: number) {
+    if (v === this.trim) return;
+    this.trim = v;
+    this.post({ type: 'bend', value: this.bend + this.trim });
+    // Key lock compensates the trim too, so the key doesn't waver.
+    if (Math.abs(v - this.trimKeyed) > 0.001 || v === 0) {
+      this.trimKeyed = v;
+      this.applyKeyLock();
+    }
   }
 
   /* ── Tempo and grid edits ─────────────────────────────────────────────── */
@@ -770,8 +987,8 @@ export class Deck {
     const { track } = this.store.get();
     this.store.set({ bpm, gridOffset });
     if (track) this.onPersist?.(track.id, { bpm, gridOffset });
-    this.followTempo();
-    this.other?.followTempo();
+    this.followTempo(true);
+    this.other?.followTempo(true);
   }
 
   /* ── The platter ──────────────────────────────────────────────────────── */
