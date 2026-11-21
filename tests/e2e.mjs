@@ -63,6 +63,15 @@ const errors = [];
 page.on('pageerror', (e) => errors.push(e.message));
 page.on('console', (m) => m.type() === 'error' && errors.push(m.text()));
 
+// Stems: the 170 MB HTDemucs model is swapped for a stand-in with the same
+// shapes (tests/fixtures/make-fake-demucs.py). Routed from the start, since
+// auto-split fetches it as soon as a file is added.
+const modelRequests = [];
+await page.route('https://huggingface.co/**', (route) => {
+  modelRequests.push(route.request().method());
+  return route.fulfill({ status: 200, contentType: 'application/octet-stream', body: readFileSync(new URL('./fixtures/fake-demucs.onnx', import.meta.url)) });
+});
+
 await page.goto(URL_, { waitUntil: 'networkidle' });
 const A = page.locator('section[aria-label="Deck A"]');
 const B = page.locator('section[aria-label="Deck B"]');
@@ -118,6 +127,16 @@ await page.locator('tbody tr', { hasText: 'Kick Loop' }).waitFor({ timeout: 1500
 await page.waitForFunction(() => !document.body.textContent.includes('analysing…'), null, { timeout: 30000 });
 const row = await page.locator('tbody tr', { hasText: 'Kick Loop' }).textContent();
 check(/Test Artist/.test(row) && /120\.0/.test(row), `imported file reads as Test Artist, 120 BPM (${row.replace(/\s+/g, ' ').trim()})`);
+// Auto-split: the added file is queued for stems at once. Here (no GPU) it waits while deck A plays,
+// so the audio thread isn't starved; on a GPU it would carry on.
+const stemsChip = page.locator('tbody tr', { hasText: 'Kick Loop' }).locator('[class*="stems"]').first();
+await page.waitForFunction(() => ['waiting', 'running', 'done'].includes(window.platter.presplit.store.get().phase), null, { timeout: 15000 }).catch(() => undefined);
+const chip = ((await stemsChip.textContent().catch(() => '')) ?? '').trim();
+const split = await page.evaluate(() => window.platter.presplit.store.get());
+check(
+  split.total === 1 && (chip === 'Stems' || (chip === 'Stems queued' && split.waitingFor === 'deck') || chip.startsWith('Stems ')),
+  `the added file is queued for auto-split (row: "${chip}", ${split.phase}${split.waitingFor ? ` for ${split.waitingFor}` : ''})`,
+);
 
 // Record three seconds, then save.
 await page.getByRole('button', { name: 'Record the mix' }).click();
@@ -295,19 +314,15 @@ check((await page.locator('[role="tabpanel"] li').count()) >= 1, 'the recorded m
 // ── Stems: the 170 MB HTDemucs model is swapped for a stand-in with the same
 // shapes (tests/fixtures/make-fake-demucs.py), so the whole path runs: worker,
 // ONNX Runtime, the split, the worklet mix. ──
-const modelRequests = [];
 const otherDuringSplit = [];
-await page.route('https://huggingface.co/**', (route) => {
-  modelRequests.push(route.request().method());
-  return route.fulfill({ status: 200, contentType: 'application/octet-stream', body: readFileSync(new URL('./fixtures/fake-demucs.onnx', import.meta.url)) });
-});
 const watchUploads = (req) => req.method() !== 'GET' && otherDuringSplit.push(`${req.method()} ${req.url()}`);
 page.on('request', watchUploads);
 const stemsB = page.getByRole('group', { name: 'Deck B stems' });
-await stemsB.getByRole('button', { name: 'Split' }).click();
+const bTrack = await page.evaluate(() => window.platter.decks[1].store.get().track?.title);
+await stemsB.getByRole('button', { name: /^(Split|Load stems)$/ }).click();
 await stemsB.getByRole('button', { name: 'Vocals' }).waitFor({ timeout: 60000 });
 page.off('request', watchUploads);
-check(modelRequests.length === 1 && modelRequests[0] === 'GET', 'splitting deck B fetches the separation model once');
+check(modelRequests.length === 1 && modelRequests[0] === 'GET', `the separation model is fetched once, for auto-split and deck B's split of ${bTrack} together`);
 check(otherDuringSplit.length === 0, `nothing is sent anywhere while splitting${otherDuringSplit.length ? `: ${otherDuringSplit.join(', ')}` : ''}`);
 await stemsB.getByRole('button', { name: 'Vocals' }).click();
 await stemsB.getByRole('button', { name: 'Drums' }).click({ modifiers: ['Shift'] });
@@ -352,7 +367,11 @@ const cached = await page.evaluate(async () => {
   for (const name of await caches.keys()) for (const r of await (await caches.open(name)).keys()) keys.push(`${name} ${r.url}`);
   return keys.filter((k) => !k.startsWith('platter-v1 '));
 });
-check(cached.length === 1 && cached[0].includes('huggingface.co'), `only the model is cached, never stems or audio (${cached.join(', ')})`);
+check(cached.length === 1 && cached[0].includes('huggingface.co'), `only the model is in Cache Storage (${cached.join(', ')})`);
+// Deck B's split is kept (in the browser's own storage, for a dropped file), so the row says Stems.
+await page.waitForFunction(() => Object.values(window.platter.presplit.rows.get()).some((r) => r.state === 'ready'), null, { timeout: 10000 }).catch(() => undefined);
+const kept = await page.evaluate(() => ({ rows: JSON.stringify(window.platter.presplit.rows.get()), msg: window.platter.presplit.store.get().message }));
+check(/"ready"/.test(kept.rows), `deck B’s split is kept, so Kick Loop shows Stems in the crate (${kept.rows}${kept.msg ? `, ${kept.msg}` : ''})`);
 await stemsB.getByRole('button', { name: 'Hear every part' }).click();
 
 // ── Audius (API mocked: the test shouldn't depend on the network) ──

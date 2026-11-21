@@ -53,14 +53,25 @@ GitHub Actions).
   own files can be split; SoundCloud tracks never (its API terms forbid AI
   source separation); Audius tracks only under a Creative Commons license
   that allows adaptations.
-- **Pre-split stems** (Mashups tab, once a music folder is linked): Platter
-  splits the folder's tracks in the background while it's open and saves the
-  stems next to your music, in `Platter Stems/` inside the linked folder
-  (Opus at 256 kb/s, about 30 MB a five-minute track), so Split loads them at
-  once. It never starts a track while a deck is playing, a deck's own Split
-  goes first, Pause holds it across restarts, and a file that changes is split
-  again. The stems stay on your computer: not in the browser, the repo or any
-  server. Delete the folder to get the space back.
+- **Auto-split stems** (on by default; Pause or Turn off in the Mashups
+  tab): every track you add from your own files is split into stems in the
+  background, so Split on a deck loads them at once. A deck's own track goes
+  first, then the newest added. Each row in the crate shows its stems
+  (queued, splitting with a percentage, saving, ready) and the crate's
+  status bar shows the queue. On the GPU it carries on while you play; on the
+  CPU it waits for the decks to stop, so the audio never stutters. A deck that
+  presses Split on the track being split joins that split instead of starting
+  again, and a file that changes is split again. Stems are kept as Opus at
+  256 kb/s, about 30 MB a five-minute track: for a linked folder, in
+  `Platter Stems/` next to your music once you choose "Keep in music folder"
+  (the browser asks), otherwise in the browser's own private storage for this
+  site, by file fingerprint, so the same file added twice is split once.
+  Nothing is uploaded.
+- **Splitting speed**: while the model works on one 7.8 s window (on the
+  GPU), the next window's spectrogram and the last one's output are worked
+  out alongside it, with an FFT that transforms both stereo channels at once
+  (`stems/spectral.ts`, the same numbers as demucs-web to about 1e-7, 2 to 3
+  times faster), so our own JavaScript adds little to the model's time.
 
 **Harmonic mixing**
 - Each track's key is detected (or read from its tags) and shown in Camelot
@@ -307,7 +318,8 @@ src/engine/
   autodj.ts     queue and automatic transitions
   audius.ts     Audius search, trending and streaming
   stems/        stem separation: which tracks may be split, the worker, the HTDemucs loop,
-                pre-splitting (presplit.ts) and the saved-stems file (stemfile.ts, codec.ts, saved.ts)
+                the spectrogram in and out (spectral.ts), auto-splitting (presplit.ts) and the
+                saved-stems file (stemfile.ts, codec.ts, saved.ts)
   soundcloud.ts SoundCloud sign-in (PKCE), browsing, streaming, licence checks
   folder.ts     linked music folders (File System Access)
 src/slicer/      the slicer: the project model (model.ts), slicing and WAV

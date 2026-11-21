@@ -12,9 +12,10 @@
  *     reserved" and the No-Derivatives licenses stay whole.
  *
  * Stems live in memory with the deck, for as long as that track is on it.
- * Tracks from a linked music folder can also be split ahead of time and
- * saved next to the music (presplit.ts, saved.ts), so Split loads them at
- * once. Nothing is uploaded, and nothing from Audius or SoundCloud is saved.
+ * Your own tracks are also split in the background as they're added and the
+ * stems kept, in the browser or next to the music (presplit.ts, saved.ts),
+ * so Split loads them at once. Nothing is uploaded, and nothing from Audius
+ * or SoundCloud is saved.
  */
 import type { Deck } from '../deck';
 import { createStore, type Store } from '../store';
@@ -64,6 +65,11 @@ export interface SavedStemsHook {
   has(trackId: string): Promise<boolean>;
   /** The saved stems, decoded, or null. */
   load(trackId: string): Promise<{ stems: StemPcm[]; rate: number } | null>;
+  /** The background is splitting this track right now: wait for it (a copy
+   *  of its stems; null if it stopped). Null when it isn't. */
+  join?(trackId: string, progress: (phase: 'download' | 'prepare' | 'separate', p: number) => void): Promise<StemPcm[] | null> | null;
+  /** Calls back once this track's stems are saved. Returns an unsubscribe. */
+  watch?(trackId: string, fn: () => void): () => void;
   /** A deck is about to split live: background splitting steps aside. */
   beforeSplit(): void;
   /** Would a live split of this track be worth saving? */
@@ -108,6 +114,10 @@ export class DeckStems {
   readonly store: Store<StemsState> = createStore(initial());
   private trackId: string | null = null;
   private job: number | null = null;
+  private unwatch: (() => void) | null = null;
+  /** Waiting on the background's split of this track (a number, so a cancel can drop it). */
+  private joining: number | null = null;
+  private joins = 0;
 
   /**
    * `decode` gives the track's audio at 44.1 kHz stereo, decoded afresh
@@ -137,13 +147,22 @@ export class DeckStems {
     else this.store.set({ status: allowed ? 'idle' : 'blocked', message: reason });
     if (allowed && this.saved) {
       const id = rec.id;
-      void this.saved.has(id).then((has) => {
-        if (has && this.trackId === id) this.store.set({ saved: true });
-      });
+      const mark = () => {
+        if (this.trackId !== id) return;
+        this.store.set({ saved: true });
+        this.unwatch?.();
+        this.unwatch = null;
+      };
+      void this.saved.has(id).then((has) => has && mark());
+      // Split in the background while it sits here: Split becomes instant.
+      this.unwatch = this.saved.watch?.(id, mark) ?? null;
     }
   }
 
   private reset(trackId: string | null) {
+    this.joining = null;
+    this.unwatch?.();
+    this.unwatch = null;
     if (this.job !== null) {
       send({ type: 'cancel', id: this.job });
       listeners.delete(this.job);
@@ -164,11 +183,28 @@ export class DeckStems {
       if (this.trackId !== trackId) return;
       if (found) {
         this.deck.setStems(found.stems, found.rate);
-        this.store.set({ status: 'ready', progress: 1, backend: null, seconds: null });
+        this.store.set({ status: 'ready', progress: 1, backend: null, seconds: null, message: null });
         this.applyGains();
         return;
       }
       this.store.set({ saved: false });
+      // Being split in the background right now: wait for that, not a second split.
+      const joined = this.saved.join?.(trackId, (phase, progress) => {
+        if (this.trackId === trackId) this.store.set({ status: phase, progress });
+      });
+      if (joined) {
+        const token = (this.joining = ++this.joins);
+        const stems = await joined;
+        if (this.trackId !== trackId || this.joining !== token) return;
+        this.joining = null;
+        if (stems) {
+          this.deck.setStems(stems, STEM_RATE);
+          this.store.set({ status: 'ready', progress: 1, seconds: null, message: 'Split in the background, as the track came in.' });
+          this.applyGains();
+          return;
+        }
+        this.store.set({ status: 'prepare', progress: 0 });
+      }
     }
     this.saved?.beforeSplit();
     let buf: AudioBuffer;
@@ -188,6 +224,11 @@ export class DeckStems {
   }
 
   cancel() {
+    if (this.joining !== null) {
+      this.joining = null;
+      this.store.set({ status: 'idle', message: null, progress: 0 });
+      return;
+    }
     if (this.job === null) return;
     const id = this.trackId;
     this.reset(id);

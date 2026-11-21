@@ -1,10 +1,12 @@
 /**
  * The pre-split queue in Node, with the browser parts stood in for: an
  * in-memory music folder (File System Access API), a fake stems worker and
- * decoder, and a fake session (crate, decks, library). Checks what it splits,
- * what it skips, where the files go, that a changed file is split again, that
- * it waits while a deck plays, pause/resume, a deck's Split going first, and
- * that saved stems load back.
+ * decoder, the browser's private storage, and a fake session (crate, decks,
+ * library). Checks that it's on by default, what it splits and skips, where
+ * the files go (music folder, or the browser for dropped files), that a
+ * changed file is split again, that it waits while a deck plays on the CPU
+ * (not on the GPU), pause/resume/off, a deck's Split going first or joining
+ * the split under way, the per-track rows, and that saved stems load back.
  * Run: npm run test:presplit
  */
 import { build } from 'esbuild';
@@ -100,6 +102,10 @@ class DirH {
   }
 }
 
+/* The browser's private storage (OPFS), for dropped files. */
+const opfs = new DirH('opfs');
+Object.defineProperty(globalThis.navigator, 'storage', { value: { getDirectory: async () => opfs, persist: async () => true }, configurable: true });
+
 /* ── A fake session ───────────────────────────────────────────────────── */
 function store(state) {
   const subs = new Set();
@@ -107,7 +113,8 @@ function store(state) {
 }
 const music = new DirH('Platter');
 const house = await music.getDirectoryHandle('House', { create: true });
-const track = (id, path, handle, extra = {}) => ({ id, title: id, fileName: path.split('/').pop(), status: 'ready', handle, library: { path, tags: {}, analysis: null }, ...extra });
+let added = 0;
+const track = (id, path, handle, extra = {}) => ({ id, title: id, fileName: path.split('/').pop(), status: 'ready', handle, addedAt: ++added, library: { path, tags: {}, analysis: null }, ...extra });
 const crate = store({
   tracks: [
     track('a', 'House/A.flac', house.put('A.flac', 'aaaa'.repeat(50))),
@@ -116,7 +123,7 @@ const crate = store({
     track('au', 'Au.flac', music.put('Au.flac', 'x'), { audius: { id: 'x' } }),
   ],
 });
-const decks = [store({ playing: false }), store({ playing: false })].map((s) => ({ store: s }));
+const decks = [store({ playing: false, track: null }), store({ playing: false, track: null })].map((s) => ({ store: s }));
 const library = { musicFolder: music, store: store({ progress: null }) };
 const session = { crate, decks, library };
 
@@ -129,8 +136,9 @@ globalThis.__split = (left, right, onProgress) => {
     job.finish = () => {
       onProgress('separate', 1);
       const s = (k) => ({ left: Int16Array.from(left, (v) => Math.round(v * k * 32767)), right: Int16Array.from(right, (v) => Math.round(v * k * 32767)) });
-      resolve({ stems: [s(0.2), s(0.3), s(0.4)], seconds: 1, backend: 'wasm' });
+      resolve({ stems: [s(0.2), s(0.3), s(0.4)], seconds: 1, backend: globalThis.__backend ?? 'wasm' });
     };
+    job.failModel = () => reject(new Error('The stems model couldn’t be downloaded (no connection).'));
     cancel = () => {
       job.cancelled = true;
       reject(new Error('cancelled'));
@@ -150,12 +158,10 @@ async function until(fn, what, ms = 3000) {
   }
 }
 
-/* 1. Off until switched on; then splits the two local files, not SoundCloud or Audius. */
+/* 1. On by default: splits the two local files, not SoundCloud or Audius. */
 globalThis.__auto = true;
 let p = new PreSplitter(session);
 await p.init();
-assert.equal(p.store.get().phase, 'off');
-await p.start();
 await until(() => p.store.get().phase === 'done', 'first pass');
 assert.equal(splits.length, 2, 'two tracks split');
 assert.deepEqual([p.store.get().done, p.store.get().total], [2, 2]);
@@ -164,7 +170,8 @@ assert.ok(stemsDir.dirs.get('House').files.has('A.flac.platterstems'), 'mirrors 
 assert.ok(stemsDir.files.has('B.flac.platterstems'));
 assert.ok(!stemsDir.files.has('Au.flac.platterstems'), 'Audius stays whole');
 assert.ok(p.store.get().bytes > 0);
-console.log('✓ presplit: splits linked local files into “Platter Stems”, skips SoundCloud and Audius');
+assert.deepEqual(p.rows.get(), { a: { state: 'ready' }, b: { state: 'ready' } }, 'each row shows its stems');
+console.log('✓ presplit: on by default; splits linked local files into “Platter Stems”, skips SoundCloud and Audius');
 
 /* 2. Saved stems load back for the deck. */
 const loaded = await p.load('a');
@@ -224,6 +231,82 @@ p.keep('e', [0, 1, 2].map(() => ({ left: new Int16Array(500).fill(7), right: new
 await until(() => music.dirs.get('Platter Stems').files.has('E.flac.platterstems'), 'kept live split');
 const e = await p.load('e');
 assert.equal(e.stems[0].left[10], 7);
-p.dispose();
 console.log('✓ presplit: a live split is saved too, and loads back');
+
+/* 7. A dropped file (no folder) is split into the browser's storage, by fingerprint; the same file again isn't split twice. */
+await p.start();
+await until(() => p.store.get().phase === 'done', 'E done');
+const n0 = splits.length;
+const dropped = new File([Buffer.from('ffff'.repeat(60))], 'F.mp3', { lastModified: 5 });
+crate.set({ tracks: [...crate.get().tracks, { id: 'f', title: 'F', fileName: 'F.mp3', status: 'ready', blob: dropped, addedAt: ++added }] });
+await until(() => p.rows.get().f?.state === 'ready', 'dropped file split');
+assert.equal(splits.length, n0 + 1);
+const inBrowser = opfs.dirs.get('Platter Stems').files;
+assert.equal(inBrowser.size, 1, 'one stems file in the browser');
+assert.ok([...inBrowser.keys()][0].endsWith('.platterstems'));
+assert.equal((await p.load('f')).stems.length, 3);
+const again = new File([Buffer.from('ffff'.repeat(60))], 'F copy.mp3', { lastModified: 5 });
+crate.set({ tracks: [...crate.get().tracks, { id: 'f2', title: 'F copy', fileName: 'F copy.mp3', status: 'ready', blob: again, addedAt: ++added }] });
+await until(() => p.rows.get().f2?.state === 'ready', 'same file found');
+assert.equal(splits.length, n0 + 1, 'the same file isn’t split again');
+console.log('✓ presplit: dropped files are split into the browser’s storage; the same file is split once');
+
+/* 8. Newest first, a deck's track before that; a deck pressing Split joins the split under way. */
+globalThis.__auto = false;
+crate.set({
+  tracks: [...crate.get().tracks, { id: 'g', title: 'G', fileName: 'G.mp3', status: 'ready', blob: new File([Buffer.from('g'.repeat(90))], 'G.mp3'), addedAt: ++added }, { id: 'h', title: 'H', fileName: 'H.mp3', status: 'ready', blob: new File([Buffer.from('h'.repeat(70))], 'H.mp3'), addedAt: ++added }],
+});
+await until(() => p.store.get().current?.id === 'h' && splits.length === n0 + 2, 'newest first');
+assert.equal(p.rows.get().g.state, 'queued');
+assert.equal(p.rows.get().h.state, 'splitting');
+const seen = [];
+const joined = p.join('h', (stage, v) => seen.push(v));
+assert.ok(joined, 'a deck can join');
+assert.equal(p.join('g', () => {}), null, 'nothing to join for a queued track');
+splits.at(-1).finish();
+const got = await joined;
+assert.equal(got.length, 3);
+assert.deepEqual(seen, [1]);
+await until(() => p.rows.get().h.state === 'ready', 'joined split saved too');
+splits.at(-1).finish(); // G
+await until(() => p.rows.get().g.state === 'ready', 'G');
+console.log('✓ presplit: newest tracks first; a deck joins the split under way instead of starting again');
+
+/* 9. On the GPU it carries on while a deck plays. */
+globalThis.__auto = true;
+globalThis.__backend = 'webgpu';
+p.store.set({ backend: 'webgpu' });
+decks[1].store.set({ playing: true });
+crate.set({ tracks: [...crate.get().tracks, { id: 'i', title: 'I', fileName: 'I.mp3', status: 'ready', blob: new File([Buffer.from('i'.repeat(80))], 'I.mp3'), addedAt: ++added }] });
+await until(() => p.rows.get().i?.state === 'ready', 'split while playing, on the GPU');
+decks[1].store.set({ playing: false });
+console.log('✓ presplit: on the GPU, splitting carries on while a deck plays');
+
+/* 9b. The model can't be downloaded (offline): the track isn't blamed, the queue waits and tries again. */
+globalThis.__auto = false;
+crate.set({ tracks: [...crate.get().tracks, { id: 'k', title: 'K', fileName: 'K.mp3', status: 'ready', blob: new File([Buffer.from('k'.repeat(80))], 'K.mp3'), addedAt: ++added }] });
+await until(() => p.store.get().current?.id === 'k' && splits.at(-1) && !splits.at(-1).cancelled, 'K started');
+splits.at(-1).failModel();
+await until(() => p.store.get().waitingFor === 'model', 'waiting for the model');
+assert.equal(p.rows.get().k.state, 'queued', 'not marked failed');
+assert.match(p.store.get().message, /no connection\)\. Trying again/);
+console.log('✓ presplit: a failed model download waits and retries, without skipping the track');
+
+/* 10. Turned off: nothing queued, and it stays off next session; saved stems still load. */
+p.turnOff();
+crate.set({ tracks: [...crate.get().tracks, { id: 'j', title: 'J', fileName: 'J.mp3', status: 'ready', blob: new File([Buffer.from('j'.repeat(80))], 'J.mp3'), addedAt: ++added }] });
+await tick(700);
+assert.equal(p.store.get().phase, 'off');
+assert.equal(p.rows.get().j, undefined, 'not queued');
+assert.equal(p.wants('j'), false);
+p.dispose();
+const n1 = splits.length;
+p = new PreSplitter(session);
+await p.init();
+await tick(700);
+assert.equal(p.store.get().phase, 'off');
+assert.equal(splits.length, n1);
+assert.ok(await p.load('a'), 'saved stems still load');
+p.dispose();
+console.log('✓ presplit: turning it off sticks; saved stems still load');
 process.exit(0);

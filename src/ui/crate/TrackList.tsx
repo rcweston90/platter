@@ -3,6 +3,8 @@ import { compatible, keyName } from '../../engine/key';
 import { keyRelation, type KeyRelation } from '../../library/mashup';
 import type { DjSession } from '../../engine/session';
 import type { TrackRecord } from '../../engine/types';
+import type { RowStems } from '../../engine/stems/presplit';
+import { useStore } from '../../engine/store';
 import { TRACK_MIME } from '../DeckPanel';
 import { formatTime } from '../Waveforms';
 import { SOURCE_LABEL, TEMPO_REACH, artUrl, crateBrowser, energyOf, folderOf, sourceOf, tempoGap, type SortKey } from './model';
@@ -108,6 +110,7 @@ export function TrackList({
   const columns = columnsFor(mode, showEnergy);
   const H = rowHeight(mode);
   const { ref, target, playing, loadedOn, queue } = rig;
+  const stems = useStore(session.presplit.rows);
 
   useLayoutEffect(() => {
     const el = scroller.current;
@@ -297,6 +300,7 @@ export function TrackList({
                             </span>
                           ))}
                         {qi >= 0 && <span className={c.queued}>Q{qi + 1}</span>}
+                        <StemsChip st={stems[t.id]} />
                       </span>
                       <span className={c.subLine}>
                         {t.link ? (
@@ -448,4 +452,38 @@ export function TrackList({
       </table>
     </div>
   );
+}
+
+/** Where a track's stems stand: split, being split (with how far), waiting its turn, or skipped. */
+function StemsChip({ st }: { st: RowStems | undefined }) {
+  if (!st) return null;
+  switch (st.state) {
+    case 'ready':
+      return (
+        <span className={c.stems} data-state="ready" title="Split into stems: Split on a deck loads them at once">
+          Stems
+        </span>
+      );
+    case 'splitting':
+      return (
+        <span className={c.stems} data-state="splitting" title={st.stage === 'save' ? 'Split: saving its stems' : 'Splitting into stems in the background'}>
+          {st.stage === 'save' ? 'Saving stems' : st.stage === 'separate' ? `Splitting ${Math.round(st.progress * 100)}%` : 'Splitting…'}
+          <span className={c.stemsBar} aria-hidden="true">
+            <span style={{ width: `${Math.round(st.progress * 100)}%` }} />
+          </span>
+        </span>
+      );
+    case 'queued':
+      return (
+        <span className={c.stems} data-state="queued" title="Waiting its turn to be split into stems">
+          Stems queued
+        </span>
+      );
+    case 'failed':
+      return (
+        <span className={c.stems} data-state="failed" title="Couldn’t be split in the background; Split on a deck still tries">
+          No stems
+        </span>
+      );
+  }
 }
