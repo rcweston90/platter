@@ -88,9 +88,12 @@ export function ScrollingWave({ deck, loop, zoom, label }: { deck: Deck; loop: F
 
     const st = deck.store.get();
     const cx = Math.round(w / 2);
+    // `zoom` seconds as heard, not as cut: a deck pitched up shows more of
+    // its track, so two decks at the same tempo show beats the same width
+    // apart and line up across the two waveforms.
+    const pps = w / (zoom * deck.motor()); // px per track second
     if (st.track) {
       const pos = deck.position();
-      const pps = w / zoom;
       const t0 = pos - cx / pps;
       const xOf = (t: number) => (t - t0) * pps;
 
@@ -136,7 +139,7 @@ export function ScrollingWave({ deck, loop, zoom, label }: { deck: Deck; loop: F
     // reverse ends.
     const slip = st.track ? deck.slipPosition() : null;
     if (slip !== null) {
-      const x = Math.round(cx + (slip - deck.position()) * (w / zoom));
+      const x = Math.round(cx + (slip - deck.position()) * pps);
       g.fillStyle = P.ghost;
       for (let y = 0; y < h; y += 6) g.fillRect(x - 1, y, 2, 3);
     }

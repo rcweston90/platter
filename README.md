@@ -28,9 +28,22 @@ GitHub Actions).
   the grid when QUANT is on.
 - Pitch fader with ±8 / ±16 / ±50% ranges and hold-to-bend nudge buttons, and a
   33 / 45 platter speed switch (45 plays 1.35× fast, on top of the fader).
-- SYNC matches the other deck's tempo and lines up the beats; the phase meter
-  between the waveforms shows each deck's beat in the bar and how far apart
-  their beats are.
+- **Sync lock**: press SYNC and that deck follows the other (tagged
+  *Sync ▸ A* on its waveform; the other is tagged *Leader*). It takes the
+  leader's tempo, at double or half time when one track is twice the other,
+  and keeps its beat on the leader's for as long as SYNC is lit: through the
+  leader's tempo changes, cue jumps, loops and scratches. Either fader moves
+  both; nudging either deck sets an offset the lock keeps (Reset clears it).
+  SYNC on the leader swaps roles, and loading a new track on the leader while
+  its follower plays hands the lead to the deck that's playing.
+- **Sync strip** between the waveforms: both decks' beat grids around the
+  playhead, A's from the top and B's from the bottom, with bars long and in
+  the deck's colour. Lined up, they meet in straight lines; out of phase they
+  stagger, and a bracket at the playhead spans the gap. The readouts say how
+  the tempos compare, how many ms apart the beats are and whether the bars
+  start together, with **Line up bars** to put the 1s together. The
+  waveforms scroll in heard time, so at the same tempo a beat is the same
+  width on both.
 - **Keylock** holds the key while you change tempo.
 - **Stems**: split a track into vocals, drums, bass and other, then tap a part
   to mute it or hold it to hear it alone. The split runs in your browser
@@ -243,6 +256,7 @@ that's when browsers reveal device names — nothing is recorded.
 ```bash
 npm run test:e2e     # against a running dev or preview server
 npm run test:controls  # clicks every deck and mixer control and checks its effect
+npm run test:sync      # sync lock: tempo, phase through jumps, nudges, bars, the strip
 npm run test:library      # tags, fingerprints, mashup scorer, folder scanner
 npm run test:library-dsp  # tempo, loudness and energy on synthetic audio
 npm run test:sound        # sound match: CLAP features against Python, scoring
@@ -309,7 +323,7 @@ scripts/library.mjs  the same analysis from the terminal, writing library/tracks
   library.ts    everything kept in IndexedDB
   demo.ts       the two demo tracks, synthesised sample by sample
 api/soundcloud.ts  Vercel Function: OAuth token exchange, API and media relay
-src/ui/         React: turntables, waveforms, phase meter, mixer, panels
+src/ui/         React: turntables, waveforms, sync strip, mixer, panels
 src/ui/beats/   pads, beat board and the Sounds browser
 src/ui/crate/   the track list: page, mini window and full screen
 public/sounds/cc0/  the CC0 recordings, fetched on first use
