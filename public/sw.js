@@ -1,7 +1,8 @@
 /**
  * Platter's service worker: after one visit the app opens offline.
  * Pages: network first, falling back to the cached copy. Hashed build assets,
- * worklets and icons: cache first (a new build has new file names). Only
+ * worklets and icons: cache first (a new build has new file names; worklets
+ * keep theirs but get a content-hash query, see vite.config.ts). Only
  * this site's own GET requests are touched — Audius and fonts go straight
  * to the network.
  */

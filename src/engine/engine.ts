@@ -1,8 +1,13 @@
 import { Channel, crossfaderGains, levelGain, type ChannelState, type CrossfaderCurve } from './mixer';
 
 /** Worklets ship as files beside the page (public/worklets/), resolved
- *  against the document so the app works from any sub-path. */
-export const workletUrl = (name: string) => new URL(`worklets/${name}`, document.baseURI).href;
+ *  against the document so the app works from any sub-path. The query is a
+ *  hash of their contents (vite.config.ts), so a new build's worklets get new
+ *  URLs and the service worker never hands back an old copy. */
+declare const __WORKLETS_VERSION__: string | undefined;
+const WORKLETS_VERSION = typeof __WORKLETS_VERSION__ === 'string' ? __WORKLETS_VERSION__ : '';
+export const workletUrl = (name: string) =>
+  new URL(`worklets/${name}${WORKLETS_VERSION ? `?v=${WORKLETS_VERSION}` : ''}`, document.baseURI).href;
 
 /**
  * Where the headphone (cue) mix goes:

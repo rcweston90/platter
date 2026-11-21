@@ -297,6 +297,16 @@ if (!bState.playing) await B.getByRole('button', { name: 'Deck B play' }).click(
 await page.waitForTimeout(800);
 const bMeter = await page.$eval('[aria-label="Channel B level meter"] [class*="meterCover"]', (e) => parseFloat(e.style.height));
 check(bMeter < 95, `deck B still sounds with drums soloed (${bMeter.toFixed(0)}% covered, ${bState.title}${bState.playing ? '' : ', started'})`);
+// Muting every part has to be heard, not just shown on the buttons.
+await stemsB.getByRole('button', { name: 'Hear every part' }).click();
+for (const part of ['Vocals', 'Drums', 'Bass', 'Other']) await stemsB.getByRole('button', { name: part }).click();
+await page.waitForTimeout(1200); // the key shift's stretcher and the meter's fall
+let mutedMeter = 0;
+for (let i = 0; i < 8; i++) {
+  await page.waitForTimeout(100);
+  mutedMeter = Math.max(mutedMeter, 100 - (await page.$eval('[aria-label="Channel B level meter"] [class*="meterCover"]', (e) => parseFloat(e.style.height))));
+}
+check(mutedMeter < 3, `muting every part silences deck B (peak ${mutedMeter.toFixed(0)}% while ${bMeter < 95 ? 'it was sounding' : 'quiet'} before)`);
 const cached = await page.evaluate(async () => {
   const keys = [];
   for (const name of await caches.keys()) for (const r of await (await caches.open(name)).keys()) keys.push(`${name} ${r.url}`);
