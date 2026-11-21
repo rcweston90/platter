@@ -50,6 +50,9 @@ export interface Source {
   slices: number[];
   /** Index into SLICE_COLORS: the source's clips wear it on the timeline. */
   color: number;
+  /** How the slices were last cut automatically (the editor re-cuts live as
+   *  these change); null or missing once slices were placed by hand. */
+  chop?: AutoSlice | null;
 }
 
 export type LaneKind = 'audio' | 'drum';

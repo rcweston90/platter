@@ -24,6 +24,7 @@ import { autoSlicePoints, buildPeaks, encodeWav, extractChannels, guessLoopBpm }
 import {
   clipBeats,
   clipEnd,
+  clipRate,
   cleanSlices,
   drumLaneFor,
   makeClip,
@@ -88,6 +89,10 @@ export interface StudioState {
   note: string | null;
   /** Something slow under way ("Rendering…"), or null. */
   busy: string | null;
+  /** Pads play into the timeline while the song plays. */
+  recording: boolean;
+  /** The lane pads record onto (null: the first audio lane). */
+  recordLane: string | null;
 }
 
 const INDEX_KEY = 'slicer-index';
@@ -142,6 +147,8 @@ export class Studio implements AudioLookup {
       audition: null,
       note: null,
       busy: null,
+      recording: false,
+      recordLane: null,
     });
   }
 
@@ -197,7 +204,7 @@ export class Studio implements AudioLookup {
     // Pointer gestures on the timeline carry a key of their own (drag:, trim:,
     // paint:) and end with endGesture, so they stay one step however long
     // the hand pauses. Other keys (nudges, knobs) merge by time.
-    const held = !!merge && /^(drag|trim|paint):/.test(merge);
+    const held = !!merge && /^(drag|trim|paint|rec):/.test(merge);
     const merged = !!merge && merge === this.lastEdit.key && (held || now - this.lastEdit.at < MERGE_MS);
     if (!merged) {
       this.past.push(before);
@@ -602,6 +609,12 @@ export class Studio implements AudioLookup {
         this.commit({ ...project, sources: project.sources.map((s) => (s.id === src.id ? { ...s, duration: buf.duration, bpm, gridOffset } : s)) });
       }
       this.setAudio(src.id, { status: 'ready', progress: 1, message: null });
+      // A fresh sample arrives already chopped on its hits, so the pads play
+      // straight away. Never touches slices someone placed.
+      const now = this.source(src.id);
+      if (now && now.chop === undefined && now.slices.length <= 1 && now.origin.kind !== 'sound' && buf.duration >= 0.25) {
+        void this.autoChop(src.id, buf);
+      }
     } catch (err) {
       const msg = err instanceof Error ? err.message : '';
       if (msg === 'missing') return;
@@ -689,7 +702,7 @@ export class Studio implements AudioLookup {
   setSlices(id: string, points: number[], merge?: string) {
     const src = this.source(id);
     if (!src) return;
-    this.updateSource(id, { slices: cleanSlices(points, src.duration) }, merge);
+    this.updateSource(id, { slices: cleanSlices(points, src.duration), chop: null }, merge);
   }
 
   /** Adds a slice point at t seconds; returns the new slice's index. */
@@ -711,25 +724,57 @@ export class Studio implements AudioLookup {
     const hi = (src.slices[i + 1] ?? src.duration) - 0.01;
     const slices = [...src.slices];
     slices[i] = Math.max(lo, Math.min(hi, t));
-    this.updateSource(id, { slices }, `slice:${id}:${i}`);
+    this.updateSource(id, { slices, chop: null }, `slice:${id}:${i}`);
   }
 
   /** Removes slice point i (merging slice i into the one before). */
   removeSlice(id: string, i: number) {
     const src = this.source(id);
     if (!src || i <= 0) return;
-    this.updateSource(id, { slices: src.slices.filter((_, k) => k !== i) });
+    this.updateSource(id, { slices: src.slices.filter((_, k) => k !== i), chop: null });
     this.store.set({ slice: Math.max(0, i - 1) });
   }
 
   clearSlices(id: string) {
-    this.updateSource(id, { slices: [0] });
+    this.updateSource(id, { slices: [0], chop: null });
     this.store.set({ slice: null });
   }
 
-  /** Slices a source automatically. Transients are found in a worker, so
-   *  this resolves once the slices are in. */
-  async autoSlice(id: string, mode: AutoSlice): Promise<void> {
+  /** First chop of a newly loaded sample, aiming for a playable set of pads:
+   *  a short sample on its hits (no closer than an eighth note), a long one
+   *  in bars, and beats when the hits are too few (a pad, a held chord).
+   *  Part of opening the sample, so not an undo step of its own. */
+  private async autoChop(id: string, buf: AudioBuffer) {
+    const src = this.source(id);
+    if (!src) return;
+    const bpm = src.bpm;
+    if (bpm && buf.duration > 30) {
+      await this.autoSlice(id, { mode: 'grid', beats: 4 }, null);
+      return;
+    }
+    const minGap = bpm ? Math.max(0.05, Math.min(0.3, 30 / bpm)) : 0.12;
+    for (const sensitivity of [0.5, 0.3]) {
+      await this.autoSlice(id, { mode: 'transients', sensitivity, minGap }, null);
+      const n = this.source(id)?.slices.length ?? 0;
+      if (n <= 32) break;
+    }
+    const now = this.source(id);
+    if (now && now.chop?.mode === 'transients' && now.slices.length < 4 && bpm && buf.duration > 2) {
+      await this.autoSlice(id, { mode: 'grid', beats: 1 }, null);
+    }
+  }
+
+  /** The latest auto-slice asked for, per source: a slower, older worker
+   *  result never lands on top of a newer one. */
+  private chopSeq = new Map<string, number>();
+
+  /**
+   * Slices a source automatically. Transients are found in a worker, so this
+   * resolves once the slices are in. Called live from the editor's controls:
+   * pass a merge key so a slider sweep is one undo step. merge null: not an
+   * undo step (the first chop of a new sample is a fact about it, not an edit).
+   */
+  async autoSlice(id: string, mode: AutoSlice, merge: string | null = `chop:${id}`): Promise<void> {
     const src = this.source(id);
     const buf = this.buffers.get(id);
     if (!src) return;
@@ -741,6 +786,8 @@ export class Studio implements AudioLookup {
       this.store.set({ note: 'Set the sample’s BPM first to slice on the beat.' });
       return;
     }
+    const seq = (this.chopSeq.get(id) ?? 0) + 1;
+    this.chopSeq.set(id, seq);
     const duration = src.duration || buf?.duration || 0;
     let pts: number[];
     if (mode.mode === 'transients' && buf) {
@@ -751,16 +798,20 @@ export class Studio implements AudioLookup {
         // No worker (or it failed): do it here, a short freeze beats nothing.
         pts = autoSlicePoints(mode, { duration, bpm: src.bpm, gridOffset: src.gridOffset }, buf);
       } finally {
-        this.store.set({ busy: null });
+        if (this.chopSeq.get(id) === seq) this.store.set({ busy: null });
       }
-      // The source may have gone while the worker ran.
-      if (!this.source(id)) return;
+      // The source may have gone, or a newer chop been asked for, while the worker ran.
+      if (!this.source(id) || this.chopSeq.get(id) !== seq) return;
     } else {
       pts = autoSlicePoints(mode, { duration, bpm: src.bpm, gridOffset: src.gridOffset }, buf);
     }
     const slices = cleanSlices(pts, duration);
-    this.updateSource(id, { slices });
-    this.store.set({ slice: null, note: `${slices.length} slices.` });
+    if (merge === null) {
+      const p = this.s.project;
+      this.commit({ ...p, sources: p.sources.map((s) => (s.id === id ? { ...s, slices, chop: mode } : s)) });
+    } else this.updateSource(id, { slices, chop: mode }, merge);
+    const keep = this.s.slice !== null && this.s.slice < slices.length ? this.s.slice : null;
+    this.store.set({ slice: keep, note: null });
   }
 
   private onsetWorker: Worker | null = null;
@@ -988,11 +1039,12 @@ export class Studio implements AudioLookup {
   /** Stops; the cursor stays where play started (a second stop goes back to the start). */
   stop() {
     if (!this.player?.playing) {
-      if (this.s.playing) this.store.set({ playing: false });
+      if (this.s.playing || this.s.recording) this.store.set({ playing: false, recording: false });
       return;
     }
     this.player.stop();
-    this.store.set({ playing: false });
+    if (this.s.recording) this.endGesture();
+    this.store.set({ playing: false, recording: false });
   }
 
   toggle() {
@@ -1068,7 +1120,88 @@ export class Studio implements AudioLookup {
     if (!src) return;
     const [a, b] = sliceRange(src, i);
     this.store.set({ slice: i });
+    if (this.s.recording && this.s.playing && !opts.loop) this.recordHit(src, a, b);
     void this.audition(sourceId, a, b, opts);
+  }
+
+  /* ── Recording pads into the timeline ─────────────────────────────────── */
+
+  private take = 0;
+
+  /** Arms recording: pads played while the song runs land on the record lane.
+   *  Turning it on starts the song; one take is one undo step. */
+  setRecording(on: boolean) {
+    if (on === this.s.recording) return;
+    this.endGesture();
+    if (on) {
+      this.take++;
+      this.store.set({ recording: true, note: null });
+      if (!this.s.playing) void this.play();
+    } else this.store.set({ recording: false });
+  }
+
+  setRecordLane(id: string | null) {
+    this.store.set({ recordLane: id });
+  }
+
+  /** Places a slice where the playhead is, like a sampler's mono choke: the
+   *  take's previous hit on that lane is cut where this one starts. */
+  private recordHit(src: Source, a: number, b: number) {
+    const p = this.s.project;
+    const lane = p.lanes.some((l) => l.id === this.s.recordLane && l.kind === 'audio') ? this.s.recordLane! : this.laneForSource();
+    const raw = this.position();
+    const at = Math.max(0, p.snap ? snapBeat(raw, p.snap, 'round') : raw);
+    const key = `rec:${this.take}`;
+    const clip = makeClip(src, lane, at, a, b);
+    const byId = new Map(this.s.project.sources.map((s) => [s.id, s]));
+    this.edit((q) => {
+      const clips = q.clips
+        // A hit on the same spot replaces what this take put there.
+        .filter((c) => !(c.laneId === lane && Math.abs(c.at - at) < 1e-6 && this.takeClips.has(c.id)))
+        .map((c) => {
+          if (c.laneId !== lane || !this.takeClips.has(c.id) || c.at >= at) return c;
+          const s = byId.get(c.sourceId);
+          const end = clipEnd(c, s, q.bpm);
+          if (end <= at) return c;
+          // Trim c so it ends at `at`: source seconds = beats → seconds × rate.
+          const keepBeats = at - c.at;
+          const rate = clipRate(c, s, q.bpm);
+          const newEnd = c.start + keepBeats * (60 / q.bpm) * rate;
+          return newEnd - c.start < 0.005 ? c : { ...c, end: newEnd };
+        });
+      return { ...q, clips: [...clips, clip] };
+    }, key);
+    this.takeClips.add(clip.id);
+    if (this.takeClips.size > 4000) this.takeClips.clear();
+  }
+  /** Clips recorded in this session's takes (only these get choked). */
+  private takeClips = new Set<string>();
+
+  /* ── Laying slices out ────────────────────────────────────────────────── */
+
+  /**
+   * Puts every slice of a source on a lane where it sits in the original
+   * (with the source's tempo known, at its own groove; otherwise back to
+   * back), starting at beat `from`. The starting point for a flip.
+   */
+  layoutSlices(sourceId: string, laneId = this.laneForSource(), from = this.s.cursor) {
+    const src = this.source(sourceId);
+    if (!src || !src.duration) return;
+    const p = this.s.project;
+    const at0 = p.snap ? snapBeat(from, p.snap, 'round') : from;
+    const clips: Clip[] = [];
+    let cursor = at0;
+    for (let i = 0; i < src.slices.length; i++) {
+      const [a, b] = sliceRange(src, i);
+      if (b - a < 0.005) continue;
+      const c = makeClip(src, laneId, 0, a, b);
+      c.at = src.bpm && c.sync ? at0 + (a * src.bpm) / 60 : cursor;
+      cursor = c.at + clipBeats(c, src, p.bpm);
+      clips.push(c);
+    }
+    if (!clips.length) return;
+    this.edit((q) => ({ ...q, clips: [...q.clips, ...clips] }));
+    this.store.set({ selection: clips.map((c) => c.id), note: `Laid out ${clips.length} slices.` });
   }
 
   /** Where the audition is in its source (seconds), for the editor's playhead; null when silent. */

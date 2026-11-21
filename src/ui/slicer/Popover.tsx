@@ -5,7 +5,8 @@ import st from './arranger.module.css';
 /**
  * A small floating panel next to the button that opened it. Portalled into the
  * slicer view so the timeline's scroll box can't clip it; closes on Escape or
- * a press outside and hands focus back to its button.
+ * a press outside and hands focus back to its button. With `sheet` it rises
+ * from the bottom of the screen instead (phones), over a dimmed backdrop.
  */
 export function Popover({
   anchor,
@@ -13,6 +14,7 @@ export function Popover({
   label,
   role = 'dialog',
   className,
+  sheet = false,
   children,
 }: {
   anchor: HTMLElement;
@@ -20,6 +22,8 @@ export function Popover({
   label: string;
   role?: 'dialog' | 'menu';
   className?: string;
+  /** A bottom sheet (thumb reach) instead of a panel by the button. */
+  sheet?: boolean;
   children: ReactNode;
 }) {
   const panel = useRef<HTMLDivElement>(null);
@@ -31,7 +35,7 @@ export function Popover({
 
   useLayoutEffect(() => {
     const el = panel.current;
-    if (!el) return;
+    if (!el || sheet) return;
     const place = () => {
       const a = anchor.getBoundingClientRect();
       const w = el.offsetWidth;
@@ -45,12 +49,13 @@ export function Popover({
     place();
     window.addEventListener('resize', place);
     return () => window.removeEventListener('resize', place);
-  }, [anchor]);
+  }, [anchor, sheet]);
 
   useEffect(() => {
     const el = panel.current;
-    const first = el?.querySelector<HTMLElement>('[data-autofocus], input, [role="menuitem"]:not(:disabled), button:not(:disabled)');
-    first?.focus();
+    // A sheet takes focus itself: focusing a field would raise the phone's keyboard over it.
+    const first = sheet ? el : el?.querySelector<HTMLElement>('[data-autofocus], input, [role="menuitem"]:not(:disabled), button:not(:disabled)');
+    first?.focus({ preventScroll: true });
     const outside = (e: PointerEvent) => {
       const t = e.target as Node;
       if (!el?.contains(t) && !anchor.contains(t)) close.current();
@@ -60,16 +65,18 @@ export function Popover({
       document.removeEventListener('pointerdown', outside, true);
       if (anchor.isConnected && (!document.activeElement || document.activeElement === document.body || el?.contains(document.activeElement))) anchor.focus();
     };
-  }, [anchor]);
+  }, [anchor, sheet]);
 
   const host = anchor.closest('[data-slicer]') ?? document.body;
-  return createPortal(
+  const body = (
     <div
       ref={panel}
-      className={`${st.popover} ${className ?? ''}`}
+      className={`${st.popover} ${sheet ? st.sheetPop : ''} ${className ?? ''}`}
       role={role}
       aria-label={label}
-      style={pos ? { left: pos.left, top: pos.top } : { left: -9999, top: 0 }}
+      aria-modal={sheet || undefined}
+      tabIndex={-1}
+      style={sheet ? undefined : pos ? { left: pos.left, top: pos.top } : { left: -9999, top: 0 }}
       onKeyDown={(e) => {
         if (e.key === 'Escape') {
           // Handled here: the view's Escape would otherwise close the slicer.
@@ -86,8 +93,19 @@ export function Popover({
         if (role === 'menu' && e.key === 'Tab') close.current();
       }}
     >
+      {sheet && <span className={st.grabber} aria-hidden="true" />}
       {children}
-    </div>,
+    </div>
+  );
+  return createPortal(
+    sheet ? (
+      <>
+        <div className={st.backdrop} aria-hidden="true" />
+        {body}
+      </>
+    ) : (
+      body
+    ),
     host,
   );
 }
