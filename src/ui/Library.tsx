@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, type KeyboardEvent } from 'react';
 import type { DjSession } from '../engine/session';
-import { useStore } from '../engine/store';
+import { shallowEqual, useStore, useStoreSelect } from '../engine/store';
 import { Crate } from './Crate';
 import { openCrate } from './crate/CrateDock';
 import { crateBrowser } from './crate/model';
@@ -30,7 +30,8 @@ const TARGETS_FROM = 720;
  */
 export function Library({ session, docked }: { session: DjSession; docked: boolean }) {
   const [tab, setTab] = useState<Tab>('crate');
-  const { queue, on } = useStore(session.autoDj.store);
+  // Not the status line: Auto DJ rewrites it while it counts down a mix.
+  const { queue, on } = useStoreSelect(session.autoDj.store, ({ queue, on }) => ({ queue, on }), shallowEqual);
   const { list } = useStore(session.recordings);
   const { view } = useStore(crateBrowser);
   const { max } = useStore(dockHeight);

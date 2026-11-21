@@ -20,6 +20,7 @@ function useMeter(loop: FrameLoop, read: () => AnalyserNode | null) {
   const cover = useRef<HTMLSpanElement>(null);
   const hold = useRef<HTMLSpanElement>(null);
   const state = useRef({ level: 0, peak: 0, peakAge: 0 });
+  const shown = useRef({ level: -1, peak: -1 });
   useFrame(loop, () => {
     const a = read();
     const m = state.current;
@@ -31,8 +32,12 @@ function useMeter(loop: FrameLoop, read: () => AnalyserNode | null) {
     } else if (++m.peakAge > 45) {
       m.peak = Math.max(m.level, m.peak - 0.01);
     }
-    if (cover.current) cover.current.style.height = `${(1 - m.level) * 100}%`;
-    if (hold.current) hold.current.style.bottom = `${m.peak * 100}%`;
+    // Written only when they move, as transforms (see .meterCover).
+    const level = Math.round(m.level * 400) / 400;
+    const peak = Math.round(m.peak * 400) / 400;
+    if (cover.current && level !== shown.current.level) cover.current.style.transform = `scaleY(${1 - level})`;
+    if (hold.current && peak !== shown.current.peak) hold.current.style.transform = `translateY(${-peak * 100}%)`;
+    shown.current = { level, peak };
   });
   return { cover, hold };
 }

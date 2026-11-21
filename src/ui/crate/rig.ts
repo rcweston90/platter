@@ -1,5 +1,5 @@
 import type { DjSession } from '../../engine/session';
-import { useStore } from '../../engine/store';
+import { useStore, useStoreSelect } from '../../engine/store';
 import type { Reference } from './model';
 
 export interface Rig {
@@ -21,7 +21,7 @@ export interface Rig {
 export function useRig(session: DjSession): Rig {
   const a = useStore(session.decks[0].store);
   const b = useStore(session.decks[1].store);
-  const { crossfader } = useStore(session.mixer);
+  const crossfader = useStoreSelect(session.mixer, (m) => Math.sign(m.crossfader));
   const { queue } = useStore(session.autoDj.store);
   const [deckA, deckB] = session.decks;
 

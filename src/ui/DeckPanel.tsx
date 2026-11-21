@@ -3,8 +3,8 @@ import { LOOP_BEATS, PITCH_RANGES, ROLL_BEATS, type Deck } from '../engine/deck'
 import { beatsLabel } from '../engine/fx';
 import { compatible, keyName } from '../engine/key';
 import type { DjSession } from '../engine/session';
-import { useStore } from '../engine/store';
-import { useDropTarget, useFrame, type FrameLoop } from './frame';
+import { useStore, useStoreSelect } from '../engine/store';
+import { setText, useDropTarget, useFrame, type FrameLoop } from './frame';
 import { FxStrip } from './FxStrip';
 import { StemsControl } from './StemsControl';
 import { Turntable } from './Turntable';
@@ -59,7 +59,7 @@ export function DeckPanel({
 }) {
   const st = useStore(deck.store);
   const other = useStore((deck.other ?? deck).store);
-  const mixer = useStore(session.mixer);
+  const fx = useStoreSelect(session.mixer, (m) => m.channels[deck.index].fx);
   const [padMode, setPadMode] = useState<PadMode>('hot');
   const time = useRef<HTMLSpanElement>(null);
   const remain = useRef<HTMLSpanElement>(null);
@@ -76,8 +76,8 @@ export function DeckPanel({
   useFrame(loop, () => {
     const track = deck.store.get().track;
     const pos = track ? deck.position() : 0;
-    if (time.current) time.current.textContent = track ? formatTime(pos) : '0:00';
-    if (remain.current) remain.current.textContent = track ? `−${formatTime(track.duration - pos)}` : '−0:00';
+    setText(time.current, track ? formatTime(pos) : '0:00');
+    setText(remain.current, track ? `−${formatTime(track.duration - pos)}` : '−0:00');
   });
 
   const effBpm = deck.effectiveBpm();
@@ -527,7 +527,7 @@ export function DeckPanel({
         </button>
       </div>
 
-      <FxStrip session={session} index={idx} fx={mixer.channels[idx].fx} />
+      <FxStrip session={session} index={idx} fx={fx} />
 
       <StemsControl stems={session.stems[idx]} label={deck.label} />
 

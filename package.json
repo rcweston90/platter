@@ -25,7 +25,9 @@
     "eval:accuracy": "node scripts/eval-accuracy.mjs",
     "test:presplit": "node tests/stemfile.mjs && node tests/presplit.mjs",
     "test:slicer-dsp": "node tests/slicer-dsp.mjs",
-    "test:slicer": "node tests/slicer.mjs"
+    "test:slicer": "node tests/slicer.mjs",
+    "test:perf": "node tests/perf.mjs",
+    "perf:trace": "node tests/perf-trace.mjs"
   },
   "dependencies": {
     "demucs-web": "1.0.2",

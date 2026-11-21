@@ -75,7 +75,11 @@ const level = async () => {
   let peak = 0;
   for (let i = 0; i < 12; i++) {
     await page.waitForTimeout(100);
-    peak = Math.max(peak, 100 - (await page.$eval('[aria-label="Channel B level meter"] [class*="meterCover"]', (e) => parseFloat(e.style.height))));
+    peak = Math.max(peak, 100 - (await page.$eval('[aria-label="Channel B level meter"] [class*="meterCover"]', (e) => {
+        // Newer builds move the meter by transform, older ones by height.
+        const m = /scaleY\(([^)]+)\)/.exec(e.style.transform);
+        return m ? parseFloat(m[1]) * 100 : parseFloat(e.style.height || '100');
+      })));
   }
   return peak;
 };
