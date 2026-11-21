@@ -18,6 +18,8 @@ import { focusCrateSearch } from './ui/crate/TrackBrowser';
 import { openBrowse } from './ui/browse';
 import { cameBackFromSoundCloud } from './engine/soundcloud';
 import { ScrollingWave } from './ui/Waveforms';
+import { DOCK_QUERY, useDocked } from './ui/library/dock';
+import { Splitter, useDockSize } from './ui/library/Splitter';
 import s from './platter.module.css';
 
 /**
@@ -43,6 +45,9 @@ export default function App() {
   const [loop] = useState(() => new FrameLoop());
   const [zoom, setZoom] = useState(8);
   const root = useRef<HTMLDivElement>(null);
+  const rig = useRef<HTMLDivElement>(null);
+  const docked = useDocked();
+  const dock = useDockSize(rig, docked);
   const mixer = useStore(session.mixer);
   const still = usePrefersReducedMotion();
   const [deckA, deckB] = session.decks;
@@ -133,12 +138,12 @@ export default function App() {
         BracketLeft: () => session.setCrossfader(x() - step),
         BracketRight: () => session.setCrossfader(x() + step),
         Backslash: () => session.setCrossfader(0),
-        // The track list, from anywhere: opens the mini window, or jumps back
-        // to the search if it's already showing.
+        // The track list, from anywhere: the library's search when it's
+        // docked in view, else the mini window (or its search if it's open).
         Slash: () => {
           if (!once || e.shiftKey) return;
-          if (crateBrowser.get().view === 'page') openCrate('mini');
-          else focusCrateSearch();
+          if (crateBrowser.get().view !== 'page' || window.matchMedia(DOCK_QUERY).matches) focusCrateSearch();
+          else openCrate('mini');
         },
       };
       const fn = map[e.code];
@@ -167,8 +172,54 @@ export default function App() {
     };
   }, [session]);
 
+  const credits = (
+      <footer className={s.credits}>
+          <p>
+            Platter is open source (MIT). It stands on{' '}
+            <a href="https://github.com/Signalsmith-Audio/signalsmith-stretch" target="_blank" rel="noopener noreferrer">
+              Signalsmith Stretch
+            </a>{' '}
+            for key lock,{' '}
+            <a href="https://github.com/chrisguttandin/web-audio-beat-detector" target="_blank" rel="noopener noreferrer">
+              web-audio-beat-detector
+            </a>{' '}
+            for tempo and the beat grid, and{' '}
+            <a href="https://github.com/Borewit/music-metadata" target="_blank" rel="noopener noreferrer">
+              music-metadata
+            </a>{' '}
+            for tags and cover art, all MIT. Streaming is{' '}
+            <a href="https://audius.co" target="_blank" rel="noopener noreferrer">
+              Audius
+            </a>
+            ’s open API, and your own and remix-licensed tracks from{' '}
+            <a href="https://soundcloud.com" target="_blank" rel="noopener noreferrer">
+              SoundCloud
+            </a>
+            . The deck and mixer follow the conventions of{' '}
+            <a href="https://mixxx.org" target="_blank" rel="noopener noreferrer">
+              Mixxx
+            </a>
+            , the open-source DJ app. The sampler's recorded sounds are from{' '}
+            <a href="https://github.com/sonic-pi-net/sonic-pi" target="_blank" rel="noopener noreferrer">
+              Sonic Pi
+            </a>
+            ’s public-domain (CC0) sample set, by Freesound contributors, and the beat board keeps time the way Chris Wilson’s{' '}
+            <a href="https://github.com/cwilso/metronome" target="_blank" rel="noopener noreferrer">
+              metronome
+            </a>{' '}
+            (MIT) does.
+          </p>
+        </footer>
+  );
+
   return (
-    <div ref={root} data-dj-root className={s.root}>
+    <div
+      ref={root}
+      data-dj-root
+      data-docked={docked || undefined}
+      className={s.root}
+      style={docked ? ({ '--dock-h': `${dock.height}px` } as React.CSSProperties) : undefined}
+    >
       <TopBar session={session} loop={loop} />
 
       <div className={s.waves}>
@@ -208,55 +259,23 @@ export default function App() {
         </div>
       </div>
 
-      <div className={s.stage}>
-        <DeckPanel session={session} deck={deckA} loop={loop} still={still} />
-        <Mixer session={session} loop={loop} />
-        <DeckPanel session={session} deck={deckB} loop={loop} still={still} />
+      <div ref={rig} className={s.rig}>
+        <div className={s.stage}>
+          <DeckPanel session={session} deck={deckA} loop={loop} still={still} />
+          <Mixer session={session} loop={loop} />
+          <DeckPanel session={session} deck={deckB} loop={loop} still={still} />
+        </div>
+
+        <PadsAndBeats session={session} loop={loop} />
+        {docked && credits}
       </div>
 
-      <PadsAndBeats session={session} loop={loop} />
-      <Library session={session} />
+      {docked && <Splitter height={dock.height} max={dock.max} rig={rig} />}
+      <Library session={session} docked={docked} />
+      {!docked && credits}
       <MusicFlyout session={session} />
       <SoundsFlyout session={session} />
       <CrateDock session={session} />
-
-      <footer className={s.credits}>
-        <p>
-          Platter is open source (MIT). It stands on{' '}
-          <a href="https://github.com/Signalsmith-Audio/signalsmith-stretch" target="_blank" rel="noopener noreferrer">
-            Signalsmith Stretch
-          </a>{' '}
-          for key lock,{' '}
-          <a href="https://github.com/chrisguttandin/web-audio-beat-detector" target="_blank" rel="noopener noreferrer">
-            web-audio-beat-detector
-          </a>{' '}
-          for tempo and the beat grid, and{' '}
-          <a href="https://github.com/Borewit/music-metadata" target="_blank" rel="noopener noreferrer">
-            music-metadata
-          </a>{' '}
-          for tags and cover art, all MIT. Streaming is{' '}
-          <a href="https://audius.co" target="_blank" rel="noopener noreferrer">
-            Audius
-          </a>
-          ’s open API, and your own and remix-licensed tracks from{' '}
-          <a href="https://soundcloud.com" target="_blank" rel="noopener noreferrer">
-            SoundCloud
-          </a>
-          . The deck and mixer follow the conventions of{' '}
-          <a href="https://mixxx.org" target="_blank" rel="noopener noreferrer">
-            Mixxx
-          </a>
-          , the open-source DJ app. The sampler's recorded sounds are from{' '}
-          <a href="https://github.com/sonic-pi-net/sonic-pi" target="_blank" rel="noopener noreferrer">
-            Sonic Pi
-          </a>
-          ’s public-domain (CC0) sample set, by Freesound contributors, and the beat board keeps time the way Chris Wilson’s{' '}
-          <a href="https://github.com/cwilso/metronome" target="_blank" rel="noopener noreferrer">
-            metronome
-          </a>{' '}
-          (MIT) does.
-        </p>
-      </footer>
     </div>
   );
 }
