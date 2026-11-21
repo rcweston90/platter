@@ -157,9 +157,16 @@ GitHub Actions).
   bar. Bring in tracks from the crate, audio files (FLAC, WAV, MP3 …), sounds
   from the sampler's library, or one part of a track (drums, bass, vocals or
   the rest, split by the stems model or read from saved pre-splits).
-- Slice by **transients**, by the **beat grid** (from the track's tempo), into
-  **equal** parts, or by hand: click to add a slice point, drag to move it.
-  Number keys `1`–`0` and `Q`–`P` play slices 1–20 like MPC pads.
+- A sample arrives **already chopped** on its hits (long tracks in bars), so
+  the pads play at once. Re-chop live by **transients**, the **beat grid** or
+  **equal** parts with one control, or by hand: click to add a slice point,
+  drag to move it, or play the sample and hit **Cut** (`/`) on the beat.
+- A **4×4 pad grid** in banks, played with `1234` / `QWER` / `ASDF` / `ZXCV`
+  (the same shape as the grid). Arm **Rec** (`Shift+R`) and the pads you play
+  land on the timeline, choked like a sampler. **Lay out all** puts every
+  slice back in its original groove, ready to flip.
+- Works on a phone: one area at a time (Chop or Arrange), pads in thumb
+  reach, touch to pan, pinch to zoom, long-press a clip to edit it.
 - Drag slices onto a **multi-lane timeline** with sample lanes and drum lanes
   (any sound from the library). Clips snap to the grid, follow the song's
   tempo, and can be trimmed, moved, split, duplicated, reversed, pitched and
@@ -211,8 +218,9 @@ left hand, deck B on the right.
 Knobs and sliders take the arrow keys when focused; double-click resets them.
 Focus a platter and hold an arrow key to nudge.
 
-In the slicer: `Space` plays and stops, `1`–`0` and `Q`–`P` audition slices,
-`Enter` adds the selected slice to the end of its lane, `⌘/Ctrl+Z` undoes
+In the slicer: `Space` plays and stops, `1234` / `QWER` / `ASDF` / `ZXCV` play
+the pads, `/` cuts where the sample is sounding, `Shift+R` records the pads,
+`?` lists every shortcut, `Enter` adds the selected slice to the end of its lane, `⌘/Ctrl+Z` undoes
 (`Shift` to redo), `⌘/Ctrl+D` duplicates, `⌘/Ctrl+E` splits at the playhead,
 `⌘/Ctrl+L` loops the selection, `⌘/Ctrl+U` quantizes, `Delete` removes clips
 and `Esc` goes back to the decks.

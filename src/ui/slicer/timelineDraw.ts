@@ -30,6 +30,20 @@ const MAX_CACHE = 400;
 /** Wider clips are drawn straight onto the timeline, visible part only. */
 export const MAX_CACHED_W = 2048;
 
+const gains = new WeakMap<Peaks, number>();
+
+/** 1 / the source's loudest peak (at most ×8), so every clip's waveform fills its lane. */
+function gainOf(p: Peaks) {
+  let k = gains.get(p);
+  if (k === undefined) {
+    let top = 0;
+    for (let i = 0; i < p.max.length; i++) top = Math.max(top, p.max[i], -p.min[i]);
+    k = top > 1e-4 ? Math.min(8, 1 / top) : 1;
+    gains.set(p, k);
+  }
+  return k;
+}
+
 /**
  * Draws a waveform from source time tA (at x) to tB (at x + w) as min/max
  * columns, one per device pixel. tB < tA draws it backwards (reversed clips).
@@ -42,7 +56,8 @@ export function drawWave(g: CanvasRenderingContext2D, p: Peaks, tA: number, tB: 
   const { min, max } = peaksColumns(p, lo, hi, cols);
   const rev = tB < tA;
   const mid = y + h / 2;
-  const half = (h / 2) * 0.94;
+  // Scaled to the source's own loudest peak, so quiet material still reads.
+  const half = (h / 2) * 0.94 * gainOf(p);
   const cw = w / cols;
   const px = 1 / dpr;
   g.fillStyle = color;

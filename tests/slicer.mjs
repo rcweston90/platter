@@ -129,6 +129,17 @@ await page.waitForFunction(() => {
 const src = await S(() => window.platterSlicer.store.get().project.sources.find((x) => x.origin.kind === 'file'));
 check(Math.abs(src.duration - L.length / SR) < 0.02, `file decoded: ${src.duration.toFixed(2)} s`);
 check(src.bpm && Math.abs(src.bpm - BPM) < 1.5, `tempo found: ${src.bpm}`);
+// A fresh sample arrives already chopped on its hits: pads play at once.
+await page.waitForFunction((id) => window.platterSlicer.source(id)?.slices.length > 1, src.id, { timeout: 10000 }).catch(() => {});
+const auto = await S((id) => window.platterSlicer.source(id), src.id);
+check(auto.slices.length >= 8 && auto.chop?.mode, `chopped on load: ${auto.slices.length} slices (${auto.chop?.mode})`);
+check(await S((id) => {
+  const st = window.platterSlicer;
+  st.undo();
+  const gone = !st.source(id);
+  st.redo();
+  return gone;
+}, src.id), 'the first chop is part of opening the file (one undo removes both)');
 await page.waitForTimeout(400);
 await page.screenshot({ path: join(dir, '1-loaded.png') });
 
@@ -143,6 +154,20 @@ check(slices.length === 16, `beat grid: ${slices.length} slices`);
 await S((id) => window.platterSlicer.autoSlice(id, { mode: 'equal', count: 8 }), src.id);
 check((await S((id) => window.platterSlicer.source(id).slices.length, src.id)) === 8, 'equal: 8 slices');
 await S((id) => window.platterSlicer.autoSlice(id, { mode: 'transients', sensitivity: 0.5, minGap: 0.08 }), src.id);
+// Live re-chop: a burst of slider moves lands only the last, as one undo step.
+const live = await S(async (id) => {
+  const st = window.platterSlicer;
+  const undoDepth = () => st.store.get().canUndo;
+  const jobs = [0.1, 0.3, 0.9].map((sensitivity) => st.autoSlice(id, { mode: 'transients', sensitivity, minGap: 0.05 }));
+  await Promise.all(jobs);
+  const s = st.source(id);
+  return { n: s.slices.length, sens: s.chop?.sensitivity, can: undoDepth() };
+}, src.id);
+check(live.sens === 0.9, `live re-chop keeps the latest setting (${live.sens}, ${live.n} slices)`);
+await S((id) => window.platterSlicer.autoSlice(id, { mode: 'transients', sensitivity: 0.5, minGap: 0.08 }), src.id);
+await S((id) => window.platterSlicer.addSlice(id, 0.123), src.id);
+check((await S((id) => window.platterSlicer.source(id).chop, src.id)) === null, 'a hand-placed slice marks the chop as manual');
+await S(() => window.platterSlicer.undo());
 
 // Slice keys: "1" auditions slice 1.
 await page.locator('[data-slicer]').focus();
@@ -195,6 +220,51 @@ check(peak > 0.01, `heard on the master (peak ${peak.toFixed(3)})`);
 await page.screenshot({ path: join(dir, '4-playing.png') });
 await page.keyboard.press('Space');
 check(!(await S(() => window.platterSlicer.store.get().playing)), 'Space stops');
+
+/* ── Recording pads, laying out ────────────────────────────────────────── */
+const take = await S(async (id) => {
+  const st = window.platterSlicer;
+  const lane = st.addLane('audio');
+  st.setRecordLane(lane);
+  st.seek(0);
+  const before = st.store.get().project.clips.length;
+  st.setRecording(true);
+  const wait = (ms) => new Promise((r) => setTimeout(r, ms));
+  await wait(400);
+  st.auditionSlice(id, 0);
+  await wait(450);
+  st.auditionSlice(id, 1);
+  await wait(450);
+  st.auditionSlice(id, 2);
+  await wait(200);
+  st.stop();
+  const p = st.store.get().project;
+  const mine = p.clips.filter((c) => c.laneId === lane).sort((a, b) => a.at - b.at);
+  const ends = mine.map((c) => c.at + st.clipBeats(c));
+  const choked = mine.every((c, i) => i === mine.length - 1 || ends[i] <= mine[i + 1].at + 1e-6);
+  const recording = st.store.get().recording;
+  st.undo();
+  const afterUndo = st.store.get().project.clips.filter((c) => c.laneId === lane).length;
+  return { added: p.clips.length - before, choked, recording, afterUndo, ats: mine.map((c) => c.at) };
+}, src.id);
+check(take.added === 3, `Rec places each pad hit on the timeline (${take.added}, at ${take.ats.join(', ')})`);
+check(take.choked, 'each recorded hit is cut where the next one starts');
+check(!take.recording, 'stopping ends the take');
+check(take.afterUndo === 0, 'one undo takes the whole take back');
+const flip = await S((id) => {
+  const st = window.platterSlicer;
+  const s = st.source(id);
+  const lane = st.addLane('audio');
+  const before = st.store.get().project.clips.length;
+  st.layoutSlices(id, lane, 0);
+  const p = st.store.get().project;
+  const mine = p.clips.filter((c) => c.laneId === lane).sort((a, b) => a.at - b.at);
+  const groove = mine.every((c, i) => Math.abs(c.at - (s.slices[i] * s.bpm) / 60) < 1e-6);
+  st.undo();
+  return { n: mine.length, want: s.slices.length, groove, back: st.store.get().project.clips.length === before };
+}, src.id);
+check(flip.n === flip.want && flip.groove, `Lay out all puts ${flip.n} slices in their original groove`);
+check(flip.back, 'one undo takes the layout back');
 
 /* ── Rendering ─────────────────────────────────────────────────────────── */
 // The loop render, compared with the slices it's made of: clip 1 is slice 1

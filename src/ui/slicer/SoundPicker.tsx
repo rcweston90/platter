@@ -20,6 +20,7 @@ export function SoundPicker({
   category,
   onPick,
   onClose,
+  sheet = false,
 }: {
   session: DjSession;
   anchor: HTMLElement;
@@ -28,6 +29,8 @@ export function SoundPicker({
   category?: Category | 'all';
   onPick: (soundId: string) => void;
   onClose: () => void;
+  /** Rise from the bottom of the screen (phones). */
+  sheet?: boolean;
 }) {
   const sampler = useStore(session.sampler.store);
   const [filter, setFilter] = useState<Category | 'all'>(category ?? 'all');
@@ -48,7 +51,7 @@ export function SoundPicker({
   };
 
   return (
-    <Popover anchor={anchor} onClose={close} label={title} className={st.picker}>
+    <Popover anchor={anchor} onClose={close} label={title} className={st.picker} sheet={sheet}>
       <div className={st.pickHead}>
         <p className={st.pickTitle}>{title}</p>
         <input

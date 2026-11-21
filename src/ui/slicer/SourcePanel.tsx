@@ -4,6 +4,7 @@ import { useStore } from '../../engine/store';
 import type { StudioState, Studio } from '../../slicer/studio';
 import { SLICE_COLORS, type Source } from '../../slicer/types';
 import { useDropTarget } from '../frame';
+import { Glyph, ICON } from './chopKit';
 import { fmtTime } from './SliceWave';
 import w from './workspace.module.css';
 
@@ -30,57 +31,135 @@ interface Props {
   onTab: (t: SourceTab) => void;
   onOpenFiles: () => void;
   onFiles: (files: File[]) => void;
+  /** 'side': the desk's column (collapsible); 'sheet': the phone's sheet. */
+  variant?: 'side' | 'sheet';
+  collapsed?: boolean;
+  /** Fold the column to a strip (or open it); absent when it can't fold. */
+  onCollapse?: (collapsed: boolean) => void;
+  /** A sample was picked (the sheet closes). */
+  onPicked?: () => void;
 }
 
 /** Where samples come from: the crate, files you open, and what the project already holds. */
-export function SourcePanel({ studio, session, state, tab, onTab, onOpenFiles, onFiles }: Props) {
+export function SourcePanel({ studio, session, state, tab, onTab, onOpenFiles, onFiles, variant = 'side', collapsed, onCollapse, onPicked }: Props) {
   const tabsId = useId();
   const panel = useRef<HTMLElement>(null);
   const [over, setOver] = useState(false);
   useDropTarget(panel, hasFiles, setOver, (dt) => onFiles(Array.from(dt.files)));
   const inProject = state.project.sources.length;
 
+  if (collapsed && onCollapse)
+    return <Strip studio={studio} state={state} onExpand={() => onCollapse(false)} onOpenFiles={onOpenFiles} panel={panel} over={over} />;
+
   return (
-    <aside ref={panel} className={w.sources} data-over={over} aria-label="Samples">
-      <div className={w.tabs} role="tablist" aria-label="Sample sources">
-        {TABS.map((t) => (
-          <button
-            key={t.id}
-            type="button"
-            role="tab"
-            id={`${tabsId}-${t.id}`}
-            aria-selected={tab === t.id}
-            aria-controls={`${tabsId}-${t.id}-panel`}
-            tabIndex={tab === t.id ? 0 : -1}
-            className={w.tab}
-            onClick={() => onTab(t.id)}
-            onKeyDown={(e) => {
-              if (e.key !== 'ArrowLeft' && e.key !== 'ArrowRight') return;
-              // The tab list keeps arrows to itself (the editor's slice keys stay out).
-              e.preventDefault();
-              const i = TABS.findIndex((x) => x.id === tab);
-              const next = TABS[(i + (e.key === 'ArrowRight' ? 1 : TABS.length - 1)) % TABS.length];
-              onTab(next.id);
-              document.getElementById(`${tabsId}-${next.id}`)?.focus();
-            }}
-          >
-            {t.label}
-            {t.id === 'project' && inProject > 0 && <span className={w.count}>{state.project.sources.filter((s) => s.origin.kind !== 'sound').length}</span>}
+    <aside ref={panel} className={w.sources} data-over={over} data-variant={variant} aria-label="Samples">
+      <div className={w.tabsRow}>
+        <div className={w.tabs} role="tablist" aria-label="Sample sources">
+          {TABS.map((t) => (
+            <button
+              key={t.id}
+              type="button"
+              role="tab"
+              id={`${tabsId}-${t.id}`}
+              aria-selected={tab === t.id}
+              aria-controls={`${tabsId}-${t.id}-panel`}
+              tabIndex={tab === t.id ? 0 : -1}
+              className={w.tab}
+              onClick={() => onTab(t.id)}
+              onKeyDown={(e) => {
+                if (e.key !== 'ArrowLeft' && e.key !== 'ArrowRight') return;
+                // The tab list keeps arrows to itself (the editor's slice keys stay out).
+                e.preventDefault();
+                const i = TABS.findIndex((x) => x.id === tab);
+                const next = TABS[(i + (e.key === 'ArrowRight' ? 1 : TABS.length - 1)) % TABS.length];
+                onTab(next.id);
+                document.getElementById(`${tabsId}-${next.id}`)?.focus();
+              }}
+            >
+              {t.label}
+              {t.id === 'project' && inProject > 0 && <span className={w.count}>{state.project.sources.filter((s) => s.origin.kind !== 'sound').length}</span>}
+            </button>
+          ))}
+        </div>
+        {onCollapse && (
+          <button type="button" className={w.iconBtn} onClick={() => onCollapse(true)} aria-label="Fold the samples list" title="Fold the samples list">
+            <svg viewBox="0 0 20 20" aria-hidden="true">
+              <path d="M12 5l-5 5 5 5" />
+            </svg>
           </button>
-        ))}
+        )}
       </div>
       <div className={w.tabPanel} role="tabpanel" id={`${tabsId}-${tab}-panel`} aria-labelledby={`${tabsId}-${tab}`}>
-        {tab === 'crate' && <CrateList studio={studio} session={session} state={state} />}
-        {tab === 'files' && <FilesTab onOpenFiles={onOpenFiles} over={over} />}
-        {tab === 'project' && <ProjectList studio={studio} state={state} onTab={onTab} />}
+        {tab === 'crate' && <CrateList studio={studio} session={session} state={state} onPicked={onPicked} />}
+        {tab === 'files' && <FilesTab onOpenFiles={onOpenFiles} over={over} touch={variant === 'sheet'} />}
+        {tab === 'project' && <ProjectList studio={studio} state={state} onTab={onTab} onPicked={onPicked} />}
       </div>
     </aside>
   );
 }
 
+/* ── Folded: a strip of the project's samples ───────────────────────────── */
+
+function Strip({
+  studio,
+  state,
+  onExpand,
+  onOpenFiles,
+  panel,
+  over,
+}: {
+  studio: Studio;
+  state: StudioState;
+  onExpand: () => void;
+  onOpenFiles: () => void;
+  panel: React.RefObject<HTMLElement | null>;
+  over: boolean;
+}) {
+  const samples = state.project.sources.filter((s) => s.origin.kind !== 'sound' || s.id === state.sourceId);
+  return (
+    <aside ref={panel} className={w.strip} data-over={over} aria-label="Samples">
+      <button type="button" className={w.iconBtn} onClick={onExpand} aria-label="Show the samples list" title="Crate, files and samples">
+        <Glyph d={ICON.side} />
+      </button>
+      <ul className={w.stripList} aria-label="Samples in this project">
+        {samples.map((s) => (
+          <li key={s.id}>
+            <button
+              type="button"
+              className={w.stripItem}
+              aria-pressed={s.id === state.sourceId}
+              style={
+                {
+                  '--sw': s.origin.kind === 'sound' ? 'var(--cat-none)' : SLICE_COLORS[s.color % SLICE_COLORS.length],
+                } as React.CSSProperties
+              }
+              onClick={() => studio.selectSource(s.id)}
+              aria-label={s.name}
+              title={`${s.name} · ${s.slices.length} slice${s.slices.length === 1 ? '' : 's'}`}
+            >
+              {initials(s.name)}
+            </button>
+          </li>
+        ))}
+      </ul>
+      <button type="button" className={w.iconBtn} onClick={onOpenFiles} aria-label="Open audio files" title="Open audio files…">
+        <Glyph d={ICON.add} />
+      </button>
+    </aside>
+  );
+}
+
+function initials(name: string) {
+  const words = name
+    .replace(/\.[a-z0-9]+$/i, '')
+    .split(/[\s_\-·]+/)
+    .filter(Boolean);
+  return ((words[0]?.[0] ?? '') + (words[1]?.[0] ?? words[0]?.[1] ?? '')).toUpperCase() || '·';
+}
+
 /* ── Crate ──────────────────────────────────────────────────────────────── */
 
-function CrateList({ studio, session, state }: { studio: Studio; session: DjSession; state: StudioState }) {
+function CrateList({ studio, session, state, onPicked }: { studio: Studio; session: DjSession; state: StudioState; onPicked?: () => void }) {
   const crate = useStore(session.crate);
   const [q, setQ] = useState('');
   const query = useDeferredValue(q.trim().toLowerCase());
@@ -135,7 +214,10 @@ function CrateList({ studio, session, state }: { studio: Studio; session: DjSess
                   type="button"
                   className={w.trackRow}
                   disabled={unusable}
-                  onClick={() => studio.addTrack(t.id)}
+                  onClick={() => {
+                    studio.addTrack(t.id);
+                    onPicked?.();
+                  }}
                   title={
                     unusable
                       ? (t.error ?? 'This track couldn’t be read.')
@@ -171,26 +253,26 @@ function CrateList({ studio, session, state }: { studio: Studio; session: DjSess
 
 /* ── Files ──────────────────────────────────────────────────────────────── */
 
-function FilesTab({ onOpenFiles, over }: { onOpenFiles: () => void; over: boolean }) {
+function FilesTab({ onOpenFiles, over, touch }: { onOpenFiles: () => void; over: boolean; touch: boolean }) {
   return (
     <div className={w.filesTab}>
       <div className={w.dropZone} data-over={over}>
         <svg viewBox="0 0 24 24" aria-hidden="true" className={w.dropIcon}>
           <path d="M12 15V4m0 0L8 8m4-4 4 4M5 14v4a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2v-4" />
         </svg>
-        <p>Drop FLAC, WAV, AIFF or MP3 files here</p>
+        <p>{touch ? 'FLAC, WAV, AIFF or MP3 from your files' : 'Drop FLAC, WAV, AIFF or MP3 files here'}</p>
         <button type="button" className={w.primary} onClick={onOpenFiles}>
           Open audio files…
         </button>
       </div>
-      <p className={w.fine}>Files stay in this browser. Nothing is uploaded.</p>
+      <p className={w.fine}>Files stay on this device. Nothing is uploaded.</p>
     </div>
   );
 }
 
 /* ── In project ─────────────────────────────────────────────────────────── */
 
-function ProjectList({ studio, state, onTab }: { studio: Studio; state: StudioState; onTab: (t: SourceTab) => void }) {
+function ProjectList({ studio, state, onTab, onPicked }: { studio: Studio; state: StudioState; onTab: (t: SourceTab) => void; onPicked?: () => void }) {
   const samples = state.project.sources.filter((s) => s.origin.kind !== 'sound');
   const sounds = state.project.sources.filter((s) => s.origin.kind === 'sound');
   if (!state.project.sources.length) {
@@ -212,7 +294,7 @@ function ProjectList({ studio, state, onTab }: { studio: Studio; state: StudioSt
     <div className={w.listWrap}>
       <ul className={w.list} aria-label="Samples in this project">
         {samples.map((s) => (
-          <SourceRow key={s.id} studio={studio} state={state} src={s} />
+          <SourceRow key={s.id} studio={studio} state={state} src={s} onPicked={onPicked} />
         ))}
       </ul>
       {sounds.length > 0 && (
@@ -222,7 +304,7 @@ function ProjectList({ studio, state, onTab }: { studio: Studio; state: StudioSt
           </summary>
           <ul className={w.list} aria-label="Drum sounds in this project">
             {sounds.map((s) => (
-              <SourceRow key={s.id} studio={studio} state={state} src={s} />
+              <SourceRow key={s.id} studio={studio} state={state} src={s} onPicked={onPicked} />
             ))}
           </ul>
         </details>
@@ -231,7 +313,7 @@ function ProjectList({ studio, state, onTab }: { studio: Studio; state: StudioSt
   );
 }
 
-function SourceRow({ studio, state, src }: { studio: Studio; state: StudioState; src: Source }) {
+function SourceRow({ studio, state, src, onPicked }: { studio: Studio; state: StudioState; src: Source; onPicked?: () => void }) {
   const [editing, setEditing] = useState(false);
   const audio = state.audio[src.id];
   const selected = state.sourceId === src.id;
@@ -269,7 +351,10 @@ function SourceRow({ studio, state, src }: { studio: Studio; state: StudioState;
           type="button"
           className={w.srcName}
           aria-pressed={selected}
-          onClick={() => studio.selectSource(src.id)}
+          onClick={() => {
+            studio.selectSource(src.id);
+            onPicked?.();
+          }}
           onDoubleClick={() => !sound && setEditing(true)}
           title={sound ? src.name : `${src.name} — double-click to rename`}
         >
