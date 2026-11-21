@@ -294,6 +294,7 @@ export class LibrarySync implements LibraryController {
       key: rec.key,
       energy: rec.library?.analysis?.energy ?? null,
       genre: rec.library?.tags.genre ?? null,
+      sound: this.session.sound?.printOf(rec.id) ?? null,
     };
   }
 }

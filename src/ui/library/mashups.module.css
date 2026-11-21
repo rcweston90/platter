@@ -411,6 +411,12 @@
   gap: 8px 16px;
 }
 
+.directions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+
 .matches {
   display: flex;
   flex-direction: column;

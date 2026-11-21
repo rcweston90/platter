@@ -24,6 +24,17 @@ The stem separation model itself is [HTDemucs](https://github.com/facebookresear
 affiliates), exported to ONNX by demucs-web. It is not bundled: the browser
 downloads it from Hugging Face the first time you split a track.
 
+Sound match uses LAION's [CLAP](https://github.com/LAION-AI/CLAP)
+(`clap-htsat-unfused`, Apache License 2.0, Copyright LAION), in the 8-bit
+ONNX export published by Xenova on Hugging Face. It is not bundled either:
+the browser downloads the audio encoder the first time you switch sound
+match on. The log-mel front end in `src/library/sound/features.ts` is a port
+of the `ClapFeatureExtractor` in Hugging Face
+[Transformers](https://github.com/huggingface/transformers) and
+[Transformers.js](https://github.com/huggingface/transformers.js) (both
+Apache License 2.0, Copyright Hugging Face). The Apache License 2.0 is at
+https://www.apache.org/licenses/LICENSE-2.0.
+
 Each is distributed under the MIT License:
 
 MIT License

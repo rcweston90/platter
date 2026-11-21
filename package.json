@@ -19,6 +19,7 @@
     "test:stems": "node tests/stems.mjs",
     "test:returning-visitor": "node tests/returning-visitor.mjs",
     "test:library-dsp": "node tests/library-dsp.mjs",
+    "test:sound": "node tests/sound.mjs",
     "library": "node scripts/library.mjs",
     "test:library": "node tests/library.mjs",
     "eval:accuracy": "node scripts/eval-accuracy.mjs",
