@@ -7,6 +7,7 @@ import type { TrackRecord } from '../../engine/types';
 import { suggestMatches, verdict, type Match, type MixTrack } from '../../library/mashup';
 import { TRACK_MIME } from '../DeckPanel';
 import { PreSplitBar } from './PreSplitBar';
+import { SoundMatchBar } from './SoundMatchBar';
 import { formatTime } from '../Waveforms';
 import s from '../../platter.module.css';
 import m from './mashups.module.css';
@@ -111,6 +112,7 @@ export function MashupsPanel({ session }: { session: DjSession }) {
   const { library } = session;
   const { tracks, loaded } = useStore(session.crate);
   const lib = useStore(library.store);
+  const { revision: soundRevision } = useStore(session.sound.store);
   const a = useStore(session.decks[0].store);
   const b = useStore(session.decks[1].store);
   const importInput = useRef<HTMLInputElement>(null);
@@ -154,7 +156,8 @@ export function MashupsPanel({ session }: { session: DjSession }) {
           bpmDoubt: bpmDoubt(rec),
         };
       }),
-    [tracks, library],
+    // soundRevision: a new sound print re-ranks the matches.
+    [tracks, library, soundRevision],
   );
 
   const genres = useMemo(() => {
@@ -321,6 +324,7 @@ export function MashupsPanel({ session }: { session: DjSession }) {
           {lib.lastSaved && !status ? ` Library file saved ${new Date(lib.lastSaved).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}.` : ''}
         </p>
         <PreSplitBar presplit={session.presplit} />
+        <SoundMatchBar sound={session.sound} />
       </header>
 
       {loaded && !tracks.length ? (
@@ -662,6 +666,11 @@ function MatchCard(p: {
         {mt.tempoRelation !== 'same' && (
           <span className={m.tag} title={mt.tempoRelation === 'half' ? 'Played half-time' : 'Played double-time'}>
             {mt.tempoRelation === 'half' ? '½×' : '2×'}
+          </span>
+        )}
+        {mt.soundScore != null && (
+          <span className={m.tag} title="How close it sounds, against the rest of your library (100 = the closest)">
+            sound {Math.round(mt.soundScore * 100)}
           </span>
         )}
       </p>

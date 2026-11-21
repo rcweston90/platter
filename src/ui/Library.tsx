@@ -3,19 +3,21 @@ import type { DjSession } from '../engine/session';
 import { useStore } from '../engine/store';
 import { Crate } from './Crate';
 import { MashupsPanel } from './library/MashupsPanel';
+import { UpNextPanel } from './library/UpNextPanel';
 import { QueuePanel } from './QueuePanel';
 import { RecordingsPanel } from './RecordingsPanel';
 import s from '../platter.module.css';
 
-type Tab = 'crate' | 'mashups' | 'queue' | 'recordings';
+type Tab = 'crate' | 'upnext' | 'mashups' | 'queue' | 'recordings';
 
-/** The lower half: the crate, mashup matching, the Auto-DJ queue and recorded mixes. Online music is in the Browse music flyout. */
+/** The lower half: the crate, what to play next, mashup matching, the Auto-DJ queue and recorded mixes. Online music is in the Browse music flyout. */
 export function Library({ session }: { session: DjSession }) {
   const [tab, setTab] = useState<Tab>('crate');
   const { queue, on } = useStore(session.autoDj.store);
   const { list } = useStore(session.recordings);
   const tabs: { id: Tab; label: string }[] = [
     { id: 'crate', label: 'Crate' },
+    { id: 'upnext', label: 'Up next' },
     { id: 'mashups', label: 'Mashups' },
     { id: 'queue', label: `Auto-DJ${on ? ' ●' : ''}${queue.length ? ` (${queue.length})` : ''}` },
     { id: 'recordings', label: `Recordings${list.length ? ` (${list.length})` : ''}` },
@@ -51,6 +53,7 @@ export function Library({ session }: { session: DjSession }) {
       </div>
       <div id={`lib-panel-${tab}`} role="tabpanel" aria-labelledby={`lib-tab-${tab}`}>
         {tab === 'crate' && <Crate session={session} />}
+        {tab === 'upnext' && <UpNextPanel session={session} />}
         {tab === 'mashups' && <MashupsPanel session={session} />}
         {tab === 'queue' && <QueuePanel session={session} />}
         {tab === 'recordings' && <RecordingsPanel session={session} />}

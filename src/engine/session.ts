@@ -3,6 +3,7 @@ import { analyzeBuffer } from '../library/client';
 import { normaliseTags } from '../library/tags';
 import { ANALYZER_VERSION } from '../library/types';
 import { LibrarySync } from '../library/sync';
+import { SoundMatch } from '../library/sound';
 import { fetchArtwork, fetchAudiusAudio, type AudiusTrack } from './audius';
 import { fetchSoundCloudAudio, SoundCloudError, type ScTrack } from './soundcloud';
 import { AutoDj } from './autodj';
@@ -102,6 +103,8 @@ export class DjSession {
   /** The library record and mashup analysis (src/library). */
   readonly library: LibrarySync = new LibrarySync(this);
   readonly decks: [Deck, Deck] = [new Deck(0), new Deck(1)];
+  /** Listens to your own tracks with an open audio model, for "what plays next" (src/library/sound). */
+  readonly sound: SoundMatch = new SoundMatch(this);
   /** Splits the linked folder's tracks ahead of time and saves the stems next to the music. */
   readonly presplit: PreSplitter = new PreSplitter(this);
   /** Each deck's stems (vocals, drums, bass, other): split on request (or loaded if saved), held in memory. */
@@ -174,7 +177,7 @@ export class DjSession {
     void this.midi.init();
     void loadRecordings().then((list) => this.recordings.set({ list }));
     void this.runAnalysis();
-    void this.library.init().then(() => this.presplit.init());
+    void this.library.init().then(() => Promise.all([this.presplit.init(), this.sound.init()]));
   }
 
   /** Puts the last session's tracks (or the crate's first two) on the decks
@@ -297,6 +300,7 @@ export class DjSession {
     this.disposed = true;
     this.library.dispose();
     this.presplit.dispose();
+    this.sound.dispose();
     void this.autoDj.setOn(false);
     this.beats.stop();
     this.sampler.silence();

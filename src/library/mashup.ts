@@ -1,4 +1,5 @@
 import { keyName, parseCamelot, shiftKey } from '../engine/key';
+import { flowSimilarity, type SoundPrint } from './sound/embed';
 
 /**
  * Which tracks mash or mix well with a given one, and why.
@@ -13,6 +14,15 @@ import { keyName, parseCamelot, shiftKey } from '../engine/key';
  *             reach (what a pitch fader at ±8 covers comfortably).
  *   energy  — 1…10; close is smooth, a step up builds, a big gap is a gear change.
  * Genre adds a small nudge when both tracks share one.
+ *
+ * Sound, when both tracks have a sound print (src/library/sound — an open
+ * audio model listening to them in the browser): how close the next track's
+ * intro sits to this one's outro, and how alike the two are overall, ranked
+ * against the rest of the pool. It's a fourth vote, not a veto: key and tempo
+ * still decide whether a pair can be mixed at all.
+ *
+ * An energy direction (keep it level, build, bring it down) changes what
+ * counts as a good energy step.
  */
 
 export interface MixTrack {
@@ -23,7 +33,12 @@ export interface MixTrack {
   key: string | null;
   energy: number | null;
   genre?: string | null;
+  /** What the audio model hears in it; absent until it's been listened to. */
+  sound?: SoundPrint | null;
 }
+
+/** Where the set should go next. */
+export type EnergyDirection = 'any' | 'hold' | 'build' | 'drop';
 
 export type KeyRelation =
   | 'same'
@@ -45,6 +60,10 @@ export interface Match {
   keyScore: number;
   tempoScore: number;
   energyScore: number;
+  /** 0…1: how close it sounds, ranked against the pool; null without sound prints. */
+  soundScore: number | null;
+  /** Raw sound similarity (see flowSimilarity); null without sound prints. */
+  similarity: number | null;
   keyRelation: KeyRelation;
   /** Semitones to shift the match's key (with key lock) for `keyRelation`; 0 = as is. */
   keyShift: number;
@@ -66,6 +85,10 @@ export interface MatchOptions {
   limit?: number;
   /** Keep tracks whose tempo or key is unknown, at a lower score (default false). */
   includeUnknown?: boolean;
+  /** Where the energy should go (default 'any': close is best, either way). */
+  direction?: EnergyDirection;
+  /** Track ids to leave out (already played, already on a deck). */
+  exclude?: ReadonlySet<string>;
 }
 
 const KEY_SCORE: Record<KeyRelation, number> = {
@@ -143,8 +166,40 @@ function round(n: number, places = 1) {
   return Math.round(n * f) / f;
 }
 
-/** Scores one pair: how well `other` goes with `seed`. */
-export function scorePair(seed: MixTrack, other: MixTrack, opts: MatchOptions = {}): Match {
+/** 0…1 for an energy step of `d` (next minus current), given the direction wanted. */
+export function energyFit(d: number, direction: EnergyDirection = 'any'): number {
+  switch (direction) {
+    case 'hold':
+      return Math.max(0, 1 - Math.abs(d) / 3);
+    case 'build':
+    case 'drop': {
+      const up = direction === 'build' ? d : -d;
+      if (up >= 1 && up <= 2) return 1;
+      if (up === 0) return 0.6;
+      if (up === 3) return 0.75;
+      if (up > 3) return 0.45;
+      return Math.max(0, 0.35 + 0.15 * up); // the wrong way
+    }
+    default:
+      return Math.max(0, 1 - Math.abs(d) / 6);
+  }
+}
+
+/** A raw similarity on its own, when there's too little of a pool to rank against. */
+const absoluteSound = (sim: number) => Math.max(0, Math.min(1, (sim - 0.35) / 0.55));
+
+function soundReason(score: number): string | null {
+  const pct = Math.round(score * 100);
+  if (score >= 0.8) return `Sounds close: its opening is nearer this track's ending than ${Math.min(99, pct)}% of your library.`;
+  if (score <= 0.2) return `Sounds quite different from this one; fine as a deliberate change of colour.`;
+  return null;
+}
+
+/**
+ * Scores one pair: how well `other` goes with `seed`. `soundScore` (0…1,
+ * from suggestMatches' ranking) brings sound into it.
+ */
+export function scorePair(seed: MixTrack, other: MixTrack, opts: MatchOptions = {}, sound?: { score: number; similarity: number } | null): Match {
   const maxStretch = opts.maxStretchPct ?? 6;
   const allowShift = opts.allowKeyShift ?? true;
   const reasons: string[] = [];
@@ -198,11 +253,12 @@ export function scorePair(seed: MixTrack, other: MixTrack, opts: MatchOptions = 
       : KEY_WHY[relation](seed.key ?? '?', other.key ?? '?');
 
   // Energy
+  const direction = opts.direction ?? 'any';
   let energyScore = 0.6;
   let energyReason: string | null = null;
   if (seed.energy != null && other.energy != null) {
     const d = other.energy - seed.energy;
-    energyScore = Math.max(0, 1 - Math.abs(d) / 6);
+    energyScore = energyFit(d, direction);
     energyReason =
       d === 0
         ? `Same energy (${seed.energy}/10): a smooth blend.`
@@ -212,14 +268,22 @@ export function scorePair(seed: MixTrack, other: MixTrack, opts: MatchOptions = 
   }
 
   const sameGenre = !!(seed.genre && other.genre && seed.genre.toLowerCase() === other.genre.toLowerCase());
-  let score = 0.45 * keyScore + 0.4 * tempoScore + 0.15 * energyScore + (sameGenre ? 0.03 : 0);
+  const soundScore = sound ? sound.score : null;
+  let score =
+    soundScore == null
+      ? 0.45 * keyScore + 0.4 * tempoScore + 0.15 * energyScore
+      : 0.36 * keyScore + 0.32 * tempoScore + 0.12 * energyScore + 0.2 * soundScore;
+  score += sameGenre ? 0.03 : 0;
   if (tempoScore === 0) score *= 0.5; // out of reach: listed last if at all
   score = Math.max(0, Math.min(1, score));
 
   // Lead with whichever decides the pair.
   const keyFirst = keyScore >= tempoScore;
   reasons.push(...(keyFirst ? [keyReason, tempoReason] : [tempoReason, keyReason]));
+  const sr = soundScore == null ? null : soundReason(soundScore);
+  if (sr && soundScore! >= 0.8) reasons.splice(1, 0, sr);
   if (energyReason) reasons.push(energyReason);
+  if (sr && soundScore! < 0.8) reasons.push(sr);
   if (sameGenre) reasons.push(`Both ${other.genre}.`);
 
   return {
@@ -228,6 +292,8 @@ export function scorePair(seed: MixTrack, other: MixTrack, opts: MatchOptions = 
     keyScore: round(keyScore, 3),
     tempoScore: round(tempoScore, 3),
     energyScore: round(energyScore, 3),
+    soundScore: soundScore == null ? null : round(soundScore, 3),
+    similarity: sound ? round(sound.similarity, 3) : null,
     keyRelation: relation,
     keyShift,
     tempoRelation,
@@ -240,15 +306,38 @@ export function scorePair(seed: MixTrack, other: MixTrack, opts: MatchOptions = 
 /** The best partners for `seed` from `pool`, best first. */
 export function suggestMatches(seed: MixTrack, pool: MixTrack[], opts: MatchOptions = {}): Match[] {
   const limit = opts.limit ?? 25;
+  const sounds = rankSounds(seed, pool, opts.exclude);
   const out: Match[] = [];
   for (const t of pool) {
-    if (t.id === seed.id) continue;
+    if (t.id === seed.id || opts.exclude?.has(t.id)) continue;
     if (!opts.includeUnknown && (!t.bpm || !t.key)) continue;
-    const m = scorePair(seed, t, opts);
+    const m = scorePair(seed, t, opts, sounds.get(t.id));
     if (!opts.includeUnknown && m.tempoScore === 0) continue;
     out.push(m);
   }
   return out.sort((a, b) => b.score - a.score).slice(0, limit);
+}
+
+/**
+ * Sound similarity of every pool track that has a print to `seed`, ranked:
+ * 1 = the closest-sounding in the pool, 0 = the furthest. With fewer than
+ * eight to rank, the raw similarity is mapped on its own.
+ */
+export function rankSounds(seed: MixTrack, pool: MixTrack[], exclude?: ReadonlySet<string>): Map<string, { score: number; similarity: number }> {
+  const out = new Map<string, { score: number; similarity: number }>();
+  if (!seed.sound) return out;
+  const sims: { id: string; sim: number }[] = [];
+  for (const t of pool) {
+    if (t.id === seed.id || exclude?.has(t.id) || !t.sound || t.sound.version !== seed.sound.version) continue;
+    sims.push({ id: t.id, sim: flowSimilarity(seed.sound, t.sound) });
+  }
+  if (sims.length < 8) {
+    for (const s of sims) out.set(s.id, { score: absoluteSound(s.sim), similarity: s.sim });
+    return out;
+  }
+  sims.sort((a, b) => a.sim - b.sim);
+  sims.forEach((s, i) => out.set(s.id, { score: i / (sims.length - 1), similarity: s.sim }));
+  return out;
 }
 
 /** One-word verdict for a score, for badges. */

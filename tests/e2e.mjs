@@ -464,6 +464,63 @@ await page.getByRole('searchbox', { name: 'Search SoundCloud' }).press('Enter');
 await page.getByText('Searched acid').waitFor({ timeout: 5000 });
 check(scCalls.some((c) => c.startsWith('api /tracks?') && c.includes('q=acid')), 'SoundCloud search asks for matching tracks and lists them');
 
+// ── Sound match and Up next: the CLAP model is mocked by a tiny stand-in
+// with the same input and output (tests/fixtures/make-fake-clap.py). Only
+// your own files are listened to; nothing is uploaded. ──
+const clapRequests = [];
+const postsDuringSound = [];
+await page.route('https://huggingface.co/Xenova/clap-htsat-unfused/**', (route) => {
+  const url = route.request().url();
+  clapRequests.push(`${route.request().method()} ${url}`);
+  if (url.endsWith('/preprocessor_config.json'))
+    return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ sampling_rate: 48000, feature_size: 64, fft_window_size: 1024, hop_length: 480, frequency_min: 50, frequency_max: 14000, nb_max_samples: 480000, padding: 'repeatpad' }) });
+  return route.fulfill({ status: 200, contentType: 'application/octet-stream', body: readFileSync(new URL('./fixtures/fake-clap.onnx', import.meta.url)) });
+});
+const watchSoundUploads = (req) => req.method() !== 'GET' && postsDuringSound.push(`${req.method()} ${req.url()}`);
+page.on('request', watchSoundUploads);
+await page.getByLabel('Audio files to add to the crate').setInputFiles([
+  { name: 'Test Artist - Kick Loop 122.wav', mimeType: 'audio/wav', buffer: kickWav(20, 122) },
+  { name: 'Test Artist - Kick Loop 124.wav', mimeType: 'audio/wav', buffer: kickWav(20, 124) },
+]);
+await page.waitForFunction(() => window.platter.crate.get().tracks.filter((t) => /Kick Loop/.test(t.title) && t.status === 'ready' && t.bpm).length >= 3, null, { timeout: 30000 });
+await page.getByRole('tab', { name: 'Up next' }).click();
+await page.getByRole('button', { name: 'Listen to my tracks' }).click();
+await page.waitForFunction(() => window.platter.sound.store.get().phase === 'done', null, { timeout: 90000 });
+const prints = await page.evaluate(() =>
+  window.platter.crate.get().tracks.map((t) => ({ title: t.title, own: !t.soundcloud && !t.audius && !t.demo, print: !!window.platter.sound.printOf(t.id) })),
+);
+check(
+  prints.filter((p) => p.own).every((p) => p.print) && prints.filter((p) => !p.own).every((p) => !p.print),
+  `sound match listens to every own file and nothing else (${prints.filter((p) => p.print).length} of ${prints.length} tracks)`,
+);
+check(
+  clapRequests.length > 0 && clapRequests.every((r) => r.startsWith('GET ')) && postsDuringSound.length === 0,
+  `the sound model is downloaded and nothing is uploaded${postsDuringSound.length ? `: ${postsDuringSound.join(', ')}` : ''}`,
+);
+page.off('request', watchSoundUploads);
+// Kick Loop 122 on deck A, A is the deck to mix out of.
+await page.evaluate(async () => {
+  const p = window.platter;
+  for (const d of p.decks) if (d.store.get().playing) d.togglePlay();
+  p.setCrossfader(-1);
+  const id = p.crate.get().tracks.find((t) => t.title === 'Kick Loop 122').id;
+  await p.loadToDeck(id, 0);
+});
+const upNext = page.getByRole('region', { name: 'Up next after Kick Loop 122' });
+await upNext.waitFor({ timeout: 15000 });
+const firstCard = upNext.getByRole('listitem').first();
+const firstText = (await firstCard.textContent()) ?? '';
+check(/Kick Loop/.test(firstText) && /sound \d+/.test(firstText), `Up next suggests another kick loop first, with its sound score (${firstText.replace(/\s+/g, ' ').slice(0, 90)})`);
+check((await upNext.getByText('Kick Loop 122', { exact: true }).count()) === 1, 'the track on the deck isn\'t suggested after itself');
+await upNext.getByRole('button', { name: 'Build' }).click();
+check((await upNext.getByRole('button', { name: 'Build' }).getAttribute('aria-pressed')) === 'true', 'energy direction can be set to Build');
+const loadB = upNext.getByRole('button', { name: /^Load .* on deck B$/ }).first();
+const loadName = (await loadB.getAttribute('aria-label')) ?? '';
+await loadB.click();
+const wanted = loadName.replace(/^Load (.*) on deck B$/, '$1');
+await page.locator('section[aria-label="Deck B"]').getByText(wanted, { exact: true }).waitFor({ timeout: 15000 });
+check(true, `Load on B puts “${wanted}” on deck B`);
+
 check(errors.length === 0, `no page errors${errors.length ? `: ${errors.join(' | ')}` : ''}`);
 await browser.close();
 process.exit(failures ? 1 : 0);

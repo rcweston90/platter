@@ -106,6 +106,23 @@ GitHub Actions).
   never audio) can be kept in sync with a folder, and `npm run library --
   <folder>` builds the same record from the terminal. See
   [library/README.md](library/README.md).
+- **Up next** (a tab beside the crate): for the track you're mixing out of,
+  the tracks that would follow it best, with the reasons and a button to load
+  one on the other deck. It reads the deck as it sounds now (tempo with the
+  pitch fader, key with any key shift), weighs key, tempo (half and double
+  time too) and energy, and lets you say where the energy should go: keep
+  it level, build, or bring it down. Tracks you've played this session are
+  skipped unless you say otherwise.
+- **Sound match** (in Up next and Mashups, off until you switch it on): an
+  open audio model, LAION's [CLAP](https://github.com/LAION-AI/CLAP), listens
+  to your own files in the browser and keeps a short "sound print" of each
+  (the opening, the middle and the ending), so suggestions also weigh how a
+  track's opening sounds next to the current one's ending. The model is a
+  one-time download of about 34 MB from Hugging Face. Your music never
+  leaves the browser, and the prints stay in IndexedDB, not in the library
+  file or the repo. Only files you added or linked are listened to: never
+  SoundCloud (its API terms forbid feeding its audio to AI), Audius or the
+  demos.
 - **Browse music** (top bar, or **Browse online** in the crate) opens a panel
   beside the decks with Audius and SoundCloud, so you can search and load
   while you mix. Each track shows its artwork, length, tempo and whether it
@@ -186,6 +203,7 @@ npm run test:e2e     # against a running dev or preview server
 npm run test:controls  # clicks every deck and mixer control and checks its effect
 npm run test:library      # tags, fingerprints, mashup scorer, folder scanner
 npm run test:library-dsp  # tempo, loudness and energy on synthetic audio
+npm run test:sound        # sound match: CLAP features against Python, scoring
 ```
 
 The end-to-end check drives a real browser through cueing, playing, sync,
@@ -237,7 +255,9 @@ src/engine/
   soundcloud.ts SoundCloud sign-in (PKCE), browsing, streaming, licence checks
   folder.ts     linked music folders (File System Access)
 src/library/    track analysis (tempo, key, loudness, energy), tags, fingerprints,
-                the library record and folder sync, mashup scoring
+                the library record and folder sync, mashup and up-next scoring
+  sound/        sound match: CLAP features (features.ts), windows and prints
+                (embed.ts), the model worker and the background listener
 scripts/library.mjs  the same analysis from the terminal, writing library/tracks.json
   backup.ts     JSON backup, Rekordbox XML import
   library.ts    everything kept in IndexedDB
