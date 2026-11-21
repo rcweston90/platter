@@ -36,3 +36,10 @@ export const ChevronIcon = ({ dir }: { dir: -1 | 1 }) => (
     />
   </svg>
 );
+
+/** The track list: three lines, the last one shorter. */
+export const ListIcon = () => (
+  <svg {...box}>
+    <path d="M4 6.5h16M4 12h16M4 17.5h10" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
+  </svg>
+);

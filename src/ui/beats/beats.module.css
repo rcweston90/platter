@@ -1086,3 +1086,24 @@
   min-height: 34px;
   padding: 0;
 }
+
+/* On a phone (matches PHONE_QUERY in ui/Phone.tsx) the section lines up with
+   the decks and mixer instead of sitting 16px further in, and a pad too
+   narrow to be square grows taller instead of letting its name, number and
+   category overlap. */
+@media (max-width: 639px) {
+  .section {
+    margin: 0;
+  }
+
+  .pad {
+    aspect-ratio: auto;
+    min-height: 88px;
+  }
+
+  .padCat {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+}

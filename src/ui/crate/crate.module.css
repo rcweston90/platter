@@ -389,6 +389,14 @@
   margin-left: -2px;
 }
 
+/* Keyboard hints mean nothing on a touch screen with no keyboard. */
+@media (hover: none) and (pointer: coarse) {
+  .legend,
+  .pillHint {
+    display: none;
+  }
+}
+
 .legend kbd:not(:first-child) {
   margin-left: 8px;
 }
@@ -1465,4 +1473,13 @@ a.badge:hover {
 .browser[data-mode='page'] .search,
 .fullLayout[data-mode='page'] .search {
   min-height: 38px;
+}
+
+/* Load and remove are the row's whole point on a phone: thumb-sized.
+   After the base rule so it wins. */
+@media (hover: none) and (pointer: coarse) {
+  .load,
+  .remove {
+    min-height: 44px;
+  }
 }

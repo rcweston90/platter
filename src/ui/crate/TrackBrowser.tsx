@@ -52,11 +52,14 @@ export function TrackBrowser({ session, mode }: { session: DjSession; mode: Mode
   const kinds = KINDS.filter((k) => counts.get(k));
   const filtered = !!(st.query.trim() || st.source || st.folder !== null || st.matchKey || st.matchBpm);
 
-  // Opening the mini window or full screen puts you straight in the search.
+  // Opening the mini window or full screen puts you straight in the search,
+  // except on a touch screen, where focusing a field pops up the keyboard
+  // over half the list. There you tap the search when you want it.
   useEffect(() => {
     const go = () => search.current?.focus();
     searchFocus.listeners.add(go);
-    if (mode !== 'page') requestAnimationFrame(go);
+    const touch = typeof matchMedia === 'function' && matchMedia('(hover: none) and (pointer: coarse)').matches;
+    if (mode !== 'page' && !touch) requestAnimationFrame(go);
     return () => void searchFocus.listeners.delete(go);
   }, [mode]);
 

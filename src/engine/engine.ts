@@ -103,6 +103,17 @@ export class DjEngine {
   }
 
   static async create(): Promise<DjEngine> {
+    // iPhone: Web Audio counts as "ambient" sound by default, so the ring /
+    // silent switch mutes the whole rig. A DJ app is playback, like a music
+    // player (Safari 16.4+, the Audio Session API; ignored elsewhere).
+    const session = (navigator as Navigator & { audioSession?: { type: string } }).audioSession;
+    if (session) {
+      try {
+        session.type = 'playback';
+      } catch {
+        // Older implementations may refuse the assignment: keep the default.
+      }
+    }
     const ctx = new AudioContext({ latencyHint: 'interactive' });
     await ctx.audioWorklet.addModule(workletUrl('deck.js'));
     return new DjEngine(ctx);
