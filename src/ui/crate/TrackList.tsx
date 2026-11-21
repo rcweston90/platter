@@ -1,5 +1,6 @@
 import { useEffect, useLayoutEffect, useRef, useState, type KeyboardEvent, type MouseEvent } from 'react';
 import { compatible, keyName } from '../../engine/key';
+import { keyRelation, type KeyRelation } from '../../library/mashup';
 import type { DjSession } from '../../engine/session';
 import type { TrackRecord } from '../../engine/types';
 import { TRACK_MIME } from '../DeckPanel';
@@ -9,8 +10,43 @@ import type { Rig } from './rig';
 import c from './crate.module.css';
 
 /** Every row is the same height, so only the rows on screen are rendered —
- *  a linked folder of thousands scrolls as lightly as the demo crate. */
+ *  a linked folder of thousands scrolls as lightly as the demo crate. The
+ *  mini window keeps roomier rows; the library and full screen are denser. */
 export const ROW_H = 52;
+const DENSE_H = 46;
+export const rowHeight = (mode: Mode) => (mode === 'mini' ? ROW_H : DENSE_H);
+
+/** A Camelot move, as DJs say it: the same key, ±1 round the wheel, the
+ *  relative major or minor, and so on. */
+const MOVE: Partial<Record<KeyRelation, string>> = {
+  same: 'same',
+  relative: 'rel',
+  'fifth-up': '+1',
+  'fifth-down': '−1',
+  diagonal: 'diag',
+  'boost-2': '+2',
+};
+const MOVE_TITLE: Partial<Record<KeyRelation, string>> = {
+  same: 'the same key',
+  relative: 'its relative major or minor',
+  'fifth-up': 'one step up the Camelot wheel',
+  'fifth-down': 'one step down the Camelot wheel',
+  diagonal: 'a diagonal move on the wheel (six of seven notes shared)',
+  'boost-2': 'two steps up the wheel, an energy boost',
+};
+
+/** Whether a tempo meets the reference as it is, in double time or in half time. */
+function tempoFactor(bpm: number, ref: number): 0.5 | 1 | 2 {
+  let best: 0.5 | 1 | 2 = 1;
+  for (const f of [0.5, 1, 2] as const) if (Math.abs(bpm * f - ref) < Math.abs(bpm * best - ref)) best = f;
+  return best;
+}
+
+function signedPct(gap: number) {
+  const v = Math.abs(gap * 100);
+  if (v < 0.05) return '±0';
+  return `${gap > 0 ? '+' : '−'}${v.toFixed(v < 10 ? 1 : 0)}%`;
+}
 const OVERSCAN = 8;
 
 type Mode = 'page' | 'mini' | 'full';
@@ -70,6 +106,7 @@ export function TrackList({
   const head = useRef<HTMLTableSectionElement>(null);
   const focusNext = useRef(false);
   const columns = columnsFor(mode, showEnergy);
+  const H = rowHeight(mode);
   const { ref, target, playing, loadedOn, queue } = rig;
 
   useLayoutEffect(() => {
@@ -91,8 +128,8 @@ export function TrackList({
   }, [first, rows.length, scroller]);
 
   const headH = head.current?.offsetHeight ?? 40;
-  const start = Math.max(0, Math.floor((scrollTop - headH) / ROW_H) - OVERSCAN);
-  const end = Math.min(rows.length, Math.ceil((scrollTop + height) / ROW_H) + OVERSCAN);
+  const start = Math.max(0, Math.floor((scrollTop - headH) / H) - OVERSCAN);
+  const end = Math.min(rows.length, Math.ceil((scrollTop + height) / H) + OVERSCAN);
   const visible = rows.slice(start, end);
   const safeActive = Math.min(active, Math.max(0, rows.length - 1));
 
@@ -108,10 +145,10 @@ export function TrackList({
     const el = scroller.current;
     const n = Math.max(0, Math.min(rows.length - 1, i));
     if (el) {
-      const top = headH + n * ROW_H;
+      const top = headH + n * H;
       let next = el.scrollTop;
       if (top < el.scrollTop + headH) next = top - headH;
-      else if (top + ROW_H > el.scrollTop + el.clientHeight) next = top + ROW_H - el.clientHeight;
+      else if (top + H > el.scrollTop + el.clientHeight) next = top + H - el.clientHeight;
       if (next !== el.scrollTop) {
         el.scrollTop = next;
         setScrollTop(el.scrollTop);
@@ -137,7 +174,7 @@ export function TrackList({
     const i = Number(row.dataset.row);
     const t = rows[i];
     if (!t) return;
-    const page = Math.max(1, Math.floor((scroller.current?.clientHeight ?? 400) / ROW_H) - 1);
+    const page = Math.max(1, Math.floor((scroller.current?.clientHeight ?? 400) / H) - 1);
     const act: Record<string, () => void> = {
       ArrowDown: () => moveTo(i + 1),
       ArrowUp: () => (i === 0 ? onExitTop() : moveTo(i - 1)),
@@ -204,7 +241,7 @@ export function TrackList({
         </thead>
         <tbody onKeyDown={onKey}>
           {start > 0 && (
-            <tr aria-hidden="true" className={c.spacer} style={{ height: start * ROW_H }}>
+            <tr aria-hidden="true" className={c.spacer} style={{ height: start * H }}>
               <td colSpan={span} />
             </tr>
           )}
@@ -216,6 +253,8 @@ export function TrackList({
             const isActive = i === safeActive;
             const gap = tempoGap(t.bpm, ref?.bpm ?? null);
             const keyFits = t.key && ref?.key ? compatible(t.key, ref.key) : undefined;
+            const move = keyRelation(ref?.key ?? null, t.key);
+            const factor = gap !== null && t.bpm && ref?.bpm ? tempoFactor(t.bpm, ref.bpm) : 1;
             const qi = queue.indexOf(t.id);
             const dir = folderOf(t);
             const second = mode === 'mini' ? t.artist || null : t.library?.tags.album || dir || null;
@@ -296,12 +335,20 @@ export function TrackList({
                       <span className={c.srOnly}>analysing…</span>
                     </span>
                   ) : t.bpm ? (
-                    <span
-                      className={c.bpm}
-                      data-match={gap === null ? undefined : Math.abs(gap) <= TEMPO_REACH}
-                      title={gap === null ? undefined : `${gap >= 0 ? '+' : '−'}${Math.abs(gap * 100).toFixed(1)}% from deck ${ref?.deck}`}
-                    >
-                      {t.bpm.toFixed(mode === 'mini' ? 0 : 1)}
+                    <span className={c.stack}>
+                      <span
+                        className={c.bpm}
+                        data-match={gap === null ? undefined : Math.abs(gap) <= TEMPO_REACH}
+                        title={gap === null ? undefined : `${signedPct(gap)} from deck ${ref?.deck}${factor === 2 ? ', played double time' : factor === 0.5 ? ', played half time' : ''}`}
+                      >
+                        {t.bpm.toFixed(mode === 'mini' ? 0 : 1)}
+                      </span>
+                      {gap !== null && mode !== 'mini' && (
+                        <span className={c.delta} data-match={Math.abs(gap) <= TEMPO_REACH} aria-hidden="true">
+                          {factor === 2 ? '2× ' : factor === 0.5 ? '½× ' : ''}
+                          {signedPct(gap)}
+                        </span>
+                      )}
                     </span>
                   ) : (
                     <span className={c.dim}>—</span>
@@ -309,12 +356,19 @@ export function TrackList({
                 </td>
                 <td className={c.colKey}>
                   {t.key ? (
-                    <span
-                      className={c.key}
-                      data-match={keyFits}
-                      title={`${keyName(t.key)}${ref?.key ? (keyFits ? ` — mixes with ${ref.key} on deck ${ref.deck}` : ` — clashes with ${ref.key} on deck ${ref.deck}`) : ''}`}
-                    >
-                      {t.key}
+                    <span className={c.stack}>
+                      <span
+                        className={c.key}
+                        data-match={keyFits}
+                        title={`${keyName(t.key)}${ref?.key ? (keyFits ? ` — mixes with ${ref.key} on deck ${ref.deck}${MOVE_TITLE[move] ? `: ${MOVE_TITLE[move]}` : ''}` : ` — clashes with ${ref.key} on deck ${ref.deck}`) : ''}`}
+                      >
+                        {t.key}
+                      </span>
+                      {ref?.key && mode !== 'mini' && (
+                        <span className={c.delta} data-match={!!keyFits} aria-hidden="true">
+                          {MOVE[move] ?? (keyFits ? 'fits' : '✕')}
+                        </span>
+                      )}
                     </span>
                   ) : (
                     <span className={c.dim}>—</span>
@@ -386,7 +440,7 @@ export function TrackList({
             );
           })}
           {end < rows.length && (
-            <tr aria-hidden="true" className={c.spacer} style={{ height: (rows.length - end) * ROW_H }}>
+            <tr aria-hidden="true" className={c.spacer} style={{ height: (rows.length - end) * H }}>
               <td colSpan={span} />
             </tr>
           )}

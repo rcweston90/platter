@@ -541,7 +541,7 @@
 }
 
 .colEnergy {
-  width: 72px;
+  width: 76px;
   text-align: right;
 }
 
@@ -557,7 +557,7 @@
 }
 
 .colActions {
-  width: 204px;
+  width: 160px;
 }
 
 .table th.colNum,
@@ -748,8 +748,8 @@ a.badge:hover {
 .load,
 .remove {
   flex: none;
-  min-width: 44px;
-  min-height: 40px;
+  min-width: 34px;
+  min-height: 34px;
   border: 1px solid var(--deck, var(--dj-line-2));
   border-radius: 6px;
   background: var(--dj-panel-2);
@@ -1283,4 +1283,186 @@ a.badge:hover {
   .fullLayout .sub {
     display: none;
   }
+}
+
+/* ── In the library ─────────────────────────────────────────────────────── */
+/* The crate's home: the docked library on a laptop or bigger (it fills the
+   dock's height), the end of the page on a phone. Denser rows than the mini
+   window, a sidebar once there's room, and the count beside the filters. */
+
+.browser[data-mode='page'],
+.fullLayout[data-mode='page'] {
+  flex: 1;
+  min-height: 0;
+}
+
+.fullLayout[data-mode='page'] {
+  grid-template-columns: 196px minmax(0, 1fr);
+  margin: -10px 0 -8px -12px;
+}
+
+.fullLayout[data-mode='page'] .sidebar {
+  padding: 2px 8px 12px 6px;
+}
+
+.fullLayout[data-mode='page'] .sideHead:first-child {
+  margin-top: 10px;
+}
+
+.fullLayout[data-mode='page'] .sideItem {
+  min-height: 34px;
+  font-size: 13px;
+}
+
+.fullLayout[data-mode='page'] .main {
+  padding: 10px 0 8px 12px;
+}
+
+.fullLayout[data-mode='page'] .listArea {
+  height: clamp(320px, 52vh, 560px);
+  flex: none;
+}
+
+@media (min-width: 900px) and (min-height: 600px) {
+  :global([data-docked]) .browser[data-mode='page'] .listArea,
+  :global([data-docked]) .fullLayout[data-mode='page'] .listArea {
+    height: auto;
+    flex: 1;
+  }
+}
+
+.filterStatus {
+  margin-left: auto;
+}
+
+.filterStatus .status {
+  min-height: 0;
+}
+
+/* Denser rows: what Rekordbox and Serato show at their default size. */
+.table[data-mode='page'] .row,
+.table[data-mode='page'] .row td,
+.table[data-mode='full'] .row,
+.table[data-mode='full'] .row td {
+  height: 46px;
+}
+
+.table[data-mode='page'] .art,
+.table[data-mode='full'] .art {
+  width: 32px;
+  height: 32px;
+}
+
+.table[data-mode='page'] th,
+.table[data-mode='page'] .sortBtn {
+  height: 34px;
+}
+
+/* Numbers with how far they are from the deck you're mixing out of, under them. */
+.stack {
+  display: inline-flex;
+  flex-direction: column;
+  align-items: flex-end;
+  line-height: 1.15;
+}
+
+.delta {
+  color: var(--dj-dim);
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  font-weight: 500;
+  letter-spacing: 0;
+}
+
+.delta[data-match='true'] {
+  color: color-mix(in srgb, var(--dj-play) 80%, var(--dj-dim));
+}
+
+.delta[data-match='false'] {
+  opacity: 0.7;
+}
+
+/* The table answers to its own width: past the sidebar and the Up next rail
+   there can be less room than the window suggests. */
+.scroller {
+  container: list / inline-size;
+}
+
+@container list (max-width: 900px) {
+  .colArtist {
+    display: none;
+  }
+
+  .artistInline {
+    display: block;
+  }
+
+  .table:not([data-mode='mini']) .sub {
+    display: none;
+  }
+}
+
+@container list (max-width: 560px) {
+  .table:not([data-mode='mini']) .colTime {
+    display: none;
+  }
+
+  .table:not([data-mode='mini']) .colActions {
+    width: 84px;
+  }
+
+  /* +Q and × wait for a wider list; A and B stay. */
+  .table:not([data-mode='mini']) .actions button:nth-child(n + 3) {
+    display: none;
+  }
+}
+
+/* The More menu: housekeeping that doesn't need a button of its own. */
+.more {
+  position: relative;
+}
+
+.menu {
+  position: absolute;
+  top: calc(100% + 4px);
+  right: 0;
+  z-index: 5;
+  display: flex;
+  flex-direction: column;
+  min-width: 220px;
+  padding: 4px;
+  border: 1px solid var(--dj-line-2);
+  border-radius: 8px;
+  background: var(--dj-panel-2);
+  box-shadow: 0 12px 28px rgb(0 0 0 / 0.5);
+}
+
+.menuItem {
+  min-height: 40px;
+  padding: 0 12px;
+  border: 0;
+  border-radius: 6px;
+  background: none;
+  color: var(--dj-text);
+  font: inherit;
+  font-size: 14px;
+  text-align: left;
+  cursor: pointer;
+}
+
+.menuItem:hover,
+.menuItem:focus-visible {
+  background: var(--dj-panel-3);
+  outline: none;
+}
+
+.browser[data-mode='page'] .toolbar .action,
+.fullLayout[data-mode='page'] .toolbar .action {
+  min-height: 38px;
+  font-size: 14px;
+}
+
+.browser[data-mode='page'] .search,
+.fullLayout[data-mode='page'] .search {
+  min-height: 38px;
 }
