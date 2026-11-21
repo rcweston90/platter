@@ -122,9 +122,9 @@ export function StemsControl({ stems, label }: { stems: DeckStems; label: string
             className={s.mini}
             onClick={() => void stems.split()}
             disabled={st.status === 'blocked'}
-            title={st.status === 'blocked' ? st.message ?? undefined : st.saved ? 'Already split: loads the saved stems at once' : 'Split into vocals, drums, bass and other'}
+            title={st.status === 'blocked' ? st.message ?? undefined : st.saved ? 'Already split in the background: loads the stems at once' : 'Split into vocals, drums, bass and other'}
           >
-            {st.saved ? 'Split (saved)' : 'Split'}
+            {st.saved ? 'Load stems' : 'Split'}
           </button>
         </>
       )}
@@ -132,7 +132,7 @@ export function StemsControl({ stems, label }: { stems: DeckStems; label: string
       {st.status === 'ready' && (
         <p className={t.note}>
           {st.seconds === null
-            ? 'Loaded the stems saved next to your music.'
+            ? st.message ?? 'Loaded the saved stems.'
             : `Split in ${Math.round(st.seconds)} s on the ${st.backend === 'webgpu' ? 'GPU' : 'CPU'}.`}{' '}
           Each bar shows what that part is playing; a muted part’s bar drops to nothing.
         </p>

@@ -10,7 +10,7 @@
  */
 import * as ort from 'onnxruntime-web/webgpu';
 import wasmUrl from 'onnxruntime-web/ort-wasm-simd-threaded.asyncify.wasm?url';
-import { Cancelled, separate, type Runner, type StemPcm } from './separate';
+import { Cancelled, MODEL_FAILED, MODEL_OFFLINE, separate, type Runner, type StemPcm } from './separate';
 
 export const MODEL_URL = 'https://huggingface.co/timcsy/demucs-web-onnx/resolve/main/htdemucs_embedded.onnx';
 const MODEL_CACHE = 'platter-models-v1';
@@ -47,8 +47,13 @@ async function modelBytes(id: number): Promise<ArrayBuffer> {
   } catch {
     cache = null; // no Cache Storage (private window): download every session
   }
-  const res = await fetch(MODEL_URL);
-  if (!res.ok || !res.body) throw new Error(`The stems model couldn’t be downloaded (${res.status}).`);
+  let res: Response;
+  try {
+    res = await fetch(MODEL_URL);
+  } catch {
+    throw new Error(MODEL_OFFLINE);
+  }
+  if (!res.ok || !res.body) throw new Error(`${MODEL_FAILED} (${res.status}).`);
   const size = Number(res.headers.get('Content-Length')) || 172_000_000;
   const reader = res.body.getReader();
   const chunks: Uint8Array[] = [];

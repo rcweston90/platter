@@ -3,6 +3,7 @@ import { useWidth } from '../library/dock';
 import type { DjSession } from '../../engine/session';
 import { useStore } from '../../engine/store';
 import { canLinkFolder } from '../../engine/folder';
+import { WAITING, currentLine } from '../library/PreSplitBar';
 import { openBrowse } from '../browse';
 import { CrateActions } from './CrateActions';
 import { SOURCE_LABEL, crateBrowser, energyOf, filterTracks, foldersOf, sourceOf, type SourceKind } from './model';
@@ -32,6 +33,7 @@ export function focusCrateSearch() {
 export function TrackBrowser({ session, mode }: { session: DjSession; mode: Mode }) {
   const { tracks, loaded, note } = useStore(session.crate);
   const st = useStore(crateBrowser);
+  const split = useStore(session.presplit.store);
   const rig = useRig(session);
   const search = useRef<HTMLInputElement>(null);
   const list = useRef<HTMLDivElement>(null);
@@ -269,6 +271,21 @@ export function TrackBrowser({ session, mode }: { session: DjSession; mode: Mode
           <span className={c.progressBar} aria-hidden="true">
             <span style={{ width: `${((tracks.length - analysing) / Math.max(1, tracks.length)) * 100}%` }} />
           </span>
+        </span>
+      )}
+      {split.phase === 'running' && split.current && (
+        <span className={c.progress} title="Splitting your tracks into stems in the background, so Split on a deck is instant">
+          <span className={c.progressText}>
+            Splitting stems · {split.done} of {split.total} · {currentLine(split.current)}
+          </span>
+          <span className={c.progressBar} aria-hidden="true">
+            <span style={{ width: `${((split.done + split.current.progress) / Math.max(1, split.total)) * 100}%` }} />
+          </span>
+        </span>
+      )}
+      {split.phase === 'waiting' && (
+        <span className={c.progressText} title="Splitting carries on once this is done">
+          Stems {WAITING[split.waitingFor ?? 'analysis']} · {split.done} of {split.total}
         </span>
       )}
       {note && <span className={c.note}>{note}</span>}
