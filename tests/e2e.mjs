@@ -119,14 +119,35 @@ await page.waitForFunction(() => !document.body.textContent.includes('analysing�
 const row = await page.locator('tbody tr', { hasText: 'Kick Loop' }).textContent();
 check(/Test Artist/.test(row) && /120\.0/.test(row), `imported file reads as Test Artist, 120 BPM (${row.replace(/\s+/g, ' ').trim()})`);
 
-// Record two seconds, then save.
+// Record three seconds, then save.
 await page.getByRole('button', { name: 'Record the mix' }).click();
-await page.waitForTimeout(2000);
+await page.waitForTimeout(3000);
 await page.getByRole('button', { name: 'Stop recording the mix' }).click();
 const save = page.getByRole('button', { name: 'Save mix' });
 await save.waitFor({ timeout: 5000 });
 const [download] = await Promise.all([page.waitForEvent('download', { timeout: 5000 }), save.click()]);
 check(/^platter-mix-.*\.(webm|mp4|ogg)$/.test(download.suggestedFilename()), `recording saves as ${download.suggestedFilename()}`);
+// The file holds the whole mix: it decodes, runs about as long as the take,
+// and isn't silent. (A recorder that drops its timeslice chunks leaves a few
+// kilobytes with no header, which decodes to nothing.)
+const take = await page.evaluate(async () => {
+  const blob = window.platter.mixer.get().lastRecording?.blob;
+  if (!blob) return null;
+  const ctx = new OfflineAudioContext(2, 1, 48000);
+  try {
+    const buf = await ctx.decodeAudioData(await blob.arrayBuffer());
+    const ch = buf.getChannelData(0);
+    let sum = 0;
+    for (let i = 0; i < ch.length; i++) sum += ch[i] * ch[i];
+    return { bytes: blob.size, seconds: buf.duration, rms: Math.sqrt(sum / ch.length) };
+  } catch (e) {
+    return { bytes: blob.size, seconds: 0, rms: 0, error: String(e) };
+  }
+});
+check(
+  !!take && take.bytes > 20_000 && take.seconds > 2 && take.rms > 0.005,
+  `the recorded mix has sound (${take ? `${(take.bytes / 1e3).toFixed(0)} KB, ${take.seconds.toFixed(1)} s, rms ${take.rms.toFixed(3)}` : 'none'})`,
+);
 
 // ── Harmonic mixing ──
 // Deck B follows A's +8% through sync, which lifts its key a semitone.

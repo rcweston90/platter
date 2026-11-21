@@ -50,6 +50,7 @@ export class DjEngine {
   private routing: CueRouting = { kind: 'off' };
   private recorder: MediaRecorder | null = null;
   private recordDest: MediaStreamAudioDestinationNode | null = null;
+  private recordChunks: Blob[] = [];
 
   private constructor(readonly ctx: AudioContext) {
     const master = ctx.createGain();
@@ -194,6 +195,7 @@ export class DjEngine {
 
   startRecording(): boolean {
     if (typeof MediaRecorder === 'undefined') return false;
+    if (this.recorder) return true;
     if (!this.recordDest) {
       this.recordDest = this.ctx.createMediaStreamDestination();
       this.masterOut.connect(this.recordDest);
@@ -201,26 +203,37 @@ export class DjEngine {
     const type = ['audio/webm;codecs=opus', 'audio/ogg;codecs=opus', 'audio/mp4'].find((t) =>
       MediaRecorder.isTypeSupported(t),
     );
-    this.recorder = new MediaRecorder(this.recordDest.stream, {
+    const rec = new MediaRecorder(this.recordDest.stream, {
       ...(type ? { mimeType: type } : {}),
       audioBitsPerSecond: 256_000,
     });
-    this.recorder.start(1000);
+    // Listen from the very first chunk: the timeslice hands one over every
+    // second, and the first one carries the file's header. A listener added
+    // only at stop misses all of them and leaves an empty, unplayable file.
+    const chunks: Blob[] = [];
+    rec.ondataavailable = (e) => {
+      if (e.data.size) chunks.push(e.data);
+    };
+    this.recordChunks = chunks;
+    this.recorder = rec;
+    rec.start(1000);
     return true;
   }
 
-  /** Resolves with the recorded mix once the recorder has flushed. */
+  /** Resolves with the recorded mix once the recorder has flushed, or null
+   *  when nothing was captured. */
   stopRecording(): Promise<Blob | null> {
     const rec = this.recorder;
     if (!rec) return Promise.resolve(null);
     this.recorder = null;
-    const chunks: Blob[] = [];
+    const chunks = this.recordChunks;
+    this.recordChunks = [];
+    const done = () => (chunks.length ? new Blob(chunks, { type: rec.mimeType || 'audio/webm' }) : null);
+    if (rec.state === 'inactive') return Promise.resolve(done());
     return new Promise((resolve) => {
-      rec.ondataavailable = (e) => {
-        if (e.data.size) chunks.push(e.data);
-      };
-      rec.onstop = () => resolve(new Blob(chunks, { type: rec.mimeType || 'audio/webm' }));
-      // Chunks already emitted by the 1 s timeslice arrive before stop's.
+      // The last chunk arrives (dataavailable) just before stop fires.
+      rec.onstop = () => resolve(done());
+      rec.onerror = () => resolve(done());
       rec.stop();
     });
   }
