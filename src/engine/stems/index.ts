@@ -12,11 +12,14 @@
  *     reserved" and the No-Derivatives licenses stay whole.
  *
  * Stems live in memory with the deck, for as long as that track is on it.
- * They are never saved, cached or uploaded.
+ * Tracks from a linked music folder can also be split ahead of time and
+ * saved next to the music (presplit.ts, saved.ts), so Split loads them at
+ * once. Nothing is uploaded, and nothing from Audius or SoundCloud is saved.
  */
 import type { Deck } from '../deck';
 import { createStore, type Store } from '../store';
 import type { TrackRecord } from '../types';
+import type { StemPcm } from './separate';
 import type { Backend, FromWorker, ToWorker } from './worker';
 
 export const STEMS = ['vocals', 'drums', 'bass', 'other'] as const;
@@ -52,12 +55,27 @@ export interface StemsState {
   seconds: number | null;
   muted: Record<StemName, boolean>;
   solo: StemName | null;
+  /** Stems for this track are saved on disk: Split loads them instead of splitting. */
+  saved: boolean;
+}
+
+/** Saved stems on disk (presplit.ts), as a deck sees them. */
+export interface SavedStemsHook {
+  has(trackId: string): Promise<boolean>;
+  /** The saved stems, decoded, or null. */
+  load(trackId: string): Promise<{ stems: StemPcm[]; rate: number } | null>;
+  /** A deck is about to split live: background splitting steps aside. */
+  beforeSplit(): void;
+  /** Would a live split of this track be worth saving? */
+  wants(trackId: string): boolean;
+  /** Keep a live split (the stems are a copy the hook may keep). */
+  keep(trackId: string, stems: StemPcm[]): void;
 }
 
 const unmuted = (): Record<StemName, boolean> => ({ vocals: false, drums: false, bass: false, other: false });
 
 function initial(): StemsState {
-  return { status: 'none', message: null, progress: 0, backend: null, seconds: null, muted: unmuted(), solo: null };
+  return { status: 'none', message: null, progress: 0, backend: null, seconds: null, muted: unmuted(), solo: null, saved: false };
 }
 
 /* ── The worker, shared by both decks ──────────────────────────────────── */
@@ -98,6 +116,7 @@ export class DeckStems {
   constructor(
     private readonly deck: Deck,
     private readonly decode: (trackId: string) => Promise<AudioBuffer>,
+    private readonly saved: SavedStemsHook | null = null,
   ) {
     deck.store.subscribe(() => {
       const id = deck.store.get().track?.id ?? null;
@@ -116,6 +135,12 @@ export class DeckStems {
     const { allowed, reason } = stemsPolicy(rec);
     if (!DeckStems.supported()) this.store.set({ status: 'blocked', message: 'This browser can’t split stems.' });
     else this.store.set({ status: allowed ? 'idle' : 'blocked', message: reason });
+    if (allowed && this.saved) {
+      const id = rec.id;
+      void this.saved.has(id).then((has) => {
+        if (has && this.trackId === id) this.store.set({ saved: true });
+      });
+    }
   }
 
   private reset(trackId: string | null) {
@@ -134,6 +159,18 @@ export class DeckStems {
     const trackId = this.trackId;
     if (!trackId || !this.deck.hasAudio || (s.status !== 'idle' && s.status !== 'error')) return;
     this.store.set({ status: 'prepare', message: null, progress: 0 });
+    if (this.saved) {
+      const found = await this.saved.load(trackId).catch(() => null);
+      if (this.trackId !== trackId) return;
+      if (found) {
+        this.deck.setStems(found.stems, found.rate);
+        this.store.set({ status: 'ready', progress: 1, backend: null, seconds: null });
+        this.applyGains();
+        return;
+      }
+      this.store.set({ saved: false });
+    }
+    this.saved?.beforeSplit();
     let buf: AudioBuffer;
     try {
       buf = await this.decode(trackId);
@@ -166,6 +203,10 @@ export class DeckStems {
       case 'done':
         listeners.delete(m.id);
         this.job = null;
+        if (this.saved?.wants(trackId)) {
+          // The deck takes the buffers; the copy goes to disk.
+          this.saved.keep(trackId, m.stems.map((p) => ({ left: p.left.slice(), right: p.right.slice() })));
+        }
         this.deck.setStems(m.stems, STEM_RATE);
         this.store.set({ status: 'ready', progress: 1, backend: m.backend, seconds: m.seconds });
         this.applyGains();
@@ -215,4 +256,27 @@ export class DeckStems {
     // The worklet's order: drums, bass, vocals, other (separate.ts KEPT, then the rest).
     this.deck.setStemGains([g('drums'), g('bass'), g('vocals'), g('other')]);
   }
+}
+
+/* ── Splits outside a deck (pre-splitting) ─────────────────────────────── */
+
+export interface SplitJob {
+  done: Promise<{ stems: StemPcm[]; seconds: number; backend: Backend }>;
+  cancel(): void;
+}
+
+/** Split 44.1 kHz stereo in the shared worker (queued behind any deck's split). Rejects with 'cancelled' if cancelled. */
+export function splitInWorker(left: Float32Array, right: Float32Array, onProgress: (phase: 'download' | 'prepare' | 'separate', progress: number) => void): SplitJob {
+  const id = nextId++;
+  const done = new Promise<{ stems: StemPcm[]; seconds: number; backend: Backend }>((resolve, reject) => {
+    listeners.set(id, (m) => {
+      if (m.type === 'progress') return onProgress(m.phase, m.progress);
+      listeners.delete(id);
+      if (m.type === 'done') resolve({ stems: m.stems, seconds: m.seconds, backend: m.backend });
+      else if (m.type === 'cancelled') reject(new Error('cancelled'));
+      else reject(new Error(m.message));
+    });
+  });
+  send({ type: 'separate', id, left, right }, [left.buffer, right.buffer]);
+  return { done, cancel: () => send({ type: 'cancel', id }) };
 }

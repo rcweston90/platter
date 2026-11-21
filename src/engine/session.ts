@@ -29,6 +29,7 @@ import { BeatBoard } from './beatboard';
 import { crossfaderGains, defaultChannel, faderGain, type ChannelState, type CrossfaderCurve } from './mixer';
 import { PADS, Sampler } from './sampler';
 import { DeckStems, STEM_RATE } from './stems';
+import { PreSplitter } from './stems/presplit';
 import { createStore, type Store } from './store';
 import { emptyCues, type TrackRecord } from './types';
 
@@ -101,10 +102,12 @@ export class DjSession {
   /** The library record and mashup analysis (src/library). */
   readonly library: LibrarySync = new LibrarySync(this);
   readonly decks: [Deck, Deck] = [new Deck(0), new Deck(1)];
-  /** Each deck's stems (vocals, drums, bass, other): split on request, held in memory only. */
+  /** Splits the linked folder's tracks ahead of time and saves the stems next to the music. */
+  readonly presplit: PreSplitter = new PreSplitter(this);
+  /** Each deck's stems (vocals, drums, bass, other): split on request (or loaded if saved), held in memory. */
   readonly stems: [DeckStems, DeckStems] = [
-    new DeckStems(this.decks[0], (id) => this.decodeForStems(id)),
-    new DeckStems(this.decks[1], (id) => this.decodeForStems(id)),
+    new DeckStems(this.decks[0], (id) => this.decodeForStems(id), this.presplit),
+    new DeckStems(this.decks[1], (id) => this.decodeForStems(id), this.presplit),
   ];
   readonly mixer: Store<MixerState> = createStore(initialMixer());
   readonly crate: Store<CrateState> = createStore<CrateState>({ tracks: [], loaded: false, note: null });
@@ -171,7 +174,7 @@ export class DjSession {
     void this.midi.init();
     void loadRecordings().then((list) => this.recordings.set({ list }));
     void this.runAnalysis();
-    void this.library.init();
+    void this.library.init().then(() => this.presplit.init());
   }
 
   /** Puts the last session's tracks (or the crate's first two) on the decks
@@ -293,6 +296,7 @@ export class DjSession {
   dispose() {
     this.disposed = true;
     this.library.dispose();
+    this.presplit.dispose();
     void this.autoDj.setOn(false);
     this.beats.stop();
     this.sampler.silence();

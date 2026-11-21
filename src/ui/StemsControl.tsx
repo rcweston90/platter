@@ -66,7 +66,7 @@ export function StemsControl({ stems, label }: { stems: DeckStems; label: string
       ) : busy ? (
         <>
           <span className={t.status} role="status">
-            {PHASE[st.status]} {Math.round(st.progress * 100)}%
+            {st.saved && st.status === 'prepare' ? 'Loading saved stems' : `${PHASE[st.status]} ${Math.round(st.progress * 100)}%`}
           </span>
           <button type="button" className={s.mini} onClick={() => stems.cancel()}>
             Stop
@@ -78,12 +78,13 @@ export function StemsControl({ stems, label }: { stems: DeckStems; label: string
           className={s.mini}
           onClick={() => void stems.split()}
           disabled={st.status === 'blocked'}
-          title={st.status === 'blocked' ? st.message ?? undefined : 'Split into vocals, drums, bass and other'}
+          title={st.status === 'blocked' ? st.message ?? undefined : st.saved ? 'Already split: loads the saved stems at once' : 'Split into vocals, drums, bass and other'}
         >
-          Split
+          {st.saved ? 'Split (saved)' : 'Split'}
         </button>
       )}
       {(st.status === 'blocked' || st.status === 'error') && st.message && <p className={t.note}>{st.message}</p>}
+      {st.status === 'ready' && st.seconds === null && <p className={t.note}>Loaded the stems saved next to your music.</p>}
       {st.status === 'ready' && st.seconds !== null && (
         <p className={t.note}>
           Split in {Math.round(st.seconds)} s on the {st.backend === 'webgpu' ? 'GPU' : 'CPU'}. Held in memory for this deck only.

@@ -36,6 +36,30 @@
   color: var(--dj-text);
 }
 
+/* ── Pre-split stems ───────────────────────────────────────────────────── */
+
+.presplit {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+.presplitLine {
+  flex: 1 1 260px;
+  margin: 0;
+  color: var(--dj-dim);
+  font-size: 13px;
+  line-height: 1.4;
+}
+
+.presplitNote {
+  flex-basis: 100%;
+  margin: 0;
+  color: var(--dj-dim);
+  font-size: 12px;
+}
+
 /* ── Two panes: library | mix with ─────────────────────────────────────── */
 
 .panes {

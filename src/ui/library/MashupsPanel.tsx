@@ -6,6 +6,7 @@ import { useStore } from '../../engine/store';
 import type { TrackRecord } from '../../engine/types';
 import { suggestMatches, verdict, type Match, type MixTrack } from '../../library/mashup';
 import { TRACK_MIME } from '../DeckPanel';
+import { PreSplitBar } from './PreSplitBar';
 import { formatTime } from '../Waveforms';
 import s from '../../platter.module.css';
 import m from './mashups.module.css';
@@ -319,6 +320,7 @@ export function MashupsPanel({ session }: { session: DjSession }) {
           {status || (lib.folderName ? `Library from “${lib.folderName}”.` : 'Tempo, key, energy and loudness are worked out in this browser as tracks are added.')}
           {lib.lastSaved && !status ? ` Library file saved ${new Date(lib.lastSaved).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}.` : ''}
         </p>
+        <PreSplitBar presplit={session.presplit} />
       </header>
 
       {loaded && !tracks.length ? (

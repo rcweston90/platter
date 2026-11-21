@@ -16,6 +16,8 @@ type PermissionHandle = FileSystemHandle & {
 export const AUDIO_FILE = /\.(mp3|wav|aiff?|flac|ogg|oga|opus|m4a|aac|webm)$/i;
 const MAX_FILES = 20000;
 const MAX_DEPTH = 8;
+/** Where Platter keeps pre-split stems inside the linked folder (engine/stems/stemfile.ts). */
+const STEMS_DIR = 'Platter Stems';
 
 export function canPickDirectory() {
   return typeof window !== 'undefined' && typeof (window as PickerWindow).showDirectoryPicker === 'function';
@@ -49,7 +51,7 @@ export async function audioFilesWithPaths(dir: FileSystemDirectoryHandle): Promi
     entries.sort((a, b) => a.name.localeCompare(b.name));
     for (const entry of entries) {
       if (out.length >= MAX_FILES) return;
-      if (entry.name.startsWith('.')) continue;
+      if (entry.name.startsWith('.') || (depth === 0 && entry.name === STEMS_DIR)) continue;
       if (entry.kind === 'file' && AUDIO_FILE.test(entry.name)) out.push({ handle: entry as FileSystemFileHandle, path: prefix + entry.name });
       else if (entry.kind === 'directory' && depth < MAX_DEPTH) await walk(entry as FileSystemDirectoryHandle, `${prefix}${entry.name}/`, depth + 1);
     }
