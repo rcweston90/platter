@@ -33,7 +33,7 @@ const noSubscribe = () => () => {};
 /** Browser capability, read once per render without subscribing. */
 const useCapability = (check: () => boolean) => useSyncExternalStore(noSubscribe, check, () => false);
 
-export function TopBar({ session, loop }: { session: DjSession; loop: FrameLoop }) {
+export function TopBar({ session, loop, onSlicer }: { session: DjSession; loop: FrameLoop; onSlicer?: () => void }) {
   const m = useStore(session.mixer);
   const { open: browsing } = useStore(browse);
   const { view: crateView } = useStore(crateBrowser);
@@ -89,6 +89,11 @@ export function TopBar({ session, loop }: { session: DjSession; loop: FrameLoop 
         <button type="button" className={`${s.primaryBtn} ${s.browseBtn}`} aria-expanded={browsing} onClick={() => openBrowse()}>
           Browse music
         </button>
+        {onSlicer && (
+          <button type="button" className={s.action} onClick={onSlicer} title="Chop samples from your tracks and arrange them with drums">
+            Slicer
+          </button>
+        )}
         <button
           type="button"
           className={`${s.toggle} ${s.recBtn}`}

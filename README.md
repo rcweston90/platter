@@ -152,6 +152,23 @@ GitHub Actions).
   bars before the end, and crossfades with a bass swap halfway.
 - **Recordings**: every recorded mix is kept until you delete it.
 
+**Slicer**
+- A separate studio for chopping samples, opened with **Slicer** in the top
+  bar. Bring in tracks from the crate, audio files (FLAC, WAV, MP3 …), sounds
+  from the sampler's library, or one part of a track (drums, bass, vocals or
+  the rest, split by the stems model or read from saved pre-splits).
+- Slice by **transients**, by the **beat grid** (from the track's tempo), into
+  **equal** parts, or by hand: click to add a slice point, drag to move it.
+  Number keys `1`–`0` and `Q`–`P` play slices 1–20 like MPC pads.
+- Drag slices onto a **multi-lane timeline** with sample lanes and drum lanes
+  (any sound from the library). Clips snap to the grid, follow the song's
+  tempo, and can be trimmed, moved, split, duplicated, reversed, pitched and
+  faded. Loop brace, metronome, swing on the drum lanes, mute and solo.
+- **Export** the song or the loop as a 16-, 24- or 32-bit WAV, send it to the
+  crate to mix on the decks, or put slices on sampler pads.
+- Projects save in this browser as you go, with undo and redo. Audio files
+  you open stay in the browser too.
+
 **Controllers and keyboard**
 - **MIDI learn** for every deck, mixer and sampler control: press Learn, move
   a knob or button. Jog wheels scratch while touched and nudge otherwise;
@@ -193,6 +210,12 @@ left hand, deck B on the right.
 
 Knobs and sliders take the arrow keys when focused; double-click resets them.
 Focus a platter and hold an arrow key to nudge.
+
+In the slicer: `Space` plays and stops, `1`–`0` and `Q`–`P` audition slices,
+`Enter` adds the selected slice to the end of its lane, `⌘/Ctrl+Z` undoes
+(`Shift` to redo), `⌘/Ctrl+D` duplicates, `⌘/Ctrl+E` splits at the playhead,
+`⌘/Ctrl+L` loops the selection, `⌘/Ctrl+U` quantizes, `Delete` removes clips
+and `Esc` goes back to the decks.
 
 ## Run it
 
@@ -265,6 +288,10 @@ src/engine/
                 pre-splitting (presplit.ts) and the saved-stems file (stemfile.ts, codec.ts, saved.ts)
   soundcloud.ts SoundCloud sign-in (PKCE), browsing, streaming, licence checks
   folder.ts     linked music folders (File System Access)
+src/slicer/      the slicer: the project model (model.ts), slicing and WAV
+                export (dsp.ts), the scheduler and offline render (player.ts),
+                and the studio that ties them to the rig (studio.ts)
+src/ui/slicer/  the slicer view: sources, slice editor, pads, timeline
 src/library/    track analysis (tempo, key, loudness, energy), tags, fingerprints,
                 the library record and folder sync, mashup and up-next scoring
   sound/        sound match: CLAP features (features.ts), windows and prints
@@ -309,6 +336,13 @@ public/sounds/cc0/  the CC0 recordings, fetched on first use
 - **No audio until the first press.** The decks open armed (title, waveform,
   cue point); the audio is decoded or synthesised on the first play.
 
+- **The slicer plays through the master bus**, so the meters, limiter and
+  recorder hear it. Clips are scheduled a little ahead on the audio clock (a
+  lookahead scheduler), and the WAV export runs the same scheduling through
+  an `OfflineAudioContext`, so the file is what you heard. Slices are found
+  by spectral flux with adaptive peak picking, each nudged back to the start
+  of its attack.
+
 ### Hosts that refuse `blob:` worklets
 
 Signalsmith Stretch builds its worklet as a `blob:` URL. Some hosts (strict
@@ -331,5 +365,6 @@ the beat board's timing follows Chris Wilson's MIT-licensed
 [metronome](https://github.com/cwilso/metronome).
 The library analysis is written for Platter from published methods: the
 Fourier tempogram of Grosche and Müller, Krumhansl–Kessler key profiles,
-ITU-R BS.1770-4 loudness and EBU Tech 3342 loudness range. See
-[THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
+ITU-R BS.1770-4 loudness and EBU Tech 3342 loudness range. The slicer's
+waveform editor is drawn with [wavesurfer.js](https://github.com/katspaugh/wavesurfer.js)
+(BSD 3-Clause). See [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).

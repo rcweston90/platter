@@ -20,6 +20,8 @@ import { cameBackFromSoundCloud } from './engine/soundcloud';
 import { ScrollingWave } from './ui/Waveforms';
 import { DOCK_QUERY, useDocked } from './ui/library/dock';
 import { Splitter, useDockSize } from './ui/library/Splitter';
+import { Studio } from './slicer/studio';
+import { SlicerView } from './ui/slicer/SlicerView';
 import s from './platter.module.css';
 
 /**
@@ -43,6 +45,8 @@ function isTyping(t: EventTarget | null) {
 export default function App() {
   const [session] = useState(() => new DjSession());
   const [loop] = useState(() => new FrameLoop());
+  const [studio] = useState(() => new Studio(session));
+  const { open: slicing } = useStore(studio.store);
   const [zoom, setZoom] = useState(8);
   const root = useRef<HTMLDivElement>(null);
   const rig = useRef<HTMLDivElement>(null);
@@ -55,12 +59,14 @@ export default function App() {
   useEffect(() => {
     // The rig, reachable from the browser console (and the end-to-end tests).
     (window as unknown as { platter: DjSession }).platter = session;
+    (window as unknown as { platterSlicer: Studio }).platterSlicer = studio;
     void session.init();
     return () => {
+      studio.dispose();
       session.dispose();
       loop.stop();
     };
-  }, [session, loop]);
+  }, [session, loop, studio]);
 
   useEffect(() => {
     loop.setRunning(mixer.audio === 'running');
@@ -213,14 +219,18 @@ export default function App() {
   );
 
   return (
+    <>
     <div
       ref={root}
       data-dj-root
       data-docked={docked || undefined}
       className={s.root}
-      style={docked ? ({ '--dock-h': `${dock.height}px` } as React.CSSProperties) : undefined}
+      // The slicer covers the rig: it's inert (no keys, no focus) and not drawn
+      // underneath, while the decks keep playing.
+      inert={slicing || undefined}
+      style={{ ...(docked ? ({ '--dock-h': `${dock.height}px` } as React.CSSProperties) : {}), ...(slicing ? { display: 'none' } : {}) }}
     >
-      <TopBar session={session} loop={loop} />
+      <TopBar session={session} loop={loop} onSlicer={() => void studio.open()} />
 
       <div className={s.waves}>
         <div className={s.waveRow} data-deck="A">
@@ -277,5 +287,7 @@ export default function App() {
       <SoundsFlyout session={session} />
       <CrateDock session={session} />
     </div>
+    {slicing && <SlicerView studio={studio} session={session} loop={loop} />}
+    </>
   );
 }
