@@ -17,6 +17,7 @@
     "test:controls": "node tests/controls.mjs",
     "artifact": "npm run build && node scripts/artifact.mjs",
     "test:stems": "node tests/stems.mjs",
+    "test:returning-visitor": "node tests/returning-visitor.mjs",
     "test:library-dsp": "node tests/library-dsp.mjs",
     "library": "node scripts/library.mjs",
     "test:library": "node tests/library.mjs",
