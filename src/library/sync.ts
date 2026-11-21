@@ -39,6 +39,11 @@ export class LibrarySync implements LibraryController {
 
   constructor(readonly session: DjSession) {}
 
+  /** The linked music folder, if one is remembered (stems are pre-split into it). */
+  get musicFolder(): FileSystemDirectoryHandle | null {
+    return this.folder;
+  }
+
   async init() {
     const [folder, sync, imported, saved] = await Promise.all([
       getValue<FileSystemDirectoryHandle>(KV_FOLDER),

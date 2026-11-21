@@ -40,7 +40,7 @@ export async function audioFilesIn(dir: FileSystemDirectoryHandle): Promise<File
     for await (const entry of d.values()) {
       if (out.length >= MAX_FILES) return;
       if (entry.kind === 'file' && AUDIO.test(entry.name)) out.push(entry as FileSystemFileHandle);
-      else if (entry.kind === 'directory' && depth < MAX_DEPTH && !entry.name.startsWith('.')) {
+      else if (entry.kind === 'directory' && depth < MAX_DEPTH && !entry.name.startsWith('.') && !(depth === 0 && entry.name === 'Platter Stems')) {
         await walk(entry as FileSystemDirectoryHandle, depth + 1);
       }
     }

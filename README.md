@@ -36,10 +36,18 @@ GitHub Actions).
   to mute it or hold it to hear it alone. The split runs in your browser
   (Meta's HTDemucs on ONNX Runtime Web, on the GPU through WebGPU where it
   can, otherwise the CPU) and the stems stay in memory with the deck; nothing
-  is saved or uploaded. The ~170 MB model downloads once and is cached. Your
+  is uploaded. The ~170 MB model downloads once and is cached. Your
   own files can be split; SoundCloud tracks never (its API terms forbid AI
   source separation); Audius tracks only under a Creative Commons license
   that allows adaptations.
+- **Pre-split stems** (Mashups tab, once a music folder is linked): Platter
+  splits the folder's tracks in the background while it's open and saves the
+  stems next to your music, in `Platter Stems/` inside the linked folder
+  (Opus at 256 kb/s, about 30 MB a five-minute track), so Split loads them at
+  once. It never starts a track while a deck is playing, a deck's own Split
+  goes first, Pause holds it across restarts, and a file that changes is split
+  again. The stems stay on your computer: not in the browser, the repo or any
+  server. Delete the folder to get the space back.
 
 **Harmonic mixing**
 - Each track's key is detected (or read from its tags) and shown in Camelot
@@ -216,7 +224,8 @@ src/engine/
   midi.ts       MIDI learn, mappings, LED feedback
   autodj.ts     queue and automatic transitions
   audius.ts     Audius search, trending and streaming
-  stems/        stem separation: which tracks may be split, the worker, the HTDemucs loop
+  stems/        stem separation: which tracks may be split, the worker, the HTDemucs loop,
+                pre-splitting (presplit.ts) and the saved-stems file (stemfile.ts, codec.ts, saved.ts)
   soundcloud.ts SoundCloud sign-in (PKCE), browsing, streaming, licence checks
   folder.ts     linked music folders (File System Access)
 src/library/    track analysis (tempo, key, loudness, energy), tags, fingerprints,
