@@ -10,7 +10,9 @@ import { StemsControl } from './StemsControl';
 import { Turntable } from './Turntable';
 import { formatTime, Overview } from './Waveforms';
 import { openBrowse } from './browse';
-import { ChevronIcon, PauseIcon, PlayIcon } from './icons';
+import { ChevronIcon, ListIcon, PauseIcon, PlayIcon } from './icons';
+import { openCrate } from './crate/CrateDock';
+import { usePhone } from './Phone';
 import s from '../platter.module.css';
 
 export const TRACK_MIME = 'application/x-dj-track';
@@ -69,6 +71,7 @@ export function DeckPanel({
     deck.setBend(dir);
   };
   const longPress = useRef<number | null>(null);
+  const phone = usePhone();
 
   useFrame(loop, () => {
     const track = deck.store.get().track;
@@ -195,6 +198,18 @@ export function DeckPanel({
             {effKey ?? '—'}
           </span>
         </div>
+        {phone && (
+          // On a phone the track list is a tap away from the deck you're on,
+          // not at the bottom of a long page.
+          <button
+            type="button"
+            className={`${s.mini} ${s.deckTracks}`}
+            onClick={(e) => openCrate('full', e.currentTarget)}
+            aria-label={`Open the track list to load deck ${deck.label}`}
+          >
+            <ListIcon />
+          </button>
+        )}
       </header>
 
       {st.error && (

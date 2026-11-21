@@ -22,6 +22,7 @@ import { DOCK_QUERY, useDocked } from './ui/library/dock';
 import { Splitter, useDockSize } from './ui/library/Splitter';
 import { Studio } from './slicer/studio';
 import { SlicerView } from './ui/slicer/SlicerView';
+import { PhoneDock, PhoneTabs, usePhone, type PhoneFocus } from './ui/Phone';
 import s from './platter.module.css';
 
 /**
@@ -51,6 +52,8 @@ export default function App() {
   const root = useRef<HTMLDivElement>(null);
   const rig = useRef<HTMLDivElement>(null);
   const docked = useDocked();
+  const phone = usePhone();
+  const [focus, setFocus] = useState<PhoneFocus>('A');
   const dock = useDockSize(rig, docked);
   const mixer = useStore(session.mixer);
   const still = usePrefersReducedMotion();
@@ -81,6 +84,16 @@ export default function App() {
     ro.observe(el);
     return () => ro.disconnect();
   }, [loop]);
+
+  // Nothing animates before audio starts, so a deck that gets its track (and
+  // its waveform) after the first frame has to ask for one, or its waveforms
+  // stay black until the first play. The phone's tabs bring a hidden deck's
+  // canvases back at a new size, which also needs a frame.
+  useEffect(() => {
+    const offs = session.decks.map((d) => d.store.subscribe(() => loop.kick()));
+    return () => offs.forEach((off) => off());
+  }, [session, loop]);
+  useEffect(() => loop.kick(), [loop, focus, phone]);
 
   // Back from SoundCloud's sign-in page: carry on where it started, in the flyout.
   useEffect(() => {
@@ -218,12 +231,53 @@ export default function App() {
         </footer>
   );
 
+  const waves = (
+    <div className={s.waves}>
+      <div className={s.waveRow} data-deck="A">
+        <span className={s.waveTag} aria-hidden="true">
+          A
+        </span>
+        <ScrollingWave deck={deckA} loop={loop} zoom={zoom} label="Deck A waveform around the playhead" />
+      </div>
+      <PhaseMeter decks={session.decks} loop={loop} />
+      <div className={s.waveRow} data-deck="B">
+        <span className={s.waveTag} aria-hidden="true">
+          B
+        </span>
+        <ScrollingWave deck={deckB} loop={loop} zoom={zoom} label="Deck B waveform around the playhead" />
+      </div>
+      <div className={s.zoom} role="group" aria-label="Waveform zoom">
+        <button
+          type="button"
+          className={s.mini}
+          onClick={() => setZoom(ZOOMS[Math.max(0, ZOOMS.indexOf(zoom) - 1)])}
+          disabled={zoom === ZOOMS[0]}
+          aria-label="Zoom in"
+        >
+          +
+        </button>
+        <span className={s.zoomValue}>{zoom}s</span>
+        <button
+          type="button"
+          className={s.mini}
+          onClick={() => setZoom(ZOOMS[Math.min(ZOOMS.length - 1, ZOOMS.indexOf(zoom) + 1)])}
+          disabled={zoom === ZOOMS[ZOOMS.length - 1]}
+          aria-label="Zoom out"
+        >
+          −
+        </button>
+      </div>
+    </div>
+  );
+
   return (
     <>
     <div
       ref={root}
       data-dj-root
       data-docked={docked || undefined}
+      data-phone={phone || undefined}
+      data-focus={phone ? focus : undefined}
       className={s.root}
       // The slicer covers the rig: it's inert (no keys, no focus) and not drawn
       // underneath, while the decks keep playing.
@@ -232,42 +286,14 @@ export default function App() {
     >
       <TopBar session={session} loop={loop} onSlicer={() => void studio.open()} />
 
-      <div className={s.waves}>
-        <div className={s.waveRow} data-deck="A">
-          <span className={s.waveTag} aria-hidden="true">
-            A
-          </span>
-          <ScrollingWave deck={deckA} loop={loop} zoom={zoom} label="Deck A waveform around the playhead" />
+      {phone ? (
+        <div className={s.phoneTop}>
+          {waves}
+          <PhoneTabs session={session} focus={focus} onFocus={setFocus} />
         </div>
-        <PhaseMeter decks={session.decks} loop={loop} />
-        <div className={s.waveRow} data-deck="B">
-          <span className={s.waveTag} aria-hidden="true">
-            B
-          </span>
-          <ScrollingWave deck={deckB} loop={loop} zoom={zoom} label="Deck B waveform around the playhead" />
-        </div>
-        <div className={s.zoom} role="group" aria-label="Waveform zoom">
-          <button
-            type="button"
-            className={s.mini}
-            onClick={() => setZoom(ZOOMS[Math.max(0, ZOOMS.indexOf(zoom) - 1)])}
-            disabled={zoom === ZOOMS[0]}
-            aria-label="Zoom in"
-          >
-            +
-          </button>
-          <span className={s.zoomValue}>{zoom}s</span>
-          <button
-            type="button"
-            className={s.mini}
-            onClick={() => setZoom(ZOOMS[Math.min(ZOOMS.length - 1, ZOOMS.indexOf(zoom) + 1)])}
-            disabled={zoom === ZOOMS[ZOOMS.length - 1]}
-            aria-label="Zoom out"
-          >
-            −
-          </button>
-        </div>
-      </div>
+      ) : (
+        waves
+      )}
 
       <div ref={rig} className={s.rig}>
         <div className={s.stage}>
@@ -287,6 +313,8 @@ export default function App() {
       <SoundsFlyout session={session} />
       <CrateDock session={session} />
     </div>
+    {/* Outside the root on purpose: see .phoneDock in platter.module.css. */}
+    {phone && !slicing && <PhoneDock session={session} />}
     {slicing && <SlicerView studio={studio} session={session} loop={loop} />}
     </>
   );

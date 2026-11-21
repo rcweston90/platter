@@ -8,6 +8,7 @@ import { useDropTarget } from '../frame';
 import { addFiles } from './CrateActions';
 import { crateBrowser, crateSlot, setCrateView, type CrateView } from './model';
 import { TrackBrowser } from './TrackBrowser';
+import { usePhone } from '../Phone';
 import c from './crate.module.css';
 
 /**
@@ -124,6 +125,7 @@ export function CrateDock({ session }: { session: DjSession }) {
   const pillBtn = useRef<HTMLButtonElement>(null);
   const prevView = useRef(view);
   const [dragOver, setDragOver] = useState(false);
+  const phone = usePhone();
 
   // Grow out of the page crate: start on its rect, then let the box transition.
   useLayoutEffect(() => {
@@ -194,8 +196,9 @@ export function CrateDock({ session }: { session: DjSession }) {
   const open = view !== 'page';
   // The pill is for when nothing else in view opens the list: the page crate
   // and the top bar's Tracks button both off screen. It never sits over the
-  // rig at rest.
-  const pillHidden = !open && !landing && (slotVisible || launcherVisible || !tracks.length);
+  // rig at rest. On a phone the bottom edge is the rig's play and crossfader
+  // dock, and each deck has its own Tracks button, so there's no pill.
+  const pillHidden = !open && !landing && (phone || slotVisible || launcherVisible || !tracks.length);
   const box = override?.box ?? boxFor(landing ? 'mini' : view, w, h);
   const shape = landing ? 'landing' : view === 'page' ? 'pill' : view;
 

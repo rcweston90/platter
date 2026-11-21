@@ -9,6 +9,7 @@ import { crateBrowser, crateSlot } from './crate/model';
 import { focusCrateSearch } from './crate/TrackBrowser';
 import { useDocked } from './library/dock';
 import { MidiPanel } from './MidiPanel';
+import { usePhone } from './Phone';
 import { saveFile } from './save';
 import { formatTime } from './Waveforms';
 import s from '../platter.module.css';
@@ -40,6 +41,7 @@ export function TopBar({ session, loop, onSlicer }: { session: DjSession; loop: 
   const { tracks } = useStore(session.crate);
   const tracksBtn = useRef<HTMLButtonElement>(null);
   const docked = useDocked();
+  const phone = usePhone();
   useEffect(() => {
     const el = tracksBtn.current;
     crateSlot.set({ launcher: el });
@@ -61,6 +63,58 @@ export function TopBar({ session, loop, onSlicer }: { session: DjSession; loop: 
   const canMaster = useCapability(DjEngine.canPickMasterDevice);
   const canCueDevice = useCapability(DjEngine.canPickCueDevice);
 
+  const outputs = (
+    <>
+      {canMaster && (
+        <div className={s.field}>
+          <label htmlFor={masterId}>Master out</label>
+          <select
+            id={masterId}
+            value={m.masterDevice}
+            onChange={(e) => void session.setMasterDevice(e.target.value)}
+          >
+            <option value="">System default</option>
+            {m.devices.map((d) => (
+              <option key={d.deviceId} value={d.deviceId}>
+                {d.label}
+              </option>
+            ))}
+          </select>
+        </div>
+      )}
+      <div className={s.field}>
+        <label htmlFor={cueId}>Headphones (cue)</label>
+        <select
+          id={cueId}
+          value={cueValue}
+          onChange={(e) => {
+            const v = e.target.value;
+            void session.setCueRouting(
+              v === 'off' || v === 'split' ? { kind: v } : { kind: 'device', deviceId: v.slice('device:'.length) },
+            );
+          }}
+        >
+          <option value="off">Off</option>
+          <option value="split">Split: master left, cue right</option>
+          {canCueDevice &&
+            m.devices.map((d) => (
+              <option key={d.deviceId} value={`device:${d.deviceId}`}>
+                {d.label}
+              </option>
+            ))}
+        </select>
+      </div>
+      <button type="button" className={s.action} onClick={() => void session.refreshDevices(true)}>
+        Find audio devices
+      </button>
+      <p className={s.popNote}>
+        With one output, use Split and a stereo-to-dual-mono splitter cable. With a second interface, pick it for
+        the headphones. Browsers only name outputs after a microphone permission — it is released straight away
+        and nothing is recorded.
+      </p>
+    </>
+  );
+
   return (
     <header className={s.topBar}>
       <div className={s.brand}>
@@ -68,7 +122,7 @@ export function TopBar({ session, loop, onSlicer }: { session: DjSession; loop: 
         <span className={s.status} role="status">
           {m.audio === 'idle' && 'Two demo tracks are cued. Press play on either deck.'}
           {m.audio === 'starting' && 'Starting audio…'}
-          {m.audio === 'running' && 'Audio running'}
+          {m.audio === 'running' && !phone && 'Audio running'}
           {m.audio === 'error' && (m.audioError ?? 'Audio could not start')}
           {m.audio !== 'error' && m.audioError ? ` · ${m.audioError}` : ''}
           {saveNote ? ` · ${saveNote}` : ''}
@@ -81,15 +135,15 @@ export function TopBar({ session, loop, onSlicer }: { session: DjSession; loop: 
           type="button"
           className={`${s.action} ${s.tracksBtn}`}
           aria-expanded={docked ? undefined : crateView !== 'page'}
-          onClick={(e) => (docked && crateView === 'page' ? focusCrateSearch() : openCrate('mini', e.currentTarget))}
+          onClick={(e) => (docked && crateView === 'page' ? focusCrateSearch() : openCrate(phone ? 'full' : 'mini', e.currentTarget))}
           title={docked ? 'Search the crate (/)' : 'Open the track list (/)'}
         >
           Tracks <span className={s.tracksCount}>{tracks.length}</span>
         </button>
         <button type="button" className={`${s.primaryBtn} ${s.browseBtn}`} aria-expanded={browsing} onClick={() => openBrowse()}>
-          Browse music
+          {phone ? 'Browse' : 'Browse music'}
         </button>
-        {onSlicer && (
+        {onSlicer && !phone && (
           <button type="button" className={s.action} onClick={onSlicer} title="Chop samples from your tracks and arrange them with drums">
             Slicer
           </button>
@@ -117,85 +171,62 @@ export function TopBar({ session, loop, onSlicer }: { session: DjSession; loop: 
           </button>
         )}
 
-        <details className={s.popover}>
-          <summary className={s.action}>Outputs</summary>
-          <div className={s.popPanel}>
-            {canMaster && (
-              <div className={s.field}>
-                <label htmlFor={masterId}>Master out</label>
-                <select
-                  id={masterId}
-                  value={m.masterDevice}
-                  onChange={(e) => void session.setMasterDevice(e.target.value)}
-                >
-                  <option value="">System default</option>
-                  {m.devices.map((d) => (
-                    <option key={d.deviceId} value={d.deviceId}>
-                      {d.label}
-                    </option>
-                  ))}
-                </select>
-              </div>
-            )}
-            <div className={s.field}>
-              <label htmlFor={cueId}>Headphones (cue)</label>
-              <select
-                id={cueId}
-                value={cueValue}
-                onChange={(e) => {
-                  const v = e.target.value;
-                  void session.setCueRouting(
-                    v === 'off' || v === 'split' ? { kind: v } : { kind: 'device', deviceId: v.slice('device:'.length) },
-                  );
-                }}
-              >
-                <option value="off">Off</option>
-                <option value="split">Split: master left, cue right</option>
-                {canCueDevice &&
-                  m.devices.map((d) => (
-                    <option key={d.deviceId} value={`device:${d.deviceId}`}>
-                      {d.label}
-                    </option>
-                  ))}
-              </select>
+        {phone ? (
+          // A phone has no room (or keyboard) for a row of menus: Slicer,
+          // outputs and MIDI share one, and the keyboard shortcuts stay out.
+          <details className={s.popover}>
+            <summary className={`${s.action} ${s.moreBtn}`} aria-label="More: slicer, outputs and MIDI">
+              More
+            </summary>
+            <div className={`${s.popPanel} ${s.morePanel}`}>
+              {onSlicer && (
+                <button type="button" className={s.action} onClick={onSlicer}>
+                  Open the slicer
+                </button>
+              )}
+              <h2 className={s.moreHead}>Outputs</h2>
+              {outputs}
+              <h2 className={s.moreHead}>MIDI</h2>
+              <MidiPanel session={session} />
             </div>
-            <button type="button" className={s.action} onClick={() => void session.refreshDevices(true)}>
-              Find audio devices
-            </button>
-            <p className={s.popNote}>
-              With one output, use Split and a stereo-to-dual-mono splitter cable. With a second interface, pick it for
-              the headphones. Browsers only name outputs after a microphone permission — it is released straight away
-              and nothing is recorded.
-            </p>
-          </div>
-        </details>
+          </details>
+        ) : (
+          <>
+            <details className={s.popover}>
+              <summary className={s.action}>Outputs</summary>
+              <div className={s.popPanel}>
+                {outputs}
+              </div>
+            </details>
 
-        <details className={s.popover}>
-          <summary className={s.action}>MIDI</summary>
-          <div className={`${s.popPanel} ${s.popWide}`}>
-            <MidiPanel session={session} />
-          </div>
-        </details>
+            <details className={s.popover}>
+              <summary className={s.action}>MIDI</summary>
+              <div className={`${s.popPanel} ${s.popWide}`}>
+                <MidiPanel session={session} />
+              </div>
+            </details>
 
-        <details className={s.popover}>
-          <summary className={s.action}>Keys</summary>
-          <div className={s.popPanel}>
-            <p className={s.popNote}>Deck A · Deck B</p>
-            <dl className={s.keys}>
-              {SHORTCUTS.map((k) => (
-                <div key={k.keys} className={s.keyRow}>
-                  <dt>
-                    <kbd>{k.keys}</kbd>
-                  </dt>
-                  <dd>{k.action}</dd>
-                </div>
-              ))}
-            </dl>
-            <p className={s.popNote}>
-              Focused knobs and sliders take the arrow keys; double-click resets them. Drag a record to scratch.
-            </p>
-          </div>
-        </details>
+            <details className={s.popover}>
+              <summary className={s.action}>Keys</summary>
+              <div className={s.popPanel}>
+                <p className={s.popNote}>Deck A · Deck B</p>
+                <dl className={s.keys}>
+                  {SHORTCUTS.map((k) => (
+                    <div key={k.keys} className={s.keyRow}>
+                      <dt>
+                        <kbd>{k.keys}</kbd>
+                      </dt>
+                      <dd>{k.action}</dd>
+                    </div>
+                  ))}
+                </dl>
+                <p className={s.popNote}>
+                  Focused knobs and sliders take the arrow keys; double-click resets them. Drag a record to scratch.
+                </p>
+              </div>
+            </details>
+          </>
+        )}
       </div>
     </header>
   );
