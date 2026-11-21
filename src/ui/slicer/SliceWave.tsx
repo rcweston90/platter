@@ -243,8 +243,15 @@ export function SliceWave({ studio, source, slice, meter, loop, pointer, onPoint
         const c = colorOf(i);
         if (r.color !== c) r.setOptions({ color: c });
         if (r.content) {
-          r.content.textContent = String(i + 1);
-          r.content.style.background = sliceColor(src, i);
+          // Only what changed: with hundreds of slices, rewriting every
+          // label on a pad press costs a dropped frame.
+          const label = String(i + 1);
+          if (r.content.textContent !== label) r.content.textContent = label;
+          const bg = sliceColor(src, i);
+          if (r.content.dataset.bg !== bg) {
+            r.content.dataset.bg = bg;
+            r.content.style.background = bg;
+          }
         }
       });
     }
@@ -252,6 +259,9 @@ export function SliceWave({ studio, source, slice, meter, loop, pointer, onPoint
     list.current.forEach((r, i) => {
       if (!r.element) return;
       const hex = sliceColor(src, i);
+      const key = `${hex}${i === slice}`;
+      if (r.element.dataset.look === key) return;
+      r.element.dataset.look = key;
       r.element.style.boxShadow = i === slice ? `inset 0 0 0 2px ${hex}, inset 0 3px 0 ${hex}` : `inset 0 3px 0 ${hexA(hex, 0.9)}`;
       r.element.dataset.selected = String(i === slice);
     });
@@ -303,7 +313,8 @@ export function SliceWave({ studio, source, slice, meter, loop, pointer, onPoint
       const px = (r.end - r.start) * pps;
       if (px < 8) narrow++;
       if (px >= 40) roomy++;
-      if (r.content) r.content.style.visibility = px < 26 ? 'hidden' : '';
+      const vis = px < 26 ? 'hidden' : '';
+      if (r.content && r.content.style.visibility !== vis) r.content.style.visibility = vis;
     }
     el.toggleAttribute('data-dense', narrow > list.current.length / 3);
     // Fat touch handles only when they don't cover the slices you tap to hear.

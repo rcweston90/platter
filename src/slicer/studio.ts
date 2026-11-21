@@ -20,7 +20,7 @@ import { getSound } from '../engine/sounds/catalog';
 import { getValue, setValue } from '../engine/library';
 import { createStore, type Store } from '../engine/store';
 import { saveFile } from '../ui/save';
-import { autoSlicePoints, buildPeaks, encodeWav, extractChannels, guessLoopBpm } from './dsp';
+import { MAX_HITS, autoSlicePoints, buildPeaks, encodeWav, extractChannels, guessLoopBpm } from './dsp';
 import {
   clipBeats,
   clipEnd,
@@ -748,6 +748,7 @@ export class Studio implements AudioLookup {
     const src = this.source(id);
     if (!src) return;
     const bpm = src.bpm;
+    this.adoptTempo(src);
     if (bpm && buf.duration > 30) {
       await this.autoSlice(id, { mode: 'grid', beats: 4 }, null);
       return;
@@ -762,6 +763,22 @@ export class Studio implements AudioLookup {
     if (now && now.chop?.mode === 'transients' && now.slices.length < 4 && bpm && buf.duration > 2) {
       await this.autoSlice(id, { mode: 'grid', beats: 1 }, null);
     }
+  }
+
+  /** The first sample into an empty song sets the song's tempo, so its
+   *  slices play at the speed and pitch they were recorded (a song at 90 with
+   *  a 123 BPM sample plays every slice a quarter slower and five semitones
+   *  down). Part of opening the sample, not an undo step; the song tempo is
+   *  one click to change afterwards. */
+  private adoptTempo(src: Source) {
+    const p = this.s.project;
+    const bpm = src.bpm;
+    if (!bpm || bpm < MIN_BPM || bpm > MAX_BPM || p.clips.length) return;
+    const first = p.sources.find((s) => s.origin.kind !== 'sound');
+    if (first?.id !== src.id) return;
+    const v = Math.round(bpm * 100) / 100;
+    if (Math.abs(p.bpm - v) < 0.005) return;
+    this.commit({ ...p, bpm: v });
   }
 
   /** The latest auto-slice asked for, per source: a slower, older worker
@@ -818,7 +835,12 @@ export class Studio implements AudioLookup {
   private onsetJobs = new Map<number, { resolve: (p: number[]) => void; reject: (e: Error) => void }>();
   private onsetSeq = 0;
 
-  private onsets(buf: AudioBuffer, sensitivity: number, minGap: number): Promise<number[]> {
+  /** Which buffers the worker already holds (it keeps the last three). */
+  private onsetKeys = new WeakMap<AudioBuffer, number>();
+  private onsetKeySeq = 0;
+  private onsetSent: number[] = [];
+
+  private onsets(buf: AudioBuffer, sensitivity: number, minGap: number, resend = false): Promise<number[]> {
     if (typeof Worker === 'undefined') return Promise.reject(new Error('no worker'));
     if (!this.onsetWorker) {
       const w = new Worker(new URL('./onsets.worker.ts', import.meta.url), { type: 'module' });
@@ -833,21 +855,35 @@ export class Studio implements AudioLookup {
         this.onsetJobs.clear();
         this.onsetWorker?.terminate();
         this.onsetWorker = null;
+        this.onsetSent = [];
       };
       this.onsetWorker = w;
+      this.onsetSent = [];
     }
-    // Mix to mono here: half the data to copy, and the detector mixes anyway.
-    const mono = new Float32Array(buf.length);
-    const g = 1 / buf.numberOfChannels;
-    for (let c = 0; c < buf.numberOfChannels; c++) {
-      const ch = buf.getChannelData(c);
-      for (let i = 0; i < ch.length; i++) mono[i] += ch[i] * g;
+    let key = this.onsetKeys.get(buf);
+    if (key === undefined) this.onsetKeys.set(buf, (key = ++this.onsetKeySeq));
+    // Mix to mono here, once per track: half the data to copy, and the
+    // detector mixes anyway. A slider sweep then sends only its settings.
+    let mono: Float32Array | undefined;
+    if (resend || !this.onsetSent.includes(key)) {
+      mono = new Float32Array(buf.length);
+      const g = 1 / buf.numberOfChannels;
+      for (let c = 0; c < buf.numberOfChannels; c++) {
+        const ch = buf.getChannelData(c);
+        for (let i = 0; i < ch.length; i++) mono[i] += ch[i] * g;
+      }
+      this.onsetSent = [...this.onsetSent.filter((k) => k !== key), key].slice(-3);
     }
     const id = ++this.onsetSeq;
-    return new Promise((resolve, reject) => {
+    const job = new Promise<number[]>((resolve, reject) => {
       this.onsetJobs.set(id, { resolve, reject });
-      this.onsetWorker!.postMessage({ id, sampleRate: buf.sampleRate, mono, sensitivity, minGap }, [mono.buffer]);
+      this.onsetWorker!.postMessage(
+        { id, key, sampleRate: buf.sampleRate, mono, sensitivity, minGap, maxCount: MAX_HITS - 1 },
+        mono ? [mono.buffer] : [],
+      );
     });
+    // The worker let go of it (it shouldn't): send it again, once.
+    return resend ? job : job.catch((err: Error) => (err.message === 'resend' ? this.onsets(buf, sensitivity, minGap, true) : Promise.reject(err)));
   }
 
   selectSlice(i: number | null) {

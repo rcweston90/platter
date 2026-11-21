@@ -266,6 +266,48 @@ const flip = await S((id) => {
 check(flip.n === flip.want && flip.groove, `Lay out all puts ${flip.n} slices in their original groove`);
 check(flip.back, 'one undo takes the layout back');
 
+// Laid out, the slices are the original again: at another song tempo too,
+// the render matches the whole sample played as one clip, sample for sample
+// (no dip at any seam). Then a loop over the layout wraps cleanly.
+const seam = await S(async (id) => {
+  const st = window.platterSlicer;
+  const bpm0 = st.store.get().project.bpm;
+  st.setBpm(bpm0 * 1.25);
+  const lane = st.addLane('audio');
+  st.layoutSlices(id, lane, 0);
+  const p = st.store.get().project;
+  const { render, runsOf } = await import('/src/slicer/player.ts');
+  const { makeClip } = await import('/src/slicer/model.ts');
+  const s = st.source(id);
+  const sr = st.buffer(id).sampleRate;
+  const mine = p.clips.filter((c) => c.laneId === lane);
+  const solo = { ...p, clips: mine };
+  const a = await render(solo, st, 0, 8, sr, 0);
+  const b = await render({ ...p, clips: [makeClip(s, lane, 0, 0, s.duration)] }, st, 0, 8, sr, 0);
+  let err = 0;
+  for (let c = 0; c < 2; c++) {
+    const x = a.getChannelData(c);
+    const y = b.getChannelData(c);
+    for (let i = 0; i < x.length - sr * 0.02; i++) err = Math.max(err, Math.abs(x[i] - y[i]));
+  }
+  const runs = runsOf(solo).filter((r) => r.lane.id === lane).length;
+  // Live: a one-bar loop over the layout, played through two wraps.
+  st.setLoop({ on: true, start: 0, end: 4 });
+  await st.play(0);
+  await new Promise((r) => setTimeout(r, ((60 / (bpm0 * 1.25)) * 4 * 2.3 * 1000) | 0));
+  const voices = st.player.voices.filter((v) => v.members.some((c) => c.laneId === lane)).length;
+  const pos = st.player.position();
+  st.stop();
+  return { err, clips: mine.length, runs, voices, pos, bpm0 };
+}, src.id);
+check(seam.err < 1e-4, `${seam.clips} laid-out slices play back as the original at another tempo (max error ${seam.err.toExponential(1)})`);
+check(seam.runs === 1, `back-to-back slices play as one voice (${seam.runs})`);
+check(seam.voices <= 2 && seam.pos < 4, `the loop wraps without piling up voices (${seam.voices} sounding, at beat ${seam.pos.toFixed(2)})`);
+await S((b) => {
+  const st = window.platterSlicer;
+  while (st.store.get().project.bpm !== b && st.store.get().canUndo) st.undo();
+}, seam.bpm0);
+
 /* ── Rendering ─────────────────────────────────────────────────────────── */
 // The loop render, compared with the slices it's made of: clip 1 is slice 1
 // at beat 0, so the first slice's samples come out first.
