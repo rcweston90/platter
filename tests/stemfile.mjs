@@ -5,7 +5,7 @@
  * the alignment finder recovers a codec's delay.
  * (The Opus path needs WebCodecs, so it only runs in the browser, where each
  * write decodes itself back and checks the alignment before it's kept.)
- * Run: npm run test:stems
+ * Run: npm run test:presplit
  */
 import { build } from 'esbuild';
 import { fileURLToPath } from 'node:url';

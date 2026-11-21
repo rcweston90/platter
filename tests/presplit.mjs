@@ -5,7 +5,7 @@
  * what it skips, where the files go, that a changed file is split again, that
  * it waits while a deck plays, pause/resume, a deck's Split going first, and
  * that saved stems load back.
- * Run: npm run test:stems
+ * Run: npm run test:presplit
  */
 import { build } from 'esbuild';
 import { fileURLToPath } from 'node:url';
