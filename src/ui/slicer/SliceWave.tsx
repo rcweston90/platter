@@ -6,7 +6,8 @@ import TimelinePlugin from 'wavesurfer.js/dist/plugins/timeline.js';
 import ZoomPlugin from 'wavesurfer.js/dist/plugins/zoom.js';
 import { sliceAt, sliceRange } from '../../slicer/model';
 import type { Studio } from '../../slicer/studio';
-import { SLICE_COLORS, type Source } from '../../slicer/types';
+import type { Peaks, Source } from '../../slicer/types';
+import { sliceColor } from './chopKit';
 import { fitCanvas, useFrame, type FrameLoop } from '../frame';
 import { setSliceDrag } from './dnd';
 import w from './workspace.module.css';
@@ -47,9 +48,34 @@ interface Props {
   /** Where the user last clicked (seconds), for "Slice here". */
   pointer: number | null;
   onPointer: (t: number) => void;
+  /** A finger: no hover line, fatter handles when the slices have room. */
+  touch?: boolean;
 }
 
-export function SliceWave({ studio, source, slice, meter, loop, pointer, onPointer }: Props) {
+/** Sample peaks for drawing: scaled so the loud part fills the height (a quiet
+ *  file reads as well as a mastered one; one stray spike doesn't flatten the
+ *  rest), then gently expanded so the hits stand out from what rings between
+ *  them. Done once per sample, not per frame. */
+function drawPeaks(p: Peaks): [Float32Array, Float32Array] {
+  const n = p.max.length;
+  const step = Math.max(1, Math.floor(n / 6000));
+  const amps: number[] = [];
+  for (let i = 0; i < n; i += step) amps.push(Math.max(p.max[i], -p.min[i]));
+  amps.sort((x, y) => x - y);
+  const ref = Math.max(1e-4, amps[Math.floor((amps.length - 1) * 0.995)] ?? 1);
+  const shape = (v: number) => Math.sign(v) * Math.min(1, Math.abs(v) / ref) ** EXPAND;
+  const max = new Float32Array(n);
+  const min = new Float32Array(n);
+  for (let i = 0; i < n; i++) {
+    max[i] = shape(p.max[i]);
+    min[i] = shape(p.min[i]);
+  }
+  return [max, min];
+}
+/** > 1 pushes the body of the sound down relative to its peaks. */
+const EXPAND = 1.6;
+
+export function SliceWave({ studio, source, slice, meter, loop, pointer, onPointer, touch = false }: Props) {
   const host = useRef<HTMLDivElement>(null);
   const grid = useRef<HTMLCanvasElement>(null);
   const ws = useRef<WaveSurfer | null>(null);
@@ -72,7 +98,6 @@ export function SliceWave({ studio, source, slice, meter, loop, pointer, onPoint
     if (!el || !peaks || !(duration > 0)) return;
     const css = getComputedStyle(document.documentElement);
     const token = (n: string, fallback: string) => css.getPropertyValue(n).trim() || fallback;
-    const hex = SLICE_COLORS[latest.current.source.color % SLICE_COLORS.length];
     const height = () => Math.max(40, el.clientHeight - TIMELINE_H - SCROLLBAR_H);
 
     const reg = RegionsPlugin.create();
@@ -80,11 +105,15 @@ export function SliceWave({ studio, source, slice, meter, loop, pointer, onPoint
       container: el,
       height: height(),
       // The studio's peaks as two channels: maxima drawn up, minima down.
-      peaks: [peaks.max, peaks.min],
+      peaks: drawPeaks(peaks),
       duration,
-      normalize: true,
-      waveColor: hex,
-      progressColor: hex,
+      normalize: false,
+      // Light and neutral: each slice's tint (its pad's colour) colours it.
+      waveColor: token('--dj-text', '#eceae4'),
+      progressColor: token('--dj-text', '#eceae4'),
+      barWidth: 2,
+      barGap: 1,
+      barRadius: 1,
       cursorColor: token('--dj-playhead', '#ff4747'),
       cursorWidth: 2,
       interact: true,
@@ -95,18 +124,29 @@ export function SliceWave({ studio, source, slice, meter, loop, pointer, onPoint
         reg,
         TimelinePlugin.create({
           height: TIMELINE_H,
-          style: { color: token('--dj-dim', '#a4a8ae'), fontFamily: token('--font-mono', 'monospace') },
+          style: {
+            color: token('--dj-dim', '#a4a8ae'),
+            fontFamily: token('--font-mono', 'monospace'),
+          },
           formatTimeCallback: (t) => fmtTime(t, false),
           secondaryLabelOpacity: 0.5,
         }),
-        ZoomPlugin.create({ maxZoom: MAX_ZOOM, exponentialZooming: true, iterations: 30 }),
-        HoverPlugin.create({
-          lineColor: 'rgba(255, 255, 255, 0.45)',
-          labelBackground: token('--dj-panel-3', '#282b30'),
-          labelColor: token('--dj-text', '#eceae4'),
-          labelSize: 11,
-          formatTimeCallback: (t) => fmtTime(t),
+        ZoomPlugin.create({
+          maxZoom: MAX_ZOOM,
+          exponentialZooming: true,
+          iterations: 30,
         }),
+        ...(touch
+          ? []
+          : [
+              HoverPlugin.create({
+                lineColor: 'rgba(255, 255, 255, 0.45)',
+                labelBackground: token('--dj-panel-3', '#282b30'),
+                labelColor: token('--dj-text', '#eceae4'),
+                labelSize: 11,
+                formatTimeCallback: (t) => fmtTime(t),
+              }),
+            ]),
       ],
     });
     ws.current = inst;
@@ -165,7 +205,7 @@ export function SliceWave({ studio, source, slice, meter, loop, pointer, onPoint
     };
     // Recreate only for new audio (another source, or its audio read again):
     // slice edits update the regions in place.
-  }, [studio, id, duration, studio.peaks(id)]);
+  }, [studio, id, duration, studio.peaks(id), touch]);
 
   /* ── Regions follow the slices ────────────────────────────────────────── */
   useEffect(() => {
@@ -174,8 +214,7 @@ export function SliceWave({ studio, source, slice, meter, loop, pointer, onPoint
     if (!reg || !inst || !readyTick) return;
     const src = source;
     const n = src.slices.length;
-    const hex = SLICE_COLORS[src.color % SLICE_COLORS.length];
-    const colorOf = (i: number) => hexA(hex, i === slice ? 0.34 : i % 2 ? 0.16 : 0.07);
+    const colorOf = (i: number) => hexA(sliceColor(src, i), i === slice ? 0.5 : 0.24);
     if (list.current.length !== n || list.current.some((r) => r.isRemoved)) {
       reg.clearRegions();
       list.current = src.slices.map((_, i) => {
@@ -190,7 +229,7 @@ export function SliceWave({ studio, source, slice, meter, loop, pointer, onPoint
           resize: i < n - 1,
           resizeStart: false,
           resizeEnd: i < n - 1,
-          content: chip(studio, src.id, i),
+          content: chip(studio, src.id, i, sliceColor(src, i), touch),
           // Labels that don't fit are hidden (fitLabels), not stacked.
           avoidOverlapping: false,
         });
@@ -203,12 +242,17 @@ export function SliceWave({ studio, source, slice, meter, loop, pointer, onPoint
         if (Math.abs(r.start - a) > 1e-6 || Math.abs(r.end - b) > 1e-6) r.setOptions({ start: a, end: b });
         const c = colorOf(i);
         if (r.color !== c) r.setOptions({ color: c });
+        if (r.content) {
+          r.content.textContent = String(i + 1);
+          r.content.style.background = sliceColor(src, i);
+        }
       });
     }
     fitLabels();
     list.current.forEach((r, i) => {
       if (!r.element) return;
-      r.element.style.boxShadow = i === slice ? `inset 0 0 0 1px ${hexA(hex, 0.9)}` : '';
+      const hex = sliceColor(src, i);
+      r.element.style.boxShadow = i === slice ? `inset 0 0 0 2px ${hex}, inset 0 3px 0 ${hex}` : `inset 0 3px 0 ${hexA(hex, 0.9)}`;
       r.element.dataset.selected = String(i === slice);
     });
   }, [studio, source, slice, readyTick]);
@@ -254,12 +298,16 @@ export function SliceWave({ studio, source, slice, meter, loop, pointer, onPoint
     if (!inst || !el) return;
     const pps = inst.getWrapper().clientWidth / (inst.getDuration() || 1);
     let narrow = 0;
+    let roomy = 0;
     for (const r of list.current) {
       const px = (r.end - r.start) * pps;
       if (px < 8) narrow++;
+      if (px >= 40) roomy++;
       if (r.content) r.content.style.visibility = px < 26 ? 'hidden' : '';
     }
     el.toggleAttribute('data-dense', narrow > list.current.length / 3);
+    // Fat touch handles only when they don't cover the slices you tap to hear.
+    el.toggleAttribute('data-roomy', roomy >= list.current.length * 0.8);
   }
 
   /* ── Beat grid ────────────────────────────────────────────────────────── */
@@ -344,13 +392,14 @@ export function SliceWave({ studio, source, slice, meter, loop, pointer, onPoint
 }
 
 /** A region's label: the slice number, and the handle to drag it to the timeline. */
-function chip(studio: Studio, sourceId: string, i: number): HTMLElement {
+function chip(studio: Studio, sourceId: string, i: number, color: string, touch: boolean): HTMLElement {
   const el = document.createElement('div');
   el.textContent = String(i + 1);
-  el.draggable = true;
-  el.title = `Slice ${i + 1} — drag onto a lane to place it`;
+  el.style.background = color;
+  el.draggable = !touch;
+  if (!touch) el.title = `Slice ${i + 1} — drag onto a lane to place it`;
   // Keep the region's own pointer handling (and wavesurfer's) out of a drag.
-  el.addEventListener('pointerdown', (e) => e.stopPropagation());
+  if (!touch) el.addEventListener('pointerdown', (e) => e.stopPropagation());
   el.addEventListener('dragstart', (e) => {
     const src = studio.source(sourceId);
     if (!src || !e.dataTransfer) return;

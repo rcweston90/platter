@@ -1,25 +1,24 @@
 import { useEffect, useMemo, useRef, type DragEvent, type KeyboardEvent, type PointerEvent, type ReactNode, type RefObject } from 'react';
 import { getSound } from '../../engine/sounds/catalog';
-import { useStore } from '../../engine/store';
 import { clipBeats, clipLabel, clipRate, makeClip, snapBeat, soundColor, songBeats, swung } from '../../slicer/model';
 import type { Studio } from '../../slicer/studio';
 import { SLICE_COLORS, type Clip, type Lane, type Project, type Source } from '../../slicer/types';
 import { fitCanvas, readPalette, useFrame, type FrameLoop, type Palette } from '../frame';
+import { recordLaneId, useSel } from './arrangeStore';
 import { hasSliceDrag, readSliceDrag, type SliceDragPayload } from './dnd';
 import { colorResolver, drawWave, MAX_CACHED_W, waveImage } from './timelineDraw';
 import st from './arranger.module.css';
 
-/** Ruler height; bar numbers above RULER_SPLIT, the loop brace below. */
-export const RULER = 32;
-const RULER_SPLIT = 17;
-/** Lane header column (matches .content's first grid column). */
-export const HEADER_W = 236;
 const MIN_PPB = 3;
 const MAX_PPB = 480;
-/** Trim handles at each end of a clip, px. */
+/** Trim handles at each end of a clip, px (mouse; touch trims only a selected, wide clip). */
 const EDGE_PX = 7;
+const EDGE_TOUCH = 14;
 /** Movement before a press becomes a drag, px. */
 const DRAG_PX = 3;
+const DRAG_TOUCH = 8;
+/** A finger held this long on a clip opens its settings. */
+const LONG_PRESS_MS = 450;
 /** Shortest clip a trim leaves, seconds. */
 const MIN_SEC = 0.01;
 const INK = 'rgba(14, 15, 17, 0.72)';
@@ -37,7 +36,11 @@ interface Box {
   li: number;
   at: number;
   len: number;
+  /** Drawn length, beats: a drum hit stops where the lane's next hit starts. */
+  draw: number;
 }
+
+type Patch = { id: string; patch: Partial<Clip> };
 
 type Gesture =
   | { kind: 'seek' }
@@ -50,15 +53,38 @@ type Gesture =
       downBeat: number;
       downLane: number;
       downX: number;
+      downY: number;
       moved: boolean;
       alt: boolean;
-      duplicated: boolean;
       collapse: boolean;
+      touch: boolean;
+      timer: number;
       key: string;
+      patches: Patch[];
+      copies: Clip[] | null;
     }
-  | { kind: 'trim'; edge: 'left' | 'right'; hitId: string; ids: string[]; orig: Map<string, Clip>; downX: number; moved: boolean; key: string }
+  | { kind: 'trim'; edge: 'left' | 'right'; hitId: string; ids: string[]; orig: Map<string, Clip>; downX: number; moved: boolean; touch: boolean; key: string; patches: Patch[] }
   | { kind: 'empty'; li: number; beat: number; downX: number; downY: number; moved: boolean; additive: boolean; base: string[]; shift: boolean }
-  | { kind: 'paint'; laneId: string; srcId: string; sound: string; last: number; key: string };
+  | { kind: 'pan'; x: number; y: number; downX: number; downY: number; moved: boolean; t: number; vx: number; vy: number; beat: number }
+  | {
+      kind: 'paint';
+      laneId: string;
+      srcId: string;
+      sound: string;
+      first: number;
+      last: number;
+      key: string;
+      /** The stroke began on a hit: it erases instead. */
+      erase: boolean;
+      hitId: string | null;
+      /** Touch waits for a move (or the lift) so a pinch can still take over. */
+      started: boolean;
+      downX: number;
+      downY: number;
+    }
+  | { kind: 'pinch'; d0: number; ppb0: number; beat0: number; y0: number; st0: number }
+  /** A finger still down after a pinch or a long press: ignored until lifted. */
+  | { kind: 'idle' };
 
 // The slice being dragged from the editor. Browsers hide drag data until the
 // drop, but it's readable in dragstart, so a document listener (which runs
@@ -66,6 +92,7 @@ type Gesture =
 let dragPayload: SliceDragPayload | null = null;
 
 const clamp = (v: number, lo: number, hi: number) => Math.min(hi, Math.max(lo, v));
+const newId = () => `c${Date.now().toString(36)}${Math.random().toString(36).slice(2, 7)}`;
 
 /** Bar.beat.sixteenth, 1-based. */
 export function posLabel(beat: number, meter: number) {
@@ -87,6 +114,12 @@ function gridStep(ppb: number, meter: number) {
   for (let bars = 1; ; bars *= 2) if (bars * meter * ppb >= 7) return bars * meter;
 }
 
+/** A hit starts in the grid cell at `cell` beats on this lane. */
+function hitInCell(p: Project, laneId: string, cell: number) {
+  const step = p.snap || 0.25;
+  return p.clips.some((c) => c.laneId === laneId && c.at > cell - 1e-6 && c.at < cell + step - 1e-6);
+}
+
 function layoutBoxes(p: Project): Box[] {
   const src = new Map(p.sources.map((s) => [s.id, s]));
   const lanes = new Map(p.lanes.map((l, i) => [l.id, [l, i] as const]));
@@ -96,7 +129,18 @@ function layoutBoxes(p: Project): Box[] {
     if (!hit) continue;
     const [lane, li] = hit;
     const s = src.get(clip.sourceId);
-    out.push({ clip, src: s, lane, li, at: lane.kind === 'drum' ? swung(clip.at, p.swing) : clip.at, len: clipBeats(clip, s, p.bpm) });
+    out.push({ clip, src: s, lane, li, at: lane.kind === 'drum' ? swung(clip.at, p.swing) : clip.at, len: clipBeats(clip, s, p.bpm), draw: 0 });
+  }
+  // A drum lane reads like a step row: each hit is drawn (and hit-tested) up
+  // to the next one, instead of a pile of overlapping tails.
+  const byLane = new Map<string, Box[]>();
+  for (const b of out) {
+    b.draw = b.len;
+    if (b.lane.kind === 'drum') byLane.set(b.lane.id, [...(byLane.get(b.lane.id) ?? []), b]);
+  }
+  for (const row of byLane.values()) {
+    row.sort((a, b) => a.at - b.at);
+    for (let i = 0; i + 1 < row.length; i++) if (row[i + 1].at > row[i].at + 1e-6) row[i].draw = Math.min(row[i].len, row[i + 1].at - row[i].at);
   }
   return out;
 }
@@ -105,25 +149,36 @@ interface Props {
   studio: Studio;
   loop: FrameLoop;
   laneH: number;
+  /** Width of the lane header column, px. */
+  headerW: number;
+  /** A finger, not a mouse: one-finger pan, pinch zoom, long press, bigger targets. */
+  touch: boolean;
   draw: boolean;
   follow: boolean;
   onToggleDraw: () => void;
+  /** A long press on a clip (touch): open its settings. */
+  onInspect: () => void;
   control: RefObject<TimelineControl | null>;
   corner: ReactNode;
   headers: ReactNode;
+  /** Shown over the empty grid while there are no clips. */
+  empty: ReactNode;
 }
 
 /**
  * The arrangement: a ruler with the loop brace, lanes of clips on the beat
  * grid and the playhead. Drawn on two canvases (the arrangement, redrawn when
- * something changes; the playhead and drag previews, every frame) pinned over
- * a natively scrolling box sized to the song, so scrolling is the browser's
- * and the lane headers scroll with the lanes. Invisible buttons, one per
- * clip, carry names, focus and the keyboard.
+ * something changes; the playhead and previews, every frame) pinned over a
+ * natively scrolling box sized to the song, so the lane headers scroll with
+ * the lanes. Drags and trims are previews held here and committed to the
+ * project once, on release, so a drag repaints the canvas and nothing else.
+ * Invisible buttons, one per clip, carry names, focus and the keyboard.
  */
-export function Timeline({ studio, loop, laneH, draw, follow, onToggleDraw, control, corner, headers }: Props) {
-  const state = useStore(studio.store);
-  const p = state.project;
+export function Timeline({ studio, loop, laneH, headerW, touch, draw, follow, onToggleDraw, onInspect, control, corner, headers, empty }: Props) {
+  const p = useSel(studio.store, (s) => s.project);
+  const selection = useSel(studio.store, (s) => s.selection);
+  const RULER = touch ? 40 : 32;
+  const RULER_SPLIT = touch ? 20 : 17;
   const scroller = useRef<HTMLDivElement>(null);
   const content = useRef<HTMLDivElement>(null);
   const stage = useRef<HTMLDivElement>(null);
@@ -133,16 +188,26 @@ export function Timeline({ studio, loop, laneH, draw, follow, onToggleDraw, cont
   const colors = useRef<{ pal: Palette; resolve: (v: string, f?: string) => string; label: string; panel: string } | null>(null);
   const gesture = useRef<Gesture | null>(null);
   const pointer = useRef<{ x: number; y: number; shift: boolean; alt: boolean } | null>(null);
+  const hover = useRef<{ x: number; y: number } | null>(null);
+  const touches = useRef(new Map<number, { x: number; y: number }>());
+  const fling = useRef<{ vx: number; vy: number; t: number } | null>(null);
+  const preview = useRef<Project | null>(null);
   const ghost = useRef<{ li: number; at: number; len: number } | null>(null);
   const marquee = useRef<{ x0: number; y0: number; x1: number; y1: number } | null>(null);
   const lastDown = useRef({ id: '', at: 0 });
   const boxCache = useRef<{ p: Project | null; boxes: Box[] }>({ p: null, boxes: [] });
+  const inspect = useRef(onInspect);
+  useEffect(() => {
+    inspect.current = onInspect;
+  });
 
   const boxes = (proj: Project) => {
     if (boxCache.current.p !== proj) boxCache.current = { p: proj, boxes: layoutBoxes(proj) };
     return boxCache.current.boxes;
   };
   const proj = () => studio.store.get().project;
+  /** What's drawn: the project, or the drag in progress over it. */
+  const shown = () => preview.current ?? proj();
   const dirty = () => {
     view.current.dirty = true;
     loop.kick();
@@ -160,7 +225,7 @@ export function Timeline({ studio, loop, laneH, draw, follow, onToggleDraw, cont
     return { x: e.clientX - r.left, y: e.clientY - r.top };
   };
 
-  const hitTest = (x: number, y: number): { box: Box; zone: 'body' | 'left' | 'right' } | null => {
+  const hitTest = (x: number, y: number, finger = false): { box: Box; zone: 'body' | 'left' | 'right' } | null => {
     if (y < RULER) return null;
     const li = laneAt(y);
     const s = studio.store.get();
@@ -168,12 +233,14 @@ export function Timeline({ studio, loop, laneH, draw, follow, onToggleDraw, cont
     // Selected clips are drawn on top, so they win.
     const sel = new Set(s.selection);
     all.sort((a, b) => Number(sel.has(a.clip.id)) - Number(sel.has(b.clip.id)));
+    const slop = finger ? 6 : 1;
     for (let i = all.length - 1; i >= 0; i--) {
       const b = all[i];
       const x0 = beatToX(b.at);
-      const w = Math.max(3, b.len * view.current.ppb);
-      if (x < x0 - 1 || x > x0 + w + 1) continue;
-      const e = w >= 14 ? Math.min(EDGE_PX, w / 4) : 0;
+      const w = Math.max(3, b.draw * view.current.ppb);
+      if (x < x0 - slop || x > x0 + w + slop) continue;
+      // A finger trims only a clip it has already picked, and only a wide one.
+      const e = finger ? (sel.has(b.clip.id) && w >= 44 ? EDGE_TOUCH : 0) : w >= 14 ? Math.min(EDGE_PX, w / 4) : 0;
       return { box: b, zone: e && x <= x0 + e ? 'left' : e && x >= x0 + w - e ? 'right' : 'body' };
     }
     return null;
@@ -188,7 +255,7 @@ export function Timeline({ studio, loop, laneH, draw, follow, onToggleDraw, cont
     if (!sc || !ct || !sg) return;
     const v = view.current;
     const pr = proj();
-    const viewW = Math.max(0, sc.clientWidth - HEADER_W);
+    const viewW = Math.max(0, sc.clientWidth - headerW);
     const viewH = sc.clientHeight;
     v.cw = sc.clientWidth;
     v.ch = sc.clientHeight;
@@ -197,7 +264,7 @@ export function Timeline({ studio, loop, laneH, draw, follow, onToggleDraw, cont
     const beats = Math.max(songBeats(pr), pr.loop.end) + 8 * pr.meter;
     const trackW = Math.max(viewW, Math.ceil(beats * v.ppb));
     const contentH = Math.max(viewH, RULER + (pr.lanes.length + 1) * laneH);
-    ct.style.width = `${HEADER_W + trackW}px`;
+    ct.style.width = `${headerW + trackW}px`;
     ct.style.height = `${contentH}px`;
     ct.style.setProperty('--ppb', String(v.ppb));
     sg.style.width = `${viewW}px`;
@@ -250,14 +317,14 @@ export function Timeline({ studio, loop, laneH, draw, follow, onToggleDraw, cont
     return SLICE_COLORS[b.src?.color ?? 0] ?? SLICE_COLORS[0];
   };
 
-  const drawClip = (g: CanvasRenderingContext2D, b: Box, selected: boolean, heard: boolean, w: number, h: number, dpr: number) => {
+  const drawClip = (g: CanvasRenderingContext2D, pr: Project, b: Box, selected: boolean, heard: boolean, w: number, h: number, dpr: number) => {
     const C = colors.current!;
     const s = studio.store.get();
-    const pr = s.project;
     const v = view.current;
     const c = b.clip;
     const x = beatToX(b.at);
-    const cw = Math.max(3, b.len * v.ppb);
+    const cut = b.draw < b.len - 1e-6;
+    const cw = Math.max(3, b.draw * v.ppb - (cut ? 1 : 0));
     if (x > w || x + cw < 0) return;
     const y = laneTop(b.li) + 2;
     const ch = laneH - 4;
@@ -274,24 +341,26 @@ export function Timeline({ studio, loop, laneH, draw, follow, onToggleDraw, cont
     g.clip();
     // Drum hits are the lane's own sound: no name strip, all waveform.
     const ownHit = b.lane.kind === 'drum' && b.src?.origin.kind === 'sound';
-    const hh = !ownHit && cw >= 22 && laneH >= 36 ? 13 : 0;
+    const hh = !ownHit && cw >= 22 && laneH >= 36 ? 14 : 0;
     if (hh) {
-      g.fillStyle = 'rgba(0, 0, 0, 0.2)';
+      g.fillStyle = 'rgba(0, 0, 0, 0.18)';
       g.fillRect(x, y, cw, hh);
     }
     const wy = y + hh + 1;
     const wh = ch - hh - 2;
     const peaks = b.src && !broken ? studio.peaks(b.src.id) : undefined;
+    // The audio's full length (a drum hit cut short by the next one is clipped, not squeezed).
+    const fw = Math.max(3, b.len * v.ppb);
     if (peaks && wh > 3) {
-      if (cw * dpr <= MAX_CACHED_W) {
-        const img = waveImage(peaks, c.start, c.end, c.reverse, cw, wh, dpr, INK);
-        if (img) g.drawImage(img, x, wy, cw, wh);
+      if (fw * dpr <= MAX_CACHED_W) {
+        const img = waveImage(peaks, c.start, c.end, c.reverse, fw, wh, dpr, INK);
+        if (img) g.drawImage(img, x, wy, fw, wh);
       } else {
         // Wider than a cached bitmap: draw only what's on screen.
         const vx0 = Math.max(x, 0);
         const vx1 = Math.min(x + cw, w);
         const tAt = (px: number) => {
-          const f = (px - x) / cw;
+          const f = (px - x) / fw;
           return c.reverse ? c.end - f * (c.end - c.start) : c.start + f * (c.end - c.start);
         };
         if (vx1 > vx0) drawWave(g, peaks, tAt(vx0), tAt(vx1), vx0, wy, vx1 - vx0, wh, INK, dpr);
@@ -310,33 +379,25 @@ export function Timeline({ studio, loop, laneH, draw, follow, onToggleDraw, cont
     }
     // Fades (source seconds → beats → px).
     const spb = (60 / pr.bpm) * clipRate(c, b.src, pr.bpm);
-    const fi = Math.min(cw / 2, (c.fadeIn / spb) * v.ppb);
-    const fo = Math.min(cw / 2, (c.fadeOut / spb) * v.ppb);
+    const fi = Math.min(fw / 2, (c.fadeIn / spb) * v.ppb);
+    const fo = Math.min(fw / 2, (c.fadeOut / spb) * v.ppb);
     g.fillStyle = 'rgba(0, 0, 0, 0.3)';
     g.strokeStyle = 'rgba(0, 0, 0, 0.6)';
     g.lineWidth = 1;
-    if (fi > 1.5) {
+    for (const [f, x0, dir] of [
+      [fi, x, 1],
+      [fo, x + fw, -1],
+    ] as const) {
+      if (f <= 1.5) continue;
       g.beginPath();
-      g.moveTo(x, y + ch);
-      g.lineTo(x + fi, y);
-      g.lineTo(x, y);
+      g.moveTo(x0, y + ch);
+      g.lineTo(x0 + dir * f, y);
+      g.lineTo(x0, y);
       g.closePath();
       g.fill();
       g.beginPath();
-      g.moveTo(x, y + ch);
-      g.lineTo(x + fi, y);
-      g.stroke();
-    }
-    if (fo > 1.5) {
-      g.beginPath();
-      g.moveTo(x + cw, y + ch);
-      g.lineTo(x + cw - fo, y);
-      g.lineTo(x + cw, y);
-      g.closePath();
-      g.fill();
-      g.beginPath();
-      g.moveTo(x + cw, y + ch);
-      g.lineTo(x + cw - fo, y);
+      g.moveTo(x0, y + ch);
+      g.lineTo(x0 + dir * f, y);
       g.stroke();
     }
     if (hh && cw > 26) {
@@ -353,12 +414,19 @@ export function Timeline({ studio, loop, laneH, draw, follow, onToggleDraw, cont
       g.strokeStyle = C.resolve('var(--dj-text)', '#fff');
       g.lineWidth = 2;
       g.roundRect(x + 1, y + 1, Math.max(1, cw - 2), ch - 2, 3);
+      g.stroke();
+      // Trim grips a finger can find.
+      if (touch && cw >= 44) {
+        g.fillStyle = C.resolve('var(--dj-text)', '#fff');
+        g.fillRect(x + 3, y + ch / 2 - 7, 3, 14);
+        g.fillRect(x + cw - 6, y + ch / 2 - 7, 3, 14);
+      }
     } else {
       g.strokeStyle = 'rgba(0, 0, 0, 0.55)';
       g.lineWidth = 1;
       g.roundRect(x + 0.5, y + 0.5, Math.max(1, cw - 1), ch - 1, 3);
+      g.stroke();
     }
-    g.stroke();
     g.globalAlpha = 1;
   };
 
@@ -376,18 +444,17 @@ export function Timeline({ studio, loop, laneH, draw, follow, onToggleDraw, cont
     const meter = pr.meter;
     let every = 1;
     while (every * meter * ppb < 40) every *= 2;
+    const ty = RULER_SPLIT / 2;
     g.font = `500 11px ${pal.mono}`;
     g.textBaseline = 'middle';
-    // Beat ticks.
     if (ppb >= 9) {
       g.fillStyle = 'rgba(255, 255, 255, 0.22)';
       for (let n = Math.ceil(b0); n <= b1; n++) if (n % meter) g.fillRect(Math.round(beatToX(n)), RULER_SPLIT - 5, 1, 5);
     }
     if (ppb >= 48) {
       g.fillStyle = 'rgba(164, 168, 174, 0.55)';
-      for (let n = Math.ceil(b0); n <= b1; n++) if (n % meter) g.fillText(`${Math.floor(n / meter) + 1}.${(n % meter) + 1}`, beatToX(n) + 3, 8);
+      for (let n = Math.ceil(b0); n <= b1; n++) if (n % meter) g.fillText(`${Math.floor(n / meter) + 1}.${(n % meter) + 1}`, beatToX(n) + 3, ty);
     }
-    // Bars.
     for (let n = Math.floor(b0 / meter); n * meter <= b1; n++) {
       const x = Math.round(beatToX(n * meter));
       const major = n % every === 0;
@@ -395,14 +462,14 @@ export function Timeline({ studio, loop, laneH, draw, follow, onToggleDraw, cont
       g.fillRect(x, major ? 0 : RULER_SPLIT - 8, 1, major ? RULER_SPLIT : 8);
       if (major) {
         g.fillStyle = pal.text || '#a4a8ae';
-        g.fillText(String(n + 1), x + 4, 8.5);
+        g.fillText(String(n + 1), x + 4, ty + 0.5);
       }
     }
     // Loop brace.
     const ls = beatToX(pr.loop.start);
     const le = beatToX(pr.loop.end);
-    const by = RULER_SPLIT + 2;
-    const bh = RULER - RULER_SPLIT - 5;
+    const by = RULER_SPLIT + 3;
+    const bh = RULER - RULER_SPLIT - 6;
     if (le > 0 && ls < w) {
       g.beginPath();
       g.roundRect(ls, by, Math.max(2, le - ls), bh, 3);
@@ -413,7 +480,6 @@ export function Timeline({ studio, loop, laneH, draw, follow, onToggleDraw, cont
         g.lineWidth = 1;
         g.stroke();
       }
-      // Grips at both ends.
       g.fillStyle = pr.loop.on ? 'rgba(14, 15, 17, 0.55)' : 'rgba(255, 255, 255, 0.4)';
       if (le - ls > 14) {
         g.fillRect(ls + 2, by + 2, 2, bh - 4);
@@ -446,7 +512,7 @@ export function Timeline({ studio, loop, laneH, draw, follow, onToggleDraw, cont
     if (!g || !w || !h) return;
     g.setTransform(dpr, 0, 0, dpr, 0, 0);
     const s = studio.store.get();
-    const pr = s.project;
+    const pr = shown();
     const v = view.current;
     v.drawnSl = v.sl;
     v.drawnSt = v.st;
@@ -456,6 +522,7 @@ export function Timeline({ studio, loop, laneH, draw, follow, onToggleDraw, cont
     g.fillRect(0, 0, w, h);
     const b0 = v.sl / ppb;
     const b1 = (v.sl + w) / ppb;
+    const rec = s.recording ? recordLaneId(pr.lanes, s.recordLane) : null;
 
     g.save();
     g.beginPath();
@@ -471,6 +538,12 @@ export function Timeline({ studio, loop, laneH, draw, follow, onToggleDraw, cont
       if (lane.kind === 'drum') {
         g.globalAlpha = 0.07;
         g.fillStyle = C.resolve(lane.color);
+        g.fillRect(0, top, w, laneH);
+        g.globalAlpha = 1;
+      }
+      if (lane.id === rec) {
+        g.fillStyle = C.resolve('var(--dj-rec)', '#ff5a5a');
+        g.globalAlpha = 0.08;
         g.fillRect(0, top, w, laneH);
         g.globalAlpha = 1;
       }
@@ -513,7 +586,7 @@ export function Timeline({ studio, loop, laneH, draw, follow, onToggleDraw, cont
       for (const b of all) {
         if (sel.has(b.clip.id) !== pass) continue;
         const heard = anySolo ? b.lane.solo : !b.lane.mute;
-        drawClip(g, b, pass, heard, w, h, dpr);
+        drawClip(g, pr, b, pass, heard, w, h, dpr);
       }
     g.restore();
     drawRuler(g, w, pr);
@@ -529,7 +602,9 @@ export function Timeline({ studio, loop, laneH, draw, follow, onToggleDraw, cont
     g.setTransform(dpr, 0, 0, dpr, 0, 0);
     g.clearRect(0, 0, w, h);
     const s = studio.store.get();
+    const pr = s.project;
     const v = view.current;
+    const focus = C.resolve('var(--dj-focus)', '#ffe066');
     // Drop preview.
     const gh = ghost.current;
     if (gh) {
@@ -537,7 +612,7 @@ export function Timeline({ studio, loop, laneH, draw, follow, onToggleDraw, cont
       const y = laneTop(gh.li) + 2;
       const cw = Math.max(6, gh.len * v.ppb);
       g.fillStyle = 'rgba(255, 255, 255, 0.12)';
-      g.strokeStyle = C.resolve('var(--dj-focus)', '#ffe066');
+      g.strokeStyle = focus;
       g.lineWidth = 1.5;
       g.setLineDash([5, 4]);
       g.beginPath();
@@ -545,11 +620,30 @@ export function Timeline({ studio, loop, laneH, draw, follow, onToggleDraw, cont
       g.fill();
       g.stroke();
       g.setLineDash([]);
-      if (gh.li >= s.project.lanes.length) {
-        g.fillStyle = C.resolve('var(--dj-focus)', '#ffe066');
+      if (gh.li >= pr.lanes.length) {
+        g.fillStyle = focus;
         g.font = `600 12px ${C.label}`;
         g.textBaseline = 'middle';
         g.fillText('New lane', x + 6, y + (laneH - 4) / 2);
+      }
+    }
+    // Draw mode: the cell a click would fill (or empty) on a drum lane.
+    const hv = hover.current;
+    if (draw && hv && !gesture.current && hv.y >= RULER) {
+      const lane = pr.lanes[laneAt(hv.y)];
+      if (lane?.kind === 'drum') {
+        const stepB = pr.snap || 0.25;
+        const cell = Math.max(0, snapBeat(xToBeat(hv.x), stepB, 'floor'));
+        const on = hitInCell(pr, lane.id, cell);
+        const x = beatToX(lane.kind === 'drum' ? swung(cell, pr.swing) : cell);
+        const y = laneTop(laneAt(hv.y)) + 2;
+        g.strokeStyle = on ? C.resolve('var(--dj-rec)', '#ff5a5a') : C.resolve(lane.color, '#fff');
+        g.fillStyle = on ? 'rgba(255, 90, 90, 0.14)' : 'rgba(255, 255, 255, 0.08)';
+        g.lineWidth = 1.5;
+        g.beginPath();
+        g.roundRect(x + 0.5, y + 0.5, Math.max(4, stepB * v.ppb - 1), laneH - 5, 3);
+        g.fill();
+        g.stroke();
       }
     }
     // Marquee (kept in content px, so it survives scrolling).
@@ -566,7 +660,7 @@ export function Timeline({ studio, loop, laneH, draw, follow, onToggleDraw, cont
     // Playhead (or, stopped, where play starts).
     const x = Math.round(beatToX(studio.position()));
     if (x >= -6 && x <= w + 6) {
-      g.fillStyle = C.pal.playhead || '#ff4747';
+      g.fillStyle = s.recording ? C.resolve('var(--dj-rec)', '#ff5a5a') : C.pal.playhead || '#ff4747';
       g.globalAlpha = s.playing ? 1 : 0.75;
       g.fillRect(x, 0, 1.5, h);
       g.beginPath();
@@ -587,15 +681,29 @@ export function Timeline({ studio, loop, laneH, draw, follow, onToggleDraw, cont
     if (v.dirty || !v.ppb) layout();
     if (!v.ppb) return;
     const g = gesture.current;
+    // A flick keeps gliding.
+    const f = fling.current;
+    if (f && !g) {
+      const now = performance.now();
+      const dt = Math.min(48, now - f.t);
+      f.t = now;
+      sc.scrollLeft -= f.vx * dt;
+      sc.scrollTop -= f.vy * dt;
+      const k = Math.pow(0.95, dt / 16);
+      f.vx *= k;
+      f.vy *= k;
+      if (Math.hypot(f.vx, f.vy) < 0.03) fling.current = null;
+    }
     // Page along with the playhead.
-    if (s.playing && follow && !g) {
+    if (s.playing && follow && !g && !fling.current) {
       const px = studio.position() * v.ppb;
       if (px < sc.scrollLeft || px > sc.scrollLeft + v.viewW * 0.92) sc.scrollLeft = Math.max(0, px - v.viewW * 0.08);
     }
     // Scroll while a drag holds near either edge.
     const pt = pointer.current;
-    if (g && pt && (g.kind === 'paint' || ('moved' in g && g.moved))) {
-      const dx = pt.x < 24 ? -Math.ceil((24 - pt.x) / 2) : pt.x > v.viewW - 24 ? Math.ceil((pt.x - v.viewW + 24) / 2) : 0;
+    if (g && pt && ((g.kind === 'paint' && g.started) || ((g.kind === 'move' || g.kind === 'trim' || g.kind === 'empty') && g.moved))) {
+      const edge = touch ? 36 : 24;
+      const dx = pt.x < edge ? -Math.ceil((edge - pt.x) / 2) : pt.x > v.viewW - edge ? Math.ceil((pt.x - v.viewW + edge) / 2) : 0;
       if (dx) {
         sc.scrollLeft += dx;
         v.sl = sc.scrollLeft;
@@ -606,7 +714,7 @@ export function Timeline({ studio, loop, laneH, draw, follow, onToggleDraw, cont
     v.st = sc.scrollTop;
     if (v.dirty || v.sl !== v.drawnSl || v.st !== v.drawnSt) drawBase();
     drawOverlay();
-    if (s.playing || s.audition || g) loop.kick();
+    if (s.playing || s.audition || g || fling.current) loop.kick();
   };
   useFrame(loop, frame);
 
@@ -632,7 +740,7 @@ export function Timeline({ studio, loop, laneH, draw, follow, onToggleDraw, cont
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => studio.store.subscribe(dirty), [studio]); // eslint-disable-line react-hooks/exhaustive-deps
-  useEffect(dirty, [laneH]); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(dirty, [laneH, headerW, touch, draw]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Native listeners: scroll (passive) and wheel/pinch zoom (must cancel).
   const fns = useRef({ zoomTo, layout });
@@ -732,16 +840,31 @@ export function Timeline({ studio, loop, laneH, draw, follow, onToggleDraw, cont
         cur = Math.abs(x - ls) <= 6 || Math.abs(x - le) <= 6 ? 'ew-resize' : x > ls && x < le ? 'pointer' : 'crosshair';
       }
     } else {
+      const lane = pr.lanes[laneAt(y)];
       const hit = hitTest(x, y);
-      if (hit) cur = hit.zone === 'body' ? (alt ? 'copy' : 'grab') : 'ew-resize';
-      else if (pr.lanes[laneAt(y)]?.kind === 'drum') cur = 'cell';
+      if (draw && lane?.kind === 'drum') cur = 'cell';
+      else if (hit) cur = hit.zone === 'body' ? (alt ? 'copy' : 'grab') : 'ew-resize';
+      else if (lane?.kind === 'drum') cur = 'cell';
     }
     if (sg.style.cursor !== cur) sg.style.cursor = cur;
   };
 
-  /** Adds one drum hit of a paint stroke (one undo step for the stroke). */
-  const paintAt = (g: Extract<Gesture, { kind: 'paint' }>, at: number) => {
+  /** Shows a drag or trim in progress without touching the project. */
+  const setPreview = (patches: Patch[], copies: Clip[] | null) => {
+    const pr = proj();
+    const by = new Map(patches.map((c) => [c.id, c.patch]));
+    preview.current = { ...pr, clips: [...pr.clips.map((c) => (by.has(c.id) ? { ...c, ...by.get(c.id) } : c)), ...(copies ?? [])] };
+    dirty();
+  };
+
+  /** One cell of a paint stroke: a hit there, or (an erasing stroke) none. One undo step per stroke. */
+  const paintCell = (g: Extract<Gesture, { kind: 'paint' }>, at: number) => {
     studio.edit((q) => {
+      const step = q.snap || 0.25;
+      if (g.erase) {
+        const keep = q.clips.filter((c) => !(c.laneId === g.laneId && (c.id === g.hitId || (c.at > at - 1e-6 && c.at < at + step - 1e-6))));
+        return keep.length === q.clips.length ? q : { ...q, clips: keep };
+      }
       if (q.clips.some((c) => c.laneId === g.laneId && Math.abs(c.at - at) < 1e-3)) return q;
       const src = q.sources.find((s) => s.id === g.srcId);
       if (!src) return q;
@@ -750,15 +873,52 @@ export function Timeline({ studio, loop, laneH, draw, follow, onToggleDraw, cont
     }, g.key);
   };
 
+  /** Drops whatever the current gesture was doing, as if it never started. */
+  const cancelGesture = () => {
+    const g = gesture.current;
+    if (g?.kind === 'move') clearTimeout(g.timer);
+    gesture.current = null;
+    marquee.current = null;
+    if (preview.current) {
+      preview.current = null;
+      dirty();
+    }
+    studio.endGesture();
+  };
+
+  const startPinch = () => {
+    const pts = [...touches.current.values()];
+    const sc = scroller.current;
+    if (pts.length < 2 || !sc) return;
+    cancelGesture();
+    const [a, b] = pts;
+    gesture.current = {
+      kind: 'pinch',
+      d0: Math.max(24, Math.abs(a.x - b.x)),
+      ppb0: view.current.ppb,
+      beat0: xToBeat((a.x + b.x) / 2),
+      y0: (a.y + b.y) / 2,
+      st0: sc.scrollTop,
+    };
+  };
+
   const onPointerDown = (e: PointerEvent<HTMLDivElement>) => {
+    if ((e.target as HTMLElement).closest('[data-overlay]')) return;
     if (e.button !== 0 || !view.current.ppb) return;
     // Our own focus handling below; the default would focus the scroller.
     e.preventDefault();
+    const finger = e.pointerType === 'touch';
     const { x, y } = local(e);
+    fling.current = null;
+    e.currentTarget.setPointerCapture(e.pointerId);
+    if (finger) {
+      touches.current.set(e.pointerId, { x, y });
+      if (touches.current.size >= 2) return startPinch();
+    }
     const s = studio.store.get();
     const pr = s.project;
-    e.currentTarget.setPointerCapture(e.pointerId);
     pointer.current = { x, y, shift: e.shiftKey, alt: e.altKey };
+    hover.current = null;
     const key = Date.now().toString(36);
 
     if (y < RULER) {
@@ -771,12 +931,32 @@ export function Timeline({ studio, loop, laneH, draw, follow, onToggleDraw, cont
       }
       const ls = beatToX(pr.loop.start);
       const le = beatToX(pr.loop.end);
-      const mode = Math.abs(x - le) <= 6 ? 'end' : Math.abs(x - ls) <= 6 ? 'start' : x > ls && x < le ? 'move' : 'new';
+      const grip = finger ? 14 : 6;
+      const mode = Math.abs(x - le) <= grip ? 'end' : Math.abs(x - ls) <= grip ? 'start' : x > ls && x < le ? 'move' : 'new';
       gesture.current = { kind: 'loop', mode, downBeat: b, downX: x, orig: { ...pr.loop }, moved: false };
       return;
     }
 
-    const hit = hitTest(x, y);
+    const li = laneAt(y);
+    const lane = pr.lanes[li];
+    const hit = hitTest(x, y, finger);
+
+    // Draw mode on a drum lane: paint hits along the stroke, or erase them
+    // when the stroke starts on one.
+    if (lane?.kind === 'drum' && lane.sound && (draw || e.metaKey || e.ctrlKey)) {
+      scroller.current?.focus({ preventScroll: true });
+      const srcId = studio.addSound(lane.sound);
+      if (!srcId) return;
+      const at = Math.max(0, snapOf(xToBeat(x), e.shiftKey, 'floor'));
+      // A hit counts as "there" by its onset, not its tail: a long kick
+      // ringing over the next steps doesn't stop you painting them.
+      const erase = hitInCell(pr, lane.id, at);
+      const g: Gesture = { kind: 'paint', laneId: lane.id, srcId, sound: lane.sound, first: at, last: at, key: `paint:${key}`, erase, hitId: null, started: !finger, downX: x, downY: y };
+      gesture.current = g;
+      if (g.started) paintCell(g, at);
+      return;
+    }
+
     if (hit) {
       const id = hit.box.clip.id;
       const now = performance.now();
@@ -795,30 +975,50 @@ export function Timeline({ studio, loop, laneH, draw, follow, onToggleDraw, cont
         scroller.current?.focus({ preventScroll: true });
         return;
       }
-      focusClip(id);
+      if (!finger) focusClip(id);
       if (double) {
         auditionClip(hit.box.clip);
         return;
       }
       const orig = new Map(pr.clips.filter((c) => sel.includes(c.id)).map((c) => [c.id, c]));
-      gesture.current =
-        hit.zone === 'body'
-          ? { kind: 'move', hitId: id, ids: sel, orig, downBeat: xToBeat(x), downLane: hit.box.li, downX: x, moved: false, alt: e.altKey, duplicated: false, collapse, key: `drag:${key}` }
-          : { kind: 'trim', edge: hit.zone, hitId: id, ids: sel, orig, downX: x, moved: false, key: `trim:${key}` };
-      if (hit.zone === 'body') e.currentTarget.style.cursor = e.altKey ? 'copy' : 'grabbing';
+      if (hit.zone === 'body') {
+        const timer = finger
+          ? window.setTimeout(() => {
+              const g = gesture.current;
+              if (g?.kind !== 'move' || g.moved || g.hitId !== id) return;
+              gesture.current = { kind: 'idle' };
+              studio.select([id]);
+              navigator.vibrate?.(8);
+              inspect.current();
+            }, LONG_PRESS_MS)
+          : 0;
+        gesture.current = {
+          kind: 'move',
+          hitId: id,
+          ids: sel,
+          orig,
+          downBeat: xToBeat(x),
+          downLane: hit.box.li,
+          downX: x,
+          downY: y,
+          moved: false,
+          alt: e.altKey,
+          collapse,
+          touch: finger,
+          timer,
+          key: `drag:${key}`,
+          patches: [],
+          copies: null,
+        };
+        if (!finger) e.currentTarget.style.cursor = e.altKey ? 'copy' : 'grabbing';
+      } else gesture.current = { kind: 'trim', edge: hit.zone, hitId: id, ids: sel, orig, downX: x, moved: false, touch: finger, key: `trim:${key}`, patches: [] };
       return;
     }
 
     scroller.current?.focus({ preventScroll: true });
-    const li = laneAt(y);
-    const lane = pr.lanes[li];
-    if (lane?.kind === 'drum' && lane.sound && (draw || e.metaKey || e.ctrlKey)) {
-      const srcId = studio.addSound(lane.sound);
-      if (!srcId) return;
-      const at = Math.max(0, snapOf(xToBeat(x), e.shiftKey, 'floor'));
-      const g: Gesture = { kind: 'paint', laneId: lane.id, srcId, sound: lane.sound, last: at, key: `paint:${key}` };
-      gesture.current = g;
-      paintAt(g, at);
+    if (finger) {
+      // A finger on empty grid moves the view.
+      gesture.current = { kind: 'pan', x, y, downX: x, downY: y, moved: false, t: performance.now(), vx: 0, vy: 0, beat: xToBeat(x) };
       return;
     }
     gesture.current = {
@@ -863,7 +1063,9 @@ export function Timeline({ studio, loop, laneH, draw, follow, onToggleDraw, cont
       }
       case 'move': {
         const li = clamp(laneAt(y), 0, pr.lanes.length - 1);
-        if (!g.moved && Math.abs(x - g.downX) < DRAG_PX && li === g.downLane) return;
+        const thresh = g.touch ? DRAG_TOUCH : DRAG_PX;
+        if (!g.moved && Math.hypot(x - g.downX, y - g.downY) < thresh) return;
+        if (!g.moved) clearTimeout(g.timer);
         g.moved = true;
         const anchor = g.orig.get(g.hitId)!;
         const lanes = new Map(pr.lanes.map((l, i) => [l.id, i]));
@@ -872,45 +1074,52 @@ export function Timeline({ studio, loop, laneH, draw, follow, onToggleDraw, cont
         d = Math.max(d, -Math.min(...origs.map((c) => c.at)));
         const idx = origs.map((c) => lanes.get(c.laneId) ?? 0);
         const dl = clamp(li - g.downLane, -Math.min(...idx), pr.lanes.length - 1 - Math.max(...idx));
-        if (g.alt && !g.duplicated) {
-          // Alt-drag copies: copies stay put, the originals move.
-          g.duplicated = true;
-          const copies = origs.map((c) => ({ ...c, id: `c${Date.now().toString(36)}${Math.random().toString(36).slice(2, 7)}` }));
-          studio.edit((q) => ({ ...q, clips: [...q.clips, ...copies] }), g.key);
-        }
-        studio.updateClips(
-          origs.map((c, k) => ({ id: c.id, patch: { at: c.at + d, laneId: pr.lanes[idx[k] + dl].id } })),
-          g.key,
-        );
+        // Alt-drag copies: copies stay put, the originals move.
+        if (g.alt && !g.copies) g.copies = origs.map((c) => ({ ...c, id: newId() }));
+        g.patches = origs.map((c, k) => ({ id: c.id, patch: { at: c.at + d, laneId: pr.lanes[idx[k] + dl].id } }));
+        setPreview(g.patches, g.copies);
         return;
       }
       case 'trim': {
-        if (!g.moved && Math.abs(x - g.downX) < DRAG_PX) return;
+        if (!g.moved && Math.abs(x - g.downX) < (g.touch ? DRAG_TOUCH : DRAG_PX)) return;
         g.moved = true;
         const src = (c: Clip) => pr.sources.find((s) => s.id === c.sourceId);
+        const drumLane = new Set(pr.lanes.filter((l) => l.kind === 'drum').map((l) => l.id));
+        // Where a clip is heard: drum lanes swing their off-beat sixteenths.
+        const disp = (c: Clip, at = c.at) => (drumLane.has(c.laneId) ? swung(at, pr.swing) : at);
         const hitC = g.orig.get(g.hitId)!;
-        const edgeBeat = snapOf(xToBeat(x), shift);
-        const hitLen = clipBeats(hitC, src(hitC), pr.bpm);
-        const d = g.edge === 'left' ? edgeBeat - hitC.at : edgeBeat - (hitC.at + hitLen);
-        const changes = [...g.orig.values()].map((c) => {
-          const s = src(c);
-          const spb = (60 / pr.bpm) * clipRate(c, s, pr.bpm);
-          const dur = s?.duration || studio.buffer(c.sourceId)?.duration || Infinity;
-          let ds = d * spb;
-          if (g.edge === 'left') {
-            // The audio stays where it is: moving the left edge moves `at` with it.
-            ds = Math.max(ds, -c.at * spb);
+        const origs = [...g.orig.values()];
+        const edge = snapOf(xToBeat(x), shift);
+        if (g.edge === 'right') {
+          // The grid lines are straight; compare with where the clip ends as drawn.
+          const d = edge - (disp(hitC) + clipBeats(hitC, src(hitC), pr.bpm));
+          g.patches = origs.map((c) => {
+            const s = src(c);
+            const spb = (60 / pr.bpm) * clipRate(c, s, pr.bpm);
+            const dur = s?.duration || studio.buffer(c.sourceId)?.duration || Infinity;
+            const ds = d * spb;
+            if (!c.reverse) return { id: c.id, patch: { end: clamp(c.end + ds, c.start + MIN_SEC, dur) } };
+            return { id: c.id, patch: { start: clamp(c.start - ds, 0, c.end - MIN_SEC) } };
+          });
+        } else {
+          // The left edge lands on a grid step (swung on drum lanes, like a
+          // drag); the audio stays where it is heard, so the start moves with it.
+          const dRaw = Math.max(edge - hitC.at, -Math.min(...origs.map((c) => c.at)));
+          g.patches = origs.map((c) => {
+            const s = src(c);
+            const spb = (60 / pr.bpm) * clipRate(c, s, pr.bpm);
+            const dur = s?.duration || studio.buffer(c.sourceId)?.duration || Infinity;
+            const at = c.at + dRaw;
+            const want = (disp(c, at) - disp(c)) * spb;
             if (!c.reverse) {
-              const start = clamp(c.start + ds, 0, c.end - MIN_SEC);
-              return { id: c.id, patch: { start, at: c.at + (start - c.start) / spb } };
+              const start = clamp(c.start + want, 0, c.end - MIN_SEC);
+              return { id: c.id, patch: { start, at: Math.abs(start - c.start - want) < 1e-9 ? at : c.at + (start - c.start) / spb } };
             }
-            const end = clamp(c.end - ds, c.start + MIN_SEC, dur);
-            return { id: c.id, patch: { end, at: c.at + (c.end - end) / spb } };
-          }
-          if (!c.reverse) return { id: c.id, patch: { end: clamp(c.end + ds, c.start + MIN_SEC, dur) } };
-          return { id: c.id, patch: { start: clamp(c.start - ds, 0, c.end - MIN_SEC) } };
-        });
-        studio.updateClips(changes, g.key);
+            const end = clamp(c.end - want, c.start + MIN_SEC, dur);
+            return { id: c.id, patch: { end, at: Math.abs(c.end - end - want) < 1e-9 ? at : c.at + (c.end - end) / spb } };
+          });
+        }
+        setPreview(g.patches, null);
         return;
       }
       case 'empty': {
@@ -924,20 +1133,64 @@ export function Timeline({ studio, loop, laneH, draw, follow, onToggleDraw, cont
         const l0 = Math.floor((Math.min(g.downY, cy) - RULER) / laneH);
         const l1 = Math.floor((Math.max(g.downY, cy) - RULER) / laneH);
         const ids = boxes(pr)
-          .filter((b) => b.li >= l0 && b.li <= l1 && b.at < b1 && b.at + b.len > b0)
+          .filter((b) => b.li >= l0 && b.li <= l1 && b.at < b1 && b.at + b.draw > b0)
           .map((b) => b.clip.id);
-        studio.select(g.additive ? [...new Set([...g.base, ...ids])] : ids);
+        const next = g.additive ? [...new Set([...g.base, ...ids])] : ids;
+        const cur = studio.store.get().selection;
+        if (next.length !== cur.length || next.some((id, i) => id !== cur[i])) studio.select(next);
+        loop.kick();
+        return;
+      }
+      case 'pan': {
+        const sc = scroller.current;
+        if (!sc) return;
+        if (!g.moved && Math.hypot(x - g.downX, y - g.downY) < DRAG_TOUCH) return;
+        const now = performance.now();
+        const dt = Math.max(1, now - g.t);
+        const dx = x - g.x;
+        const dy = y - g.y;
+        if (g.moved) {
+          // Smoothed speed, px/ms, for the glide after a flick.
+          g.vx = g.vx * 0.6 + (dx / dt) * 0.4;
+          g.vy = g.vy * 0.6 + (dy / dt) * 0.4;
+          sc.scrollLeft -= dx;
+          sc.scrollTop -= dy;
+        }
+        g.moved = true;
+        g.x = x;
+        g.y = y;
+        g.t = now;
         loop.kick();
         return;
       }
       case 'paint': {
+        if (!g.started) {
+          if (Math.hypot(x - g.downX, y - g.downY) < 6) return;
+          g.started = true;
+          paintCell(g, g.first);
+        }
         const step = pr.snap || 0.25;
         const at = Math.max(0, snapOf(xToBeat(x), shift, 'floor'));
         if (Math.abs(at - g.last) < 1e-6) return;
-        // Fill every grid step between the last hit and here (fast strokes).
+        // Fill every grid step between the last cell and here (fast strokes).
         const dir = at > g.last ? 1 : -1;
-        for (let b = g.last + dir * step; dir > 0 ? b <= at + 1e-6 : b >= at - 1e-6; b += dir * step) paintAt(g, b);
+        for (let b = g.last + dir * step; dir > 0 ? b <= at + 1e-6 : b >= at - 1e-6; b += dir * step) paintCell(g, b);
         g.last = at;
+        return;
+      }
+      case 'pinch': {
+        const sc = scroller.current;
+        const pts = [...touches.current.values()];
+        if (!sc || pts.length < 2) return;
+        const [a, b] = pts;
+        const mid = (a.x + b.x) / 2;
+        const next = clamp((g.ppb0 * Math.max(24, Math.abs(a.x - b.x))) / g.d0, MIN_PPB, MAX_PPB);
+        v.ppb = next;
+        layout();
+        sc.scrollLeft = Math.max(0, g.beat0 * next - mid);
+        sc.scrollTop = g.st0 - ((a.y + b.y) / 2 - g.y0);
+        v.sl = sc.scrollLeft;
+        dirty();
         return;
       }
     }
@@ -946,29 +1199,66 @@ export function Timeline({ studio, loop, laneH, draw, follow, onToggleDraw, cont
   const onPointerMove = (e: PointerEvent<HTMLDivElement>) => {
     if (!stage.current) return;
     const { x, y } = local(e);
+    if (e.pointerType === 'touch' && touches.current.has(e.pointerId)) touches.current.set(e.pointerId, { x, y });
+    if (!gesture.current) {
+      if (e.pointerType === 'mouse') {
+        setCursor(x, y, e.altKey);
+        const was = hover.current;
+        hover.current = { x, y };
+        if (draw || was) loop.kick();
+      }
+      return;
+    }
     pointer.current = { x, y, shift: e.shiftKey, alt: e.altKey };
-    if (!gesture.current) setCursor(x, y, e.altKey);
-    else applyMove(x, y, e.shiftKey);
+    applyMove(x, y, e.shiftKey);
   };
 
   const finish = (e: PointerEvent<HTMLDivElement>, cancelled: boolean) => {
+    const finger = e.pointerType === 'touch';
+    if (finger) touches.current.delete(e.pointerId);
     const g = gesture.current;
+    if (g?.kind === 'pinch' || g?.kind === 'idle') {
+      // Lifting one finger of two: the other stays idle until it lifts too.
+      gesture.current = touches.current.size ? { kind: 'idle' } : null;
+      pointer.current = null;
+      studio.endGesture();
+      return;
+    }
+    if (finger && touches.current.size) return;
     gesture.current = null;
     pointer.current = null;
     if (marquee.current) marquee.current = null;
+    if (g?.kind === 'move') clearTimeout(g.timer);
+    const pv = preview.current;
+    preview.current = null;
     if (g && !cancelled) {
       const pr = proj();
       if (g.kind === 'loop' && !g.moved) {
         if (g.mode === 'new') studio.seek(Math.max(0, snapOf(g.downBeat, e.shiftKey)));
         else studio.setLoop({ on: !pr.loop.on });
-      } else if (g.kind === 'move' && !g.moved && g.collapse) studio.select([g.hitId]);
-      else if (g.kind === 'empty' && !g.moved) {
+      } else if (g.kind === 'move' && g.moved && pv && g.patches.length) {
+        // The drag lands as one undo step: the copies (alt) and the move.
+        if (g.copies) studio.edit((q) => ({ ...q, clips: [...q.clips, ...g.copies!] }), g.key);
+        studio.updateClips(g.patches, g.key);
+      } else if (g.kind === 'trim' && g.moved && pv && g.patches.length) studio.updateClips(g.patches, g.key);
+      else if (g.kind === 'move' && !g.moved && g.collapse) studio.select([g.hitId]);
+      else if (g.kind === 'paint' && !g.started) paintCell(g, g.first);
+      else if (g.kind === 'pan') {
+        if (g.moved) {
+          if (Math.hypot(g.vx, g.vy) > 0.25 && performance.now() - g.t < 80) fling.current = { vx: g.vx, vy: g.vy, t: performance.now() };
+        } else if (studio.store.get().selection.length) studio.select([]);
+        else studio.seek(Math.max(0, snapOf(g.beat, false)));
+      } else if (g.kind === 'empty' && !g.moved) {
         const lane = pr.lanes[g.li];
         if (lane?.kind === 'drum' && lane.sound) {
           const at = Math.max(0, snapOf(g.beat, g.shift, 'floor'));
           const there = pr.clips.find((c) => c.laneId === lane.id && Math.abs(c.at - at) < 1e-3);
           if (there) studio.select([there.id]);
-          else studio.addHit(lane.id, at);
+          else {
+            // A click on a drum lane places a hit (without opening its settings).
+            const srcId = studio.addSound(lane.sound);
+            if (srcId) paintCell({ kind: 'paint', laneId: lane.id, srcId, sound: lane.sound, first: at, last: at, key: `paint:${Date.now().toString(36)}`, erase: false, hitId: null, started: true, downX: 0, downY: 0 }, at);
+          }
         } else {
           if (!g.additive) studio.select([]);
           studio.seek(Math.max(0, snapOf(g.beat, g.shift)));
@@ -976,8 +1266,10 @@ export function Timeline({ studio, loop, laneH, draw, follow, onToggleDraw, cont
       }
     }
     studio.endGesture();
-    const { x, y } = local(e);
-    setCursor(x, y, e.altKey);
+    if (!finger) {
+      const { x, y } = local(e);
+      setCursor(x, y, e.altKey);
+    }
     dirty();
   };
 
@@ -1031,7 +1323,7 @@ export function Timeline({ studio, loop, laneH, draw, follow, onToggleDraw, cont
 
   const items = useMemo(() => [...layoutBoxes(p)].sort((a, b) => a.li - b.li || a.at - b.at), [p]);
   const order = items.map((b) => b.clip.id);
-  const selected = new Set(state.selection);
+  const selected = new Set(selection);
   const tabStop = order.find((id) => selected.has(id)) ?? order[0];
 
   const onKeyDown = (e: KeyboardEvent<HTMLDivElement>) => {
@@ -1118,7 +1410,6 @@ export function Timeline({ studio, loop, laneH, draw, follow, onToggleDraw, cont
   };
 
   const laneOf = new Map(p.lanes.map((l) => [l.id, l]));
-  const empty = !p.clips.length;
 
   return (
     <div
@@ -1129,6 +1420,7 @@ export function Timeline({ studio, loop, laneH, draw, follow, onToggleDraw, cont
       aria-label="Timeline"
       aria-describedby="slicer-timeline-help"
       onKeyDown={onKeyDown}
+      style={{ ['--header-w' as string]: `${headerW}px`, ['--ruler' as string]: `${RULER}px` }}
     >
       <div ref={content} className={st.content} style={{ ['--lane-h' as string]: `${laneH}px` }}>
         <div className={st.corner}>{corner}</div>
@@ -1136,12 +1428,18 @@ export function Timeline({ studio, loop, laneH, draw, follow, onToggleDraw, cont
         <div
           ref={stage}
           className={st.stage}
+          data-draw={draw || undefined}
           onPointerDown={onPointerDown}
           onPointerMove={onPointerMove}
           onPointerUp={(e) => finish(e, false)}
           onPointerCancel={(e) => finish(e, true)}
-          onPointerLeave={() => {
+          onPointerLeave={(e) => {
+            if (e.pointerType !== 'mouse') return;
             if (!gesture.current && stage.current) stage.current.style.cursor = 'default';
+            if (hover.current) {
+              hover.current = null;
+              loop.kick();
+            }
           }}
           onDragOver={onDragOver}
           onDragLeave={onDragLeave}
@@ -1149,10 +1447,11 @@ export function Timeline({ studio, loop, laneH, draw, follow, onToggleDraw, cont
         >
           <canvas ref={baseCv} className={st.canvas} aria-hidden="true" />
           <canvas ref={overCv} className={st.canvas} aria-hidden="true" />
-          {empty && (
-            <p className={st.empty}>
-              <strong>Drag slices here</strong>, or click a drum lane to add hits
-            </p>
+          {!p.clips.length && empty && (
+            // Under the lanes when there's room, so the card covers none of them.
+            <div className={st.emptyWrap} style={{ top: `max(${RULER}px, min(${RULER + p.lanes.length * laneH}px, 100% - 290px))` }}>
+              {empty}
+            </div>
           )}
         </div>
         <div className={st.clipLayer} role="group" aria-label={`Clips (${p.clips.length})`}>
