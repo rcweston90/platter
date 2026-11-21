@@ -603,10 +603,14 @@
   pointer-events: none;
 }
 
+/* Turned every frame from the playhead. Its own compositor layer, so the
+   record (grooves, strobe dots, label) is painted once and only rotated on
+   the GPU — without it the browser repaints both records each frame. */
 .spin {
   position: absolute;
   inset: 0;
   border-radius: 50%;
+  will-change: transform;
 }
 
 .strobe {
@@ -679,6 +683,7 @@
   height: 70%;
   transform-origin: 0 0;
   pointer-events: none;
+  will-change: transform;
 }
 
 .armPivot {
@@ -1087,6 +1092,8 @@
   background: linear-gradient(to top, var(--dj-meter-ok) 0 70%, var(--dj-meter-hot) 70% 88%, var(--dj-meter-clip) 88%);
 }
 
+/* Both parts move by transform only (scale and translate), set from the
+   frame loop: no layout and, on their own layers, no repaint either. */
 .meterCover {
   position: absolute;
   top: 0;
@@ -1094,9 +1101,18 @@
   left: 0;
   height: 100%;
   background: var(--dj-panel-3);
+  transform-origin: 50% 0;
+  will-change: transform;
 }
 
 .meterHold {
+  position: absolute;
+  inset: 0;
+  will-change: transform;
+}
+
+.meterHold::before {
+  content: '';
   position: absolute;
   right: 0;
   bottom: 0;

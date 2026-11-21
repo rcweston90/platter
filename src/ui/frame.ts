@@ -52,11 +52,31 @@ export function useFrame(loop: FrameLoop, draw: () => void) {
   useEffect(() => loop.add(() => ref.current()), [loop]);
 }
 
+/* Canvas sizes come from a ResizeObserver, never from clientWidth inside the
+   draw loop: the loop also writes to the DOM (platter angle, meters, time
+   readouts), and a layout read after a write forces the browser to lay the
+   whole page out again, several times a frame. */
+const canvasSizes = new WeakMap<Element, { w: number; h: number }>();
+const canvasObserver =
+  typeof ResizeObserver === 'undefined'
+    ? null
+    : new ResizeObserver((entries) => {
+        for (const e of entries) canvasSizes.set(e.target, { w: e.contentRect.width, h: e.contentRect.height });
+      });
+
 /** Keeps a canvas's backing store at device-pixel size; returns CSS size. */
 export function fitCanvas(canvas: HTMLCanvasElement) {
   const dpr = Math.min(2, window.devicePixelRatio || 1);
-  const w = canvas.clientWidth;
-  const h = canvas.clientHeight;
+  let size = canvasSizes.get(canvas);
+  if (!size || !canvasObserver) {
+    // First sight (or no observer): measure once, then let the observer keep it.
+    size = { w: canvas.clientWidth, h: canvas.clientHeight };
+    if (canvasObserver) {
+      canvasSizes.set(canvas, size);
+      canvasObserver.observe(canvas);
+    }
+  }
+  const { w, h } = size;
   const bw = Math.round(w * dpr);
   const bh = Math.round(h * dpr);
   if (canvas.width !== bw || canvas.height !== bh) {
@@ -64,6 +84,12 @@ export function fitCanvas(canvas: HTMLCanvasElement) {
     canvas.height = bh;
   }
   return { w, h, dpr };
+}
+
+/** Sets an element's text only when it changes: rewriting the same text
+ *  every frame still makes the browser restyle and lay out that line. */
+export function setText(el: HTMLElement | null, text: string) {
+  if (el && el.textContent !== text) el.textContent = text;
 }
 
 /** Reads the rig's colour tokens off the root element, for canvas drawing. */

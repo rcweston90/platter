@@ -25,6 +25,50 @@ export async function decodeAudio(data: Blob, sampleRate: number): Promise<Audio
  * keeps a five-minute track's pass well under 100 ms.
  */
 export function computePeaks(buf: AudioBuffer): WavePeaks {
+  const p = peakScanner(buf);
+  p.run(buf.length);
+  return p.finish();
+}
+
+/** Samples scanned between breaks: about 2 ms of work on a laptop. */
+const PEAK_SLICE = 1 << 17;
+
+/**
+ * computePeaks in slices, giving the page a frame between each. A five-minute
+ * track is 13 million samples, a few hundred milliseconds in one go; run on
+ * the main thread while the other deck plays, that froze the platters and
+ * waveforms. Same result as computePeaks, byte for byte.
+ */
+export async function computePeaksAsync(buf: AudioBuffer, background = false): Promise<WavePeaks> {
+  const p = peakScanner(buf);
+  for (let done = 0; done < buf.length; done += PEAK_SLICE) {
+    p.run(Math.min(buf.length, done + PEAK_SLICE));
+    if (done + PEAK_SLICE < buf.length) await nextTask(background);
+  }
+  return p.finish();
+}
+
+interface PostTaskScheduler {
+  postTask(cb: () => void, opts: { priority: 'background' }): Promise<void>;
+}
+
+/** Yields to the browser: a fresh task, so rendering can run in between.
+ *  `background` work (crate analysis) waits behind everything else. */
+function nextTask(background: boolean): Promise<void> {
+  const scheduler = (globalThis as { scheduler?: PostTaskScheduler }).scheduler;
+  if (background && scheduler?.postTask) return scheduler.postTask(() => {}, { priority: 'background' });
+  if (typeof MessageChannel === 'undefined') return new Promise((r) => setTimeout(r, 0));
+  return new Promise((resolve) => {
+    const ch = new MessageChannel();
+    ch.port1.onmessage = () => {
+      ch.port1.close();
+      resolve();
+    };
+    ch.port2.postMessage(null);
+  });
+}
+
+function peakScanner(buf: AudioBuffer) {
   const sr = buf.sampleRate;
   const n = buf.length;
   const L = buf.getChannelData(0);
@@ -41,29 +85,37 @@ export function computePeaks(buf: AudioBuffer): WavePeaks {
   let h1 = 0;
   let h2 = 0;
   let max = 0;
-  for (let i = 0; i < n; i++) {
-    const x = (L[i] + R[i]) * 0.5;
-    l1 = x + aL * (l1 - x);
-    l2 = l1 + aL * (l2 - l1);
-    h1 = x + aH * (h1 - x);
-    h2 = h1 + aH * (h2 - h1);
-    const b = (i / binSize) | 0;
-    const lo = Math.abs(l2);
-    const md = Math.abs(h2 - l2);
-    const hi = Math.abs(x - h2);
-    if (lo > low[b]) low[b] = lo;
-    if (md > mid[b]) mid[b] = md;
-    if (hi > high[b]) high[b] = hi;
-    if (lo > max) max = lo;
-    if (md > max) max = md;
-  }
-  const scale = max > 0 ? 255 / max : 0;
-  const q = (src: Float32Array) => {
-    const out = new Uint8Array(src.length);
-    for (let i = 0; i < src.length; i++) out[i] = Math.min(255, src[i] * scale);
-    return out;
+  let i = 0;
+  return {
+    /** Scans on up to sample `to`. */
+    run(to: number) {
+      for (; i < to; i++) {
+        const x = (L[i] + R[i]) * 0.5;
+        l1 = x + aL * (l1 - x);
+        l2 = l1 + aL * (l2 - l1);
+        h1 = x + aH * (h1 - x);
+        h2 = h1 + aH * (h2 - h1);
+        const b = (i / binSize) | 0;
+        const lo = Math.abs(l2);
+        const md = Math.abs(h2 - l2);
+        const hi = Math.abs(x - h2);
+        if (lo > low[b]) low[b] = lo;
+        if (md > mid[b]) mid[b] = md;
+        if (hi > high[b]) high[b] = hi;
+        if (lo > max) max = lo;
+        if (md > max) max = md;
+      }
+    },
+    finish(): WavePeaks {
+      const scale = max > 0 ? 255 / max : 0;
+      const q = (src: Float32Array) => {
+        const out = new Uint8Array(src.length);
+        for (let k = 0; k < src.length; k++) out[k] = Math.min(255, src[k] * scale);
+        return out;
+      };
+      return { rate: PEAK_RATE, low: q(low), mid: q(mid), high: q(high) };
+    },
   };
-  return { rate: PEAK_RATE, low: q(low), mid: q(mid), high: q(high) };
 }
 
 /**
@@ -132,7 +184,7 @@ export async function trackFromFile(file: File): Promise<TrackRecord> {
  *  picture, tempo and key come from it. */
 export async function analyseTrack(rec: TrackRecord, audio: Blob): Promise<Partial<TrackRecord>> {
   const buf = await decodeAudio(audio, 44100);
-  const peaks = computePeaks(buf);
+  const peaks = await computePeaksAsync(buf, true);
   // Records from before the library carry no tags beyond title/artist: read them now.
   const tags = rec.library?.tags ?? (await readTags(audio instanceof File ? audio : new File([audio], rec.fileName))).tags;
   const [tempo, deep, fingerprint] = await Promise.all([

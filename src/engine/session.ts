@@ -1,4 +1,4 @@
-import { analyseTrack, computePeaks, decodeAudio, detectTempo, newTrackId, pickGrid, trackFromFile } from './analysis';
+import { analyseTrack, computePeaksAsync, decodeAudio, detectTempo, newTrackId, pickGrid, trackFromFile } from './analysis';
 import { analyzeBuffer } from '../library/client';
 import { normaliseTags } from '../library/tags';
 import { ANALYZER_VERSION } from '../library/types';
@@ -190,7 +190,7 @@ export class DjSession {
       if (!peaks && rec.demo) {
         const buf = await renderDemo(rec.demo, 44100);
         if (this.disposed) return;
-        peaks = computePeaks(buf);
+        peaks = await computePeaksAsync(buf);
         this.updateTrack(rec.id, { peaks, duration: buf.duration });
       }
       if (!peaks || deck.store.get().track) continue;
@@ -614,7 +614,8 @@ export class DjSession {
       if (token !== this.loadTokens[i] || this.disposed) return;
       let ready = rec;
       if (!rec.peaks) {
-        const peaks = computePeaks(buffer);
+        const peaks = await computePeaksAsync(buffer);
+        if (token !== this.loadTokens[i] || this.disposed) return;
         ready = { ...rec, peaks, duration: buffer.duration };
         this.updateTrack(rec.id, { peaks, duration: buffer.duration });
       }

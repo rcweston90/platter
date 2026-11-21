@@ -80,7 +80,7 @@ await B.getByRole('button', { name: 'Sync' }).click();
 check((await B.locator('[class*="bpmValue"]').textContent()) === '124.0', 'sync pulls deck B from 128 to 124 BPM');
 await B.getByRole('button', { name: 'Deck B play' }).click();
 await page.waitForTimeout(1500);
-const meter = await page.$eval('[aria-label="Master left level meter"] [class*="meterCover"]', (e) => parseFloat(e.style.height));
+const meter = await page.$eval('[aria-label="Master left level meter"] [class*="meterCover"]', (e) => parseFloat(/scaleY\(([^)]+)\)/.exec(e.style.transform)?.[1] ?? '1') * 100);
 check(meter < 95, `master meter shows signal (${meter.toFixed(0)}% covered)`);
 
 // Scratch deck A back one full turn (1.8 s of audio).
@@ -109,7 +109,7 @@ await A.getByRole('button', { name: 'Deck A key lock' }).click();
 await A.getByRole('slider', { name: 'Deck A pitch' }).focus();
 await page.keyboard.press('End');
 await page.waitForTimeout(1200);
-const chMeter = await page.$eval('[aria-label="Channel A level meter"] [class*="meterCover"]', (e) => parseFloat(e.style.height));
+const chMeter = await page.$eval('[aria-label="Channel A level meter"] [class*="meterCover"]', (e) => parseFloat(/scaleY\(([^)]+)\)/.exec(e.style.transform)?.[1] ?? '1') * 100);
 check(chMeter < 95, `key-locked deck A still sounds at +8% (${chMeter.toFixed(0)}% covered)`);
 
 // Import a file: tags fall back to "Artist - Title", tempo is detected.
@@ -143,7 +143,7 @@ for (const fx of ['echo', 'reverb', 'flanger', 'phaser', 'trans', 'crush']) {
   await A.locator('select').selectOption(fx);
   await page.waitForTimeout(400);
 }
-const fxMeter = await page.$eval('[aria-label="Channel A level meter"] [class*="meterCover"]', (e) => parseFloat(e.style.height));
+const fxMeter = await page.$eval('[aria-label="Channel A level meter"] [class*="meterCover"]', (e) => parseFloat(/scaleY\(([^)]+)\)/.exec(e.style.transform)?.[1] ?? '1') * 100);
 check(fxMeter < 95, `deck A sounds through every beat FX (${fxMeter.toFixed(0)}% covered)`);
 await page.getByRole('button', { name: 'Deck A effect off' }).click();
 
@@ -163,7 +163,7 @@ const r2 = await posA();
 check(r1 - r0 <= 1 && r2 - r0 >= 2, `a held roll holds the playhead (${r0}s → ${r1}s) and slips back on release (${r2}s)`);
 
 // ── Sampler ──
-const before0 = await page.$eval('[aria-label="Master left level meter"] [class*="meterCover"]', (e) => parseFloat(e.style.height));
+const before0 = await page.$eval('[aria-label="Master left level meter"] [class*="meterCover"]', (e) => parseFloat(/scaleY\(([^)]+)\)/.exec(e.style.transform)?.[1] ?? '1') * 100);
 await page.getByRole('button', { name: 'Sampler pad 7: Boom' }).click();
 check(true, `sampler pad fires (master meter ${before0.toFixed(0)}% covered before)`);
 
@@ -295,7 +295,7 @@ check(pressed.includes('Drums:true') && pressed.includes('Vocals:false') && pres
 const bState = await page.evaluate(() => ({ playing: window.platter.decks[1].store.get().playing, title: window.platter.decks[1].store.get().track?.title }));
 if (!bState.playing) await B.getByRole('button', { name: 'Deck B play' }).click();
 await page.waitForTimeout(800);
-const bMeter = await page.$eval('[aria-label="Channel B level meter"] [class*="meterCover"]', (e) => parseFloat(e.style.height));
+const bMeter = await page.$eval('[aria-label="Channel B level meter"] [class*="meterCover"]', (e) => parseFloat(/scaleY\(([^)]+)\)/.exec(e.style.transform)?.[1] ?? '1') * 100);
 check(bMeter < 95, `deck B still sounds with drums soloed (${bMeter.toFixed(0)}% covered, ${bState.title}${bState.playing ? '' : ', started'})`);
 // Muting every part has to be heard, not just shown on the buttons.
 await stemsB.getByRole('button', { name: 'Hear every part' }).click();
@@ -304,7 +304,7 @@ await page.waitForTimeout(1200); // the key shift's stretcher and the meter's fa
 let mutedMeter = 0;
 for (let i = 0; i < 8; i++) {
   await page.waitForTimeout(100);
-  mutedMeter = Math.max(mutedMeter, 100 - (await page.$eval('[aria-label="Channel B level meter"] [class*="meterCover"]', (e) => parseFloat(e.style.height))));
+  mutedMeter = Math.max(mutedMeter, 100 - (await page.$eval('[aria-label="Channel B level meter"] [class*="meterCover"]', (e) => parseFloat(/scaleY\(([^)]+)\)/.exec(e.style.transform)?.[1] ?? '1') * 100)));
 }
 check(mutedMeter < 3, `muting every part silences deck B (peak ${mutedMeter.toFixed(0)}% while ${bMeter < 95 ? 'it was sounding' : 'quiet'} before)`);
 const cached = await page.evaluate(async () => {

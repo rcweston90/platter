@@ -22,7 +22,9 @@
     "library": "node scripts/library.mjs",
     "test:library": "node tests/library.mjs",
     "eval:accuracy": "node scripts/eval-accuracy.mjs",
-    "test:presplit": "node tests/stemfile.mjs && node tests/presplit.mjs"
+    "test:presplit": "node tests/stemfile.mjs && node tests/presplit.mjs",
+    "test:perf": "node tests/perf.mjs",
+    "perf:trace": "node tests/perf-trace.mjs"
   },
   "dependencies": {
     "demucs-web": "1.0.2",

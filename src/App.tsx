@@ -1,7 +1,7 @@
 
 import { useEffect, useRef, useState } from 'react';
 import { DjSession } from './engine/session';
-import { useStore } from './engine/store';
+import { useStoreSelect } from './engine/store';
 import { Library } from './ui/Library';
 import { DeckPanel } from './ui/DeckPanel';
 import { FrameLoop } from './ui/frame';
@@ -43,7 +43,9 @@ export default function App() {
   const [loop] = useState(() => new FrameLoop());
   const [zoom, setZoom] = useState(8);
   const root = useRef<HTMLDivElement>(null);
-  const mixer = useStore(session.mixer);
+  // Only the audio state: subscribing to the whole mixer re-rendered the
+  // entire rig on every fader and knob movement.
+  const audio = useStoreSelect(session.mixer, (m) => m.audio);
   const still = usePrefersReducedMotion();
   const [deckA, deckB] = session.decks;
 
@@ -58,8 +60,8 @@ export default function App() {
   }, [session, loop]);
 
   useEffect(() => {
-    loop.setRunning(mixer.audio === 'running');
-  }, [loop, mixer.audio]);
+    loop.setRunning(audio === 'running');
+  }, [loop, audio]);
 
   // Before audio starts nothing animates, so a resize has to ask for a frame
   // or the canvases stay stretched at their old size.
