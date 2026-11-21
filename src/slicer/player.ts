@@ -11,8 +11,15 @@ import type { Clip, Lane, Project, Source } from './types';
 
 const TICK_MS = 25;
 const AHEAD = 0.12;
-/** De-click ramp on every voice, seconds. */
+/** De-click ramp on every voice, seconds. A voice fades in over this and,
+ *  unless it has a fade of its own, rings this much past its end while
+ *  fading out: back-to-back clips crossfade instead of each dipping to
+ *  silence at the seam (hundreds of 3 ms holes read as a stutter). */
 const EDGE = 0.003;
+/** Two clips meet when one starts within this many beats of the other's end. */
+const JOIN_BEATS = 1e-4;
+/** …and pick the source up within this many seconds of where it stopped. */
+const JOIN_SECS = 1e-4;
 
 export interface AudioLookup {
   /** The decoded audio of a source (any sample rate), or undefined if not ready. */
@@ -21,17 +28,83 @@ export interface AudioLookup {
   reversed(sourceId: string): AudioBuffer | undefined;
 }
 
-/** One clip sounding, or about to. */
-interface Voice {
+/**
+ * Clips that play as one voice. On an audio lane, a clip that starts where
+ * the previous one ends and picks the source up where it stopped (same
+ * source, direction, speed and level, no fade between them) just continues
+ * it: "Lay out all" plays the original back seamlessly, sample for sample,
+ * however finely it was chopped. `clip` spans the whole run.
+ */
+interface Run {
   clip: Clip;
+  members: Clip[];
+  lane: Lane;
+}
+
+const runCache = new WeakMap<Project, Run[]>();
+
+function continues(prev: Clip, c: Clip, endBeat: number): boolean {
+  if (c.sourceId !== prev.sourceId || c.reverse !== prev.reverse || c.semitones !== prev.semitones || c.sync !== prev.sync || c.gain !== prev.gain) return false;
+  if (prev.fadeOut > 0 || c.fadeIn > 0) return false;
+  if (Math.abs(c.at - endBeat) > JOIN_BEATS) return false;
+  return c.reverse ? Math.abs(c.end - prev.start) < JOIN_SECS : Math.abs(c.start - prev.end) < JOIN_SECS;
+}
+
+/** The project's clips as runs (cached per project value). */
+export function runsOf(p: Project): Run[] {
+  const hit = runCache.get(p);
+  if (hit) return hit;
+  const sources = new Map(p.sources.map((s) => [s.id, s]));
+  const byLane = new Map<string, Clip[]>();
+  for (const c of p.clips) {
+    const list = byLane.get(c.laneId);
+    if (list) list.push(c);
+    else byLane.set(c.laneId, [c]);
+  }
+  const out: Run[] = [];
+  for (const lane of p.lanes) {
+    const clips = byLane.get(lane.id);
+    if (!clips) continue;
+    if (lane.kind === 'drum') {
+      for (const c of clips) out.push({ clip: c, members: [c], lane });
+      continue;
+    }
+    const sorted = [...clips].sort((a, b) => a.at - b.at);
+    let run: Run | null = null;
+    let endBeat = 0;
+    for (const c of sorted) {
+      const src = sources.get(c.sourceId);
+      const last: Clip | undefined = run?.members[run.members.length - 1];
+      if (run && last && continues(last, c, endBeat)) {
+        run.members.push(c);
+        run.clip = c.reverse ? { ...run.clip, start: c.start, fadeOut: c.fadeOut } : { ...run.clip, end: c.end, fadeOut: c.fadeOut };
+      } else {
+        run = { clip: c, members: [c], lane };
+        out.push(run);
+      }
+      endBeat = c.at + clipBeats(c, src, p.bpm);
+    }
+  }
+  runCache.set(p, out);
+  return out;
+}
+
+const sameRun = (a: Clip[], b: Clip[]) => a.length === b.length && a.every((c, i) => c === b[i]);
+
+/** One run sounding, or about to. */
+interface Voice {
+  members: Clip[];
   src: AudioBufferSourceNode;
   gain: GainNode;
   /** Context time it stops by itself. */
   ends: number;
+  /** The playback segment it was scheduled in (a loop pass, a seek). */
+  seg: object | null;
 }
 
-/** A piece of a clip to play: from `offset` seconds into the clip's audio, for `beats` beats. */
+/** A piece of a run to play: from `offset` seconds into its audio. */
 interface Due {
+  run: Run;
   clip: Clip;
   lane: Lane;
   /** Timeline beat it starts sounding at. */
@@ -40,30 +113,32 @@ interface Due {
   offset: number;
 }
 
-/** Clips that start in [from, to) beats, plus (when `catchUp`) ones already sounding at `from`. */
+/** Runs that start in [from, to) beats, plus (when `catchUp`) ones already sounding at `from`. */
 function dueIn(p: Project, from: number, to: number, catchUp: boolean): Due[] {
   const sources = new Map(p.sources.map((s) => [s.id, s]));
-  const lanes = new Map(p.lanes.map((l) => [l.id, l]));
   const out: Due[] = [];
-  for (const clip of p.clips) {
-    const lane = lanes.get(clip.laneId);
+  for (const run of runsOf(p)) {
+    const { clip, lane } = run;
     const src = sources.get(clip.sourceId);
-    if (!lane || !src) continue;
+    if (!src) continue;
     const at = lane.kind === 'drum' ? swung(clip.at, p.swing) : clip.at;
-    if (at >= from && at < to) out.push({ clip, lane, beat: at, offset: 0 });
+    if (at >= from && at < to) out.push({ run, clip, lane, beat: at, offset: 0 });
     else if (catchUp && at < from) {
       const len = clipBeats(clip, src, p.bpm);
       if (at + len > from + 0.01) {
         const secs = ((from - at) * 60) / p.bpm;
-        out.push({ clip, lane, beat: from, offset: secs * clipRate(clip, src, p.bpm) });
+        out.push({ run, clip, lane, beat: from, offset: secs * clipRate(clip, src, p.bpm) });
       }
     }
   }
   return out;
 }
 
-/** Starts one clip at context time `when`, into `dest`. Returns the voice, or null without audio. */
-function startVoice(ctx: BaseAudioContext, dest: AudioNode, d: Due, src: Source, p: Project, audio: AudioLookup, when: number): Voice | null {
+/**
+ * Starts one run at context time `when`, into `dest`. `cut` (real seconds)
+ * ends it early, as the loop's end does. Returns the voice, or null without audio.
+ */
+function startVoice(ctx: BaseAudioContext, dest: AudioNode, d: Due, src: Source, p: Project, audio: AudioLookup, when: number, cut = Infinity): Voice | null {
   const { clip } = d;
   const buf = clip.reverse ? audio.reversed(src.id) : audio.buffer(src.id);
   if (!buf) return null;
@@ -78,18 +153,23 @@ function startVoice(ctx: BaseAudioContext, dest: AudioNode, d: Due, src: Source,
   node.playbackRate.value = rate;
   const g = ctx.createGain();
   const level = clip.gain;
-  const dur = left / rate; // real seconds
+  let dur = left / rate; // real seconds
+  const cutShort = cut < dur - 1e-4;
+  if (cutShort) dur = Math.max(0.002, cut);
   // Fades are in source seconds; convert to real time.
-  const fadeIn = d.offset > 0 ? EDGE : Math.max(EDGE, clip.fadeIn / rate);
-  const fadeOut = Math.max(EDGE, clip.fadeOut / rate);
+  const fadeIn = Math.min(d.offset > 0 ? EDGE : Math.max(EDGE, clip.fadeIn / rate), dur / 2);
+  // Its own fade ends inside the clip; otherwise ring on for EDGE, fading, so
+  // whatever starts at the end crossfades with it instead of meeting silence.
+  const own = !cutShort && clip.fadeOut / rate > EDGE ? Math.min(clip.fadeOut / rate, dur / 2) : 0;
+  const tail = own ? 0 : EDGE;
   g.gain.setValueAtTime(0, when);
-  g.gain.linearRampToValueAtTime(level, when + Math.min(fadeIn, dur / 2));
-  g.gain.setValueAtTime(level, Math.max(when + Math.min(fadeIn, dur / 2), when + dur - Math.min(fadeOut, dur / 2)));
-  g.gain.linearRampToValueAtTime(0, when + dur);
+  g.gain.linearRampToValueAtTime(level, when + fadeIn);
+  g.gain.setValueAtTime(level, Math.max(when + fadeIn, when + dur - own));
+  g.gain.linearRampToValueAtTime(0, when + dur + tail);
   node.connect(g).connect(dest);
-  node.start(when, Math.max(0, offset), left);
-  node.stop(when + dur + 0.01);
-  return { clip, src: node, gain: g, ends: when + dur };
+  node.start(when, Math.max(0, offset), (dur + tail) * rate);
+  node.stop(when + dur + tail + 0.01);
+  return { members: d.run.members, src: node, gain: g, ends: when + dur + tail, seg: null };
 }
 
 /** Each lane's gain and pan, into the output. */
@@ -194,11 +274,15 @@ export class SlicerPlayer {
       this.anchor(beat, this.ctx.currentTime + 0.03);
       return;
     }
-    const live = new Set(p.clips);
-    const stale = this.voices.filter((v) => !live.has(v.clip));
+    const runs = new Map(runsOf(p).map((r) => [r.members[0], r.members]));
+    const kept = (v: Voice) => {
+      const m = runs.get(v.members[0]);
+      return !!m && sameRun(m, v.members);
+    };
+    const stale = this.voices.filter((v) => !kept(v));
     if (stale.length) {
       for (const v of stale) this.fade(v);
-      this.voices = this.voices.filter((v) => live.has(v.clip));
+      this.voices = this.voices.filter(kept);
       // Edited clips still under the playhead start again where they are.
       this.catchUp = true;
       this.next = this.currentFrameBeat();
@@ -286,13 +370,20 @@ export class SlicerPlayer {
   private schedule(p: Project, from: number, to: number, seg: { time: number; beat: number }) {
     const spb = 60 / p.bpm;
     const sources = new Map(p.sources.map((s) => [s.id, s]));
+    const loop = p.loop.on && p.loop.end > p.loop.start ? p.loop : null;
     for (const d of dueIn(p, from, to, this.catchUp)) {
       const bus = this.lanes.get(d.lane.id);
       const src = sources.get(d.clip.sourceId);
       if (!bus || !src) continue;
+      // Catching up after an edit: what's still sounding carries on.
+      if (this.catchUp && this.voices.some((v) => v.seg === seg && v.ends > this.ctx.currentTime && sameRun(v.members, d.run.members))) continue;
       const when = Math.max(this.ctx.currentTime, seg.time + (d.beat - seg.beat) * spb);
-      const v = startVoice(this.ctx, bus.input, d, src, p, this.audio, when);
+      // Looping, a sample stops at the loop's end (crossfading into its
+      // start); drum hits ring on, as one-shots do.
+      const cut = loop && d.lane.kind === 'audio' && d.beat < loop.end ? (loop.end - d.beat) * spb : Infinity;
+      const v = startVoice(this.ctx, bus.input, d, src, p, this.audio, when, cut);
       if (!v) continue;
+      v.seg = seg;
       this.voices.push(v);
       v.src.onended = () => {
         v.gain.disconnect();

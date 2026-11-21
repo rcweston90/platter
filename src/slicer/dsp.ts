@@ -154,6 +154,10 @@ const ATTACK_LOOKBACK = 0.012;
 /** Snap to a zero crossing within this (s), earlier side first. */
 const ZC_RADIUS = 0.002;
 
+/** Most slices a chop on hits makes: four banks of sixteen pads. Slice 1
+ *  always starts at 0, so that's this many minus one onsets. */
+export const MAX_HITS = 64;
+
 /**
  * Sensitivity → delta, as a fraction of the region's loud-flux level (99th
  * percentile): 0 → 0.8 (only the biggest hits), 0.5 → 0.14 (every drum hit,
@@ -182,7 +186,7 @@ function frameFor(sr: number): number {
  */
 export function detectOnsets(
   pcm: PcmLike,
-  opts: { sensitivity: number; minGap: number; start?: number; end?: number },
+  opts: { sensitivity: number; minGap: number; start?: number; end?: number; maxCount?: number },
 ): number[] {
   const sr = pcm.sampleRate;
   const len = pcm.length;
@@ -321,6 +325,16 @@ export function detectOnsets(
       continue;
     }
     frames.push(m);
+  }
+
+  // Too many to play from the pads: keep the strongest, in time order. A
+  // slider pushed all the way on a whole song should still give an
+  // instrument, not a thousand clicks.
+  const cap = opts.maxCount && opts.maxCount > 0 ? Math.floor(opts.maxCount) : 0;
+  if (cap && frames.length > cap) {
+    const keep = [...frames].sort((x, y) => env[y] - env[x] || x - y).slice(0, cap);
+    frames.length = 0;
+    frames.push(...keep.sort((x, y) => x - y));
   }
 
   // Refine each onset to its attack, then enforce minGap again (refinement
@@ -516,7 +530,7 @@ export function autoSlicePoints(
     }
   } else if (mode.mode === 'transients') {
     if (!pcm) return [0];
-    pts = detectOnsets(pcm, { sensitivity: mode.sensitivity, minGap: mode.minGap });
+    pts = detectOnsets(pcm, { sensitivity: mode.sensitivity, minGap: mode.minGap, maxCount: MAX_HITS - 1 });
   }
   return tidyPoints(pts, dur);
 }

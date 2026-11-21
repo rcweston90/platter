@@ -208,6 +208,21 @@ console.log('Transients (90 BPM kick/snare/hat, minGap 50 ms)');
   const wide = detectOnsets(pcm, { sensitivity: 1, minGap: 0.2 });
   check(wide.every((t, i) => i === 0 || t - wide[i - 1] >= 0.2 - 1e-6), 'minGap 0.2 not respected');
 
+  // maxCount: a pushed slider keeps only the strongest hits, in time order,
+  // and the loudest ones (kicks and snares, not ghost notes) survive.
+  {
+    const all = detectOnsets(pcm, { sensitivity: 1, minGap: 0.02 });
+    const cap = Math.max(4, Math.floor(all.length / 3));
+    const few = detectOnsets(pcm, { sensitivity: 1, minGap: 0.02, maxCount: cap });
+    check(few.length <= cap && few.length >= cap - 2, `maxCount ${cap}: got ${few.length} of ${all.length}`);
+    check(few.every((t, i) => i === 0 || t > few[i - 1]), 'capped onsets not sorted');
+    check(few.every((t) => all.some((u) => Math.abs(u - t) < 1e-9)), 'capped onsets are not a subset of the full set');
+    const loud = detectOnsets(pcm, { sensitivity: 0.2, minGap: 0.02 });
+    const kept = loud.filter((t) => few.some((u) => Math.abs(u - t) < 0.012)).length;
+    check(kept >= Math.min(loud.length, cap) * 0.8, `capped set kept ${kept} of the ${loud.length} loudest hits`);
+    check(detectOnsets(pcm, { sensitivity: 1, minGap: 0.02, maxCount: 10000 }).length === all.length, 'a cap above the count changes nothing');
+  }
+
   // Silence, and a near-silent noise floor.
   const sil = pcmOf(44100, [new Float32Array(44100 * 5), new Float32Array(44100 * 5)]);
   check(detectOnsets(sil, { sensitivity: 1, minGap: 0.05 }).length === 0, 'silence gave onsets');

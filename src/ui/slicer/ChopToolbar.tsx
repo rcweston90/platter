@@ -2,6 +2,7 @@ import { useEffect, useId, useRef, useState } from 'react';
 import { STEM_LABELS, STEMS, type StemName } from '../../engine/stems';
 import type { Studio, StudioState } from '../../slicer/studio';
 import type { AutoSlice, Source } from '../../slicer/types';
+import { MAX_HITS } from '../../slicer/dsp';
 import { Glyph, ICON } from './chopKit';
 import { Popover } from './Popover';
 import w from './workspace.module.css';
@@ -44,7 +45,10 @@ interface Params {
 function initial(src: Source): Params {
   // Starting values for a mode the sample wasn't chopped with; the current
   // mode's come from the source itself.
-  const p: Params = { sensitivity: 0.5, minGap: 0.05, beats: 1, count: 16 };
+  // Hits no closer than an eighth note at the sample's tempo (as the first
+  // chop does), so a fresh switch to Hits gives pads, not drum-roll crumbs.
+  const eighth = src.bpm ? Math.round(Math.max(0.05, Math.min(0.3, 30 / src.bpm)) * 1000) / 1000 : 0.1;
+  const p: Params = { sensitivity: 0.5, minGap: eighth, beats: 1, count: 16 };
   const c = src.chop;
   if (c?.mode === 'transients') Object.assign(p, { sensitivity: c.sensitivity, minGap: c.minGap });
   if (c?.mode === 'grid') p.beats = c.beats;
@@ -127,6 +131,7 @@ export function ChopToolbar({ studio, state, src, ready, phone, onPickSource }: 
 
   const n = src.slices.length;
   const manual = src.chop === null && n > 1;
+  const capped = src.chop?.mode === 'transients' && n >= MAX_HITS - 1;
   const finding = state.busy === 'Finding the hits…';
   const noBpm = !src.bpm;
   const sound = src.origin.kind === 'sound';
@@ -205,8 +210,13 @@ export function ChopToolbar({ studio, state, src, ready, phone, onPickSource }: 
           Manual
         </span>
       ) : null}
-      <span className={w.sliceCount} data-busy={finding || undefined}>
+      <span
+        className={w.sliceCount}
+        data-busy={finding || undefined}
+        title={capped ? `The ${MAX_HITS} strongest hits: one for each pad. Turn sensitivity down, or chop a shorter part, for different ones.` : undefined}
+      >
         <b>{n}</b> slice{n === 1 ? '' : 's'}
+        {capped ? <span className={w.dim}> · strongest</span> : null}
       </span>
     </span>
   );
