@@ -30,9 +30,23 @@ function getWorker(): Worker | null {
   }
 }
 
+/** Copies a channel a slice at a time, with a break between slices: one
+ *  copy of a five-minute channel is tens of milliseconds, enough to stall the
+ *  platters while a deck plays. */
+async function copyChannel(src: Float32Array): Promise<Float32Array> {
+  const out = new Float32Array(src.length);
+  const SLICE = 1 << 20;
+  for (let at = 0; at < src.length; at += SLICE) {
+    out.set(src.subarray(at, Math.min(src.length, at + SLICE)), at);
+    if (at + SLICE < src.length) await new Promise((r) => setTimeout(r, 0));
+  }
+  return out;
+}
+
 /** Analyses a decoded buffer. The channel data is copied, so the buffer stays usable. */
 export async function analyzeBuffer(buf: AudioBuffer, tags: TrackTags): Promise<TrackAnalysis> {
-  const channels = Array.from({ length: Math.min(2, buf.numberOfChannels) }, (_, i) => buf.getChannelData(i).slice());
+  const channels: Float32Array[] = [];
+  for (let i = 0; i < Math.min(2, buf.numberOfChannels); i++) channels.push(await copyChannel(buf.getChannelData(i)));
   const w = getWorker();
   if (!w) {
     const { analyzePcm } = await import('./analyze');

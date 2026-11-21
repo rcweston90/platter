@@ -1,8 +1,8 @@
 import { useEffect, useId, useRef, useState, useSyncExternalStore } from 'react';
 import { DjEngine } from '../engine/engine';
 import type { DjSession } from '../engine/session';
-import { useStore } from '../engine/store';
-import { useFrame, type FrameLoop } from './frame';
+import { shallowEqual, useStore, useStoreSelect } from '../engine/store';
+import { setText, useFrame, type FrameLoop } from './frame';
 import { browse, openBrowse } from './browse';
 import { openCrate } from './crate/CrateDock';
 import { crateBrowser, crateSlot } from './crate/model';
@@ -35,7 +35,11 @@ const noSubscribe = () => () => {};
 const useCapability = (check: () => boolean) => useSyncExternalStore(noSubscribe, check, () => false);
 
 export function TopBar({ session, loop, onSlicer }: { session: DjSession; loop: FrameLoop; onSlicer?: () => void }) {
-  const m = useStore(session.mixer);
+  const m = useStoreSelect(
+    session.mixer,
+    ({ audio, audioError, recording, lastRecording, cueRouting, masterDevice, devices }) => ({ audio, audioError, recording, lastRecording, cueRouting, masterDevice, devices }),
+    shallowEqual,
+  );
   const { open: browsing } = useStore(browse);
   const { view: crateView } = useStore(crateBrowser);
   const { tracks } = useStore(session.crate);
@@ -56,7 +60,7 @@ export function TopBar({ session, loop, onSlicer }: { session: DjSession; loop: 
 
   useFrame(loop, () => {
     const st = session.mixer.get();
-    if (clock.current) clock.current.textContent = st.recording ? formatTime((performance.now() - st.recordStarted) / 1000) : '';
+    setText(clock.current, st.recording ? formatTime((performance.now() - st.recordStarted) / 1000) : '');
   });
 
   const cueValue = m.cueRouting.kind === 'device' ? `device:${m.cueRouting.deviceId}` : m.cueRouting.kind;
