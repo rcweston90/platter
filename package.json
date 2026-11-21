@@ -1,7 +1,7 @@
 {
   "name": "platter",
   "version": "0.1.0",
-  "description": "Two turntables, a club mixer and a crate in the browser \u2014 scratch, sync, key lock, loops and hot cues on your own music.",
+  "description": "Two turntables, a club mixer and a crate in the browser — scratch, sync, key lock, loops and hot cues on your own music.",
   "license": "MIT",
   "private": true,
   "type": "module",
@@ -23,7 +23,9 @@
     "library": "node scripts/library.mjs",
     "test:library": "node tests/library.mjs",
     "eval:accuracy": "node scripts/eval-accuracy.mjs",
-    "test:presplit": "node tests/stemfile.mjs && node tests/presplit.mjs"
+    "test:presplit": "node tests/stemfile.mjs && node tests/presplit.mjs",
+    "test:slicer-dsp": "node tests/slicer-dsp.mjs",
+    "test:slicer": "node tests/slicer.mjs"
   },
   "dependencies": {
     "demucs-web": "1.0.2",
@@ -32,6 +34,7 @@
     "react": "19.2.3",
     "react-dom": "19.2.3",
     "signalsmith-stretch": "1.3.2",
+    "wavesurfer.js": "8.1.0",
     "web-audio-beat-detector": "8.2.39"
   },
   "devDependencies": {

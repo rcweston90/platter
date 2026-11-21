@@ -581,13 +581,19 @@ export class DjSession {
   }
 
   /** A loaded track's audio again, at the stems model's rate (engine/stems). */
-  private async decodeForStems(trackId: string): Promise<AudioBuffer> {
+  private decodeForStems(trackId: string): Promise<AudioBuffer> {
+    return this.decodeTrack(trackId, STEM_RATE);
+  }
+
+  /** A crate track's audio, decoded afresh at `sampleRate` (stems, the slicer).
+   *  May ask for permission to read a linked file again. */
+  async decodeTrack(trackId: string, sampleRate: number): Promise<AudioBuffer> {
     const rec = this.crate.get().tracks.find((t) => t.id === trackId);
     if (!rec) throw new Error('gone');
-    if (rec.demo) return renderDemo(rec.demo, STEM_RATE);
+    if (rec.demo) return renderDemo(rec.demo, sampleRate);
     const blob = await this.audioBlob(rec, true);
     if (!blob) throw new Error('No access to that file.');
-    return decodeAudio(blob, STEM_RATE);
+    return decodeAudio(blob, sampleRate);
   }
 
   /** Decode (or synthesise) a track onto a deck; `play` starts it once loaded. */
