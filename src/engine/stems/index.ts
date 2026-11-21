@@ -245,6 +245,13 @@ export class DeckStems {
     this.applyGains();
   }
 
+  /** Each part's heard peak (0–1) since the last call, by name. Muted parts
+   *  and a stopped deck read 0. */
+  levels(): Record<StemName, number> {
+    const [drums, bass, vocals, other] = this.deck.takeStemLevels();
+    return { vocals, drums, bass, other };
+  }
+
   heard(stem: StemName) {
     const { muted, solo } = this.store.get();
     return solo ? solo === stem : !muted[stem];
