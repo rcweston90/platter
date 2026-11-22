@@ -14,21 +14,69 @@
   white-space: nowrap;
 }
 
-.library {
-  display: flex;
-  flex-direction: column;
-  min-width: 0;
-  border: 1px solid var(--dj-line);
-  border-radius: 10px;
-  background: var(--dj-panel);
+/* ── The flyout ─────────────────────────────────────────────────────────── */
+/* Pinned to the bottom of the window on every screen. The frame is the open
+   sheet's size and clips it; closed, the sheet slides down until only its
+   header (--lib-bar, LIB_BAR in dock.ts) shows. The frame lets clicks through
+   to the rig, so only the sheet itself takes them. --lib-h is set by
+   Library.tsx. */
+
+.frame {
+  --lib-bar: 53px; /* the header and the sheet's top border */
+  position: fixed;
+  right: max(16px, env(safe-area-inset-right, 0px));
+  bottom: 0;
+  left: max(16px, env(safe-area-inset-left, 0px));
+  z-index: 30;
+  /* Room above for the sheet's shadow. */
+  height: calc(var(--lib-h, 58vh) + 28px);
+  padding-top: 28px;
+  overflow: hidden;
+  pointer-events: none;
 }
 
-@media (min-width: 900px) and (min-height: 600px) {
-  .library[data-docked] {
-    flex: none;
-    height: var(--dock-h, 42vh);
-    overflow: hidden;
-    box-shadow: 0 -12px 28px -18px rgb(0 0 0 / 0.7);
+.library {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-width: 0;
+  border: 1px solid var(--dj-line-2);
+  border-bottom: 0;
+  border-radius: 10px 10px 0 0;
+  background: var(--dj-panel);
+  box-shadow: 0 -14px 32px -12px rgb(0 0 0 / 0.75);
+  pointer-events: auto;
+  transform: translateY(calc(100% - var(--lib-bar)));
+  transition: transform 240ms cubic-bezier(0.2, 0.7, 0.2, 1);
+}
+
+.library[data-open] {
+  transform: none;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .library {
+    transition: none;
+  }
+}
+
+/* While its handle is dragged, the size follows the pointer, not the easing. */
+:global(html[data-resizing]) .library {
+  transition: none;
+}
+
+/* A phone keeps play and the crossfader docked at the very bottom; the
+   library sits on top of them. Matches PHONE_QUERY in ui/Phone.tsx. */
+@media (max-width: 639px) {
+  .frame {
+    right: 0;
+    bottom: calc(68px + env(safe-area-inset-bottom, 0px));
+    left: 0;
+  }
+
+  .library {
+    border-inline: 0;
   }
 }
 
@@ -44,6 +92,11 @@
   border-bottom: 1px solid var(--dj-line);
   background: var(--dj-panel-2);
   border-radius: 10px 10px 0 0;
+}
+
+/* Closed, the header is all there is: a click on its empty part opens it. */
+.library:not([data-open]) .bar {
+  border-bottom-color: transparent;
 }
 
 .tabs {
@@ -141,6 +194,15 @@
   background: none;
   color: var(--dj-dim);
   cursor: pointer;
+}
+
+/* The chevron points up to open and turns over to close. */
+.toggle svg {
+  transition: transform 200ms;
+}
+
+.toggle[aria-expanded='true'] svg {
+  transform: rotate(180deg);
 }
 
 .iconBtn:hover,
@@ -277,56 +339,41 @@
   min-width: 0;
 }
 
-@media (min-width: 900px) and (min-height: 600px) {
-  .library[data-docked] .body {
-    flex: 1;
-    flex-direction: row;
-    min-height: 0;
-  }
-
-  .library[data-docked] .panel {
-    flex: 1;
-    min-height: 0;
-    overflow: auto;
-    overscroll-behavior: contain;
-  }
-
-  /* The crate scrolls its own list, so its panel doesn't. */
-  .library[data-docked] .panel[data-tab='crate'] {
-    overflow: hidden;
-  }
-
-  .library[data-docked] .rail {
-    flex: none;
-    width: clamp(300px, 26%, 380px);
-    min-height: 0;
-    border-left: 1px solid var(--dj-line);
-  }
-}
-
-.library:not([data-docked]) .body {
-  flex-direction: row;
-}
-
-.library:not([data-docked]) .panel {
+.body {
   flex: 1;
+  flex-direction: row;
+  min-height: 0;
 }
 
-.library:not([data-docked]) .rail {
+.panel {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  overscroll-behavior: contain;
+}
+
+/* The crate scrolls its own list, so its panel doesn't. */
+.panel[data-tab='crate'] {
+  overflow: hidden;
+}
+
+.rail {
   flex: none;
-  width: 340px;
-  max-height: clamp(420px, 62vh, 640px);
+  width: clamp(300px, 26%, 380px);
+  min-height: 0;
   border-left: 1px solid var(--dj-line);
 }
 
-/* ── The handle between the decks and the library ───────────────────────── */
+/* ── The handle along the open library's top edge ──────────────────────── */
 
 .splitter {
-  position: relative;
+  position: absolute;
+  top: -7px;
+  right: 0;
+  left: 0;
+  z-index: 2;
   display: grid;
-  flex: none;
-  height: 12px;
-  margin: -4px 0;
+  height: 14px;
   place-items: center;
   cursor: row-resize;
   touch-action: none;
@@ -367,15 +414,25 @@
   }
 }
 
-/* Narrow libraries put the tabs on their own row so none hides off the edge. */
+/* Narrow libraries let the tabs scroll sideways, so the closed header stays
+   one row with the chevron in reach. */
 @container dj (max-width: 560px) {
   .bar {
-    flex-wrap: wrap;
-    padding-top: 2px;
+    gap: 4px;
+    padding-right: 4px;
   }
 
   .tabs {
-    flex: 1 1 100%;
-    order: 2;
+    flex: 1 1 auto;
+  }
+
+  .tab {
+    padding: 0 10px;
+  }
+
+  /* A phone's sheet already takes all the room it can; the handle still
+     drags it. */
+  .maxBtn {
+    display: none;
   }
 }

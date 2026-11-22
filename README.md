@@ -112,19 +112,26 @@ GitHub Actions).
   (Chrome and Edge) so the crate reads files in place. Title, artist, cover art and key come from the
   tags, or from an `Artist - Title` file name. Tempo, beat grid and key are
   analysed on import.
-- **Library dock**: on a laptop or bigger, Platter fills the window like DJ
-  software. The waveforms stay pinned at the top, the decks and mixer scroll
-  in the middle, and the library is docked along the bottom, always in
-  reach. Drag the handle between them (or focus it and use the arrow keys)
-  to give either more room; double-click it to give the library the window.
-  The library's header shows decks A and B as drop targets, with the deck
-  <kbd>Enter</kbd> would load to marked **Next**. On a phone the library sits
-  under the decks.
+- **Library flyout**: the library lives in a sheet pinned to the bottom of
+  the window, so it's always one click away and never below the fold.
+  Closed, only its header shows: the tabs (Crate, Up next, Mashups, Auto-DJ,
+  Recordings) and decks A and B as drop targets, with the deck
+  <kbd>Enter</kbd> would load to marked **Next**. Click a tab, the chevron or
+  **Tracks**, or press <kbd>T</kbd>, and it slides up over the lower part of
+  the rig; the top bar and waveforms stay in view. Drag its top edge (or
+  focus it and use the arrow keys) to resize it, double-click it or use the
+  double chevron to give it all the room under the waveforms, and press
+  <kbd>Esc</kbd> or <kbd>T</kbd> to put it away. Its height, whether it was
+  open and the last tab carry over between visits. On a laptop or bigger the
+  rest of the rig fills the window like DJ software: the waveforms stay
+  pinned and the decks and mixer scroll in the middle. On a phone the sheet
+  sits on the play and crossfader dock.
 - **Track list**: search, sort by any column, and filter by source, folder
   (down the side when there's room) or **Mix with**, which keeps to keys and
   tempos that fit the deck you're on. With a deck loaded, every row shows its
   tempo change and Camelot move from that deck (+1, −1, rel, +2…), green when
-  it's an easy mix. <kbd>/</kbd> jumps to the search from anywhere. The list
+  it's an easy mix. <kbd>/</kbd> opens the library on the crate and jumps to
+  its search from anywhere. The list
   can also pop out into a mini window or go full screen; search, sort and
   filters carry over. Keyboard: <kbd>↑</kbd>/<kbd>↓</kbd> pick,
   <kbd>←</kbd>/<kbd>→</kbd> load to deck A or B, <kbd>Enter</kbd> loads to

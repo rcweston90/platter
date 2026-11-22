@@ -13,6 +13,9 @@
   min-height: 100vh;
   min-height: 100dvh;
   padding-block: 12px 24px;
+  /* The library flyout's closed header (or the open sheet) is pinned over the
+     bottom of the window; the page ends above it. --lib-reserve is set in App. */
+  padding-bottom: calc(var(--lib-reserve, 53px) + 24px);
   padding-left: max(16px, env(safe-area-inset-left, 0px));
   padding-right: max(16px, env(safe-area-inset-right, 0px));
   background: var(--dj-bg);
@@ -2364,10 +2367,10 @@
 
 /* ── The docked layout ──────────────────────────────────────────────────── */
 /* On a laptop or bigger the rig fills the window, as DJ software does: the
-   top bar and waveforms stay pinned, the decks, mixer and pads scroll in the
-   middle, and the library is docked along the bottom at the height its
-   handle was dragged to (--dock-h, set in App). Matches DOCK_QUERY in
-   ui/library/dock.ts. Smaller screens keep the long page. */
+   top bar and waveforms stay pinned and the decks, mixer and pads scroll in
+   the middle, ending above the library flyout pinned along the bottom
+   (--lib-reserve, set in App). Matches DOCK_QUERY in ui/library/dock.ts.
+   Smaller screens keep the long page. */
 
 .rig {
   display: flex;
@@ -2382,7 +2385,7 @@
     height: 100dvh;
     min-height: 0;
     gap: 8px;
-    padding-block: 10px 12px;
+    padding-block: 10px 0;
     overflow: hidden;
   }
 
@@ -2395,7 +2398,7 @@
     flex: 1 1 0;
     min-height: 0;
     margin-inline: -6px;
-    padding: 0 6px 12px;
+    padding: 0 6px calc(var(--lib-reserve, 53px) + 4px);
     overflow-y: auto;
     overscroll-behavior: contain;
     scrollbar-color: var(--dj-line-2) transparent;
@@ -2439,7 +2442,7 @@
     gap: 10px;
     padding-top: max(10px, env(safe-area-inset-top, 0px));
     /* The page ends above the docked bar, not under it. */
-    padding-bottom: calc(var(--phone-dock-h) + env(safe-area-inset-bottom, 0px) + 16px);
+    padding-bottom: calc(var(--phone-dock-h) + env(safe-area-inset-bottom, 0px) + var(--lib-reserve, 53px) + 16px);
     /* No double-tap zoom on a rig of buttons: taps land at once. */
     touch-action: manipulation;
     -webkit-tap-highlight-color: transparent;

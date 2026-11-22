@@ -8,7 +8,6 @@ import { useDropTarget } from '../frame';
 import { addFiles } from './CrateActions';
 import { crateBrowser, crateSlot, setCrateView, type CrateView } from './model';
 import { TrackBrowser } from './TrackBrowser';
-import { usePhone } from '../Phone';
 import c from './crate.module.css';
 
 /**
@@ -83,21 +82,6 @@ function useViewport() {
   return size;
 }
 
-/** True while the element is on screen. */
-function useOnScreen(el: HTMLElement | null) {
-  const [visible, setVisible] = useState(false);
-  useEffect(() => {
-    if (!el || typeof IntersectionObserver === 'undefined') {
-      setVisible(false);
-      return;
-    }
-    const io = new IntersectionObserver(([e]) => setVisible(e.isIntersecting), { threshold: 0.15 });
-    io.observe(el);
-    return () => io.disconnect();
-  }, [el]);
-  return visible;
-}
-
 /** Opens the floating track list. `from` is what was pressed, so the window
  *  grows out of it; left out, it grows out of the page crate when that's on
  *  screen. */
@@ -116,16 +100,12 @@ export function CrateDock({ session }: { session: DjSession }) {
   const { tracks } = useStore(session.crate);
   const still = usePrefersReducedMotion();
   const { w, h } = useViewport();
-  const { el: slotEl, launcher } = useStore(crateSlot);
-  const slotVisible = useOnScreen(slotEl);
-  const launcherVisible = useOnScreen(launcher);
   const [override, setOverride] = useState<{ box: Box; instant: boolean } | null>(null);
   const [landing, setLanding] = useState(false);
   const surface = useRef<HTMLDivElement>(null);
   const pillBtn = useRef<HTMLButtonElement>(null);
   const prevView = useRef(view);
   const [dragOver, setDragOver] = useState(false);
-  const phone = usePhone();
 
   // Grow out of the page crate: start on its rect, then let the box transition.
   useLayoutEffect(() => {
@@ -194,11 +174,11 @@ export function CrateDock({ session }: { session: DjSession }) {
   );
 
   const open = view !== 'page';
-  // The pill is for when nothing else in view opens the list: the page crate
-  // and the top bar's Tracks button both off screen. It never sits over the
-  // rig at rest. On a phone the bottom edge is the rig's play and crossfader
-  // dock, and each deck has its own Tracks button, so there's no pill.
-  const pillHidden = !open && !landing && (phone || slotVisible || launcherVisible || !tracks.length);
+  // The pill was for when nothing else in view opened the list. The library
+  // flyout's header is now always on screen, with the crate a click away, so
+  // the pill stays put away; the floating window still opens from the crate
+  // (mini window, full screen) and lands back on the Tracks button.
+  const pillHidden = !open && !landing;
   const box = override?.box ?? boxFor(landing ? 'mini' : view, w, h);
   const shape = landing ? 'landing' : view === 'page' ? 'pill' : view;
 

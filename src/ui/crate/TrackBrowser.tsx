@@ -19,9 +19,12 @@ const KINDS: SourceKind[] = ['folder', 'file', 'soundcloud', 'audius', 'demo'];
 const SIDEBAR_FROM = 860;
 
 /** Asks the open track list to put the cursor in its search field. */
-export const searchFocus = { request: 0, listeners: new Set<() => void>() };
+export const searchFocus = { request: 0, at: 0, listeners: new Set<() => void>() };
 export function focusCrateSearch() {
   searchFocus.request++;
+  // A list that mounts in the next moment (the library flyout switching to
+  // the crate) still takes the request.
+  searchFocus.at = performance.now();
   searchFocus.listeners.forEach((fn) => fn());
 }
 
@@ -61,9 +64,17 @@ export function TrackBrowser({ session, mode }: { session: DjSession; mode: Mode
     const go = () => search.current?.focus();
     searchFocus.listeners.add(go);
     const touch = typeof matchMedia === 'function' && matchMedia('(hover: none) and (pointer: coarse)').matches;
-    if (mode !== 'page' && !touch) requestAnimationFrame(go);
+    const asked = performance.now() - searchFocus.at < 500;
+    if ((mode !== 'page' && !touch) || asked) requestAnimationFrame(go);
     return () => void searchFocus.listeners.delete(go);
   }, [mode]);
+
+  // The list lays itself out again once it knows its width (with or without
+  // the sidebar), which remounts the search: a request that just came in
+  // follows it there.
+  useEffect(() => {
+    if (performance.now() - searchFocus.at < 800) search.current?.focus();
+  }, [withSidebar]);
 
   const clearFilters = () => crateBrowser.set({ query: '', source: null, folder: null, matchKey: false, matchBpm: false });
   const focusFirstRow = () => {
