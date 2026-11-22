@@ -1379,12 +1379,11 @@ a.badge:hover {
   flex: none;
 }
 
-@media (min-width: 900px) and (min-height: 600px) {
-  :global([data-docked]) .browser[data-mode='page'] .listArea,
-  :global([data-docked]) .fullLayout[data-mode='page'] .listArea {
-    height: auto;
-    flex: 1;
-  }
+/* In the library flyout the list takes whatever height the sheet has. */
+:global([data-library]) .browser[data-mode='page'] .listArea,
+:global([data-library]) .fullLayout[data-mode='page'] .listArea {
+  height: auto;
+  flex: 1;
 }
 
 .filterStatus {

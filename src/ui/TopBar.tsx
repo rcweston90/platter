@@ -7,7 +7,7 @@ import { browse, openBrowse } from './browse';
 import { openCrate } from './crate/CrateDock';
 import { crateBrowser, crateSlot } from './crate/model';
 import { focusCrateSearch } from './crate/TrackBrowser';
-import { useDocked } from './library/dock';
+import { libraryFlyout, openLibrary } from './library/dock';
 import { MidiPanel } from './MidiPanel';
 import { usePhone } from './Phone';
 import { saveFile } from './save';
@@ -27,7 +27,8 @@ export const SHORTCUTS: { keys: string; action: string }[] = [
   { keys: 'V · .', action: 'Slip on / off' },
   { keys: '[ ]', action: 'Crossfader left / right (Shift: all the way)' },
   { keys: '\\', action: 'Crossfader to centre' },
-  { keys: '/', action: 'Track list: open it, or jump to its search' },
+  { keys: 'T', action: 'Library: open / close' },
+  { keys: '/', action: 'Library: open the crate and jump to its search' },
 ];
 
 const noSubscribe = () => () => {};
@@ -44,7 +45,7 @@ export function TopBar({ session, loop, onSlicer }: { session: DjSession; loop: 
   const { view: crateView } = useStore(crateBrowser);
   const { tracks } = useStore(session.crate);
   const tracksBtn = useRef<HTMLButtonElement>(null);
-  const docked = useDocked();
+  const { open: libOpen, tab: libTab } = useStore(libraryFlyout);
   const phone = usePhone();
   useEffect(() => {
     const el = tracksBtn.current;
@@ -138,9 +139,15 @@ export function TopBar({ session, loop, onSlicer }: { session: DjSession; loop: 
           ref={tracksBtn}
           type="button"
           className={`${s.action} ${s.tracksBtn}`}
-          aria-expanded={docked ? undefined : crateView !== 'page'}
-          onClick={(e) => (docked && crateView === 'page' ? focusCrateSearch() : openCrate(phone ? 'full' : 'mini', e.currentTarget))}
-          title={docked ? 'Search the crate (/)' : 'Open the track list (/)'}
+          aria-expanded={phone ? crateView !== 'page' : crateView !== 'page' || (libOpen && libTab === 'crate')}
+          onClick={(e) => {
+            // A phone gets the list full screen; elsewhere it's the library
+            // flyout, open on the crate with the search ready.
+            if (phone) return openCrate('full', e.currentTarget);
+            if (crateView === 'page') openLibrary('crate');
+            requestAnimationFrame(() => focusCrateSearch());
+          }}
+          title="Open the crate and search it (/)"
         >
           Tracks <span className={s.tracksCount}>{tracks.length}</span>
         </button>

@@ -13,14 +13,14 @@ import { TopBar } from './ui/TopBar';
 import { MusicFlyout } from './ui/MusicFlyout';
 import { PadsAndBeats } from './ui/beats/PadsAndBeats';
 import { SoundsFlyout } from './ui/beats/SoundsFlyout';
-import { CrateDock, openCrate } from './ui/crate/CrateDock';
+import { CrateDock } from './ui/crate/CrateDock';
 import { crateBrowser } from './ui/crate/model';
 import { focusCrateSearch } from './ui/crate/TrackBrowser';
 import { openBrowse } from './ui/browse';
 import { cameBackFromSoundCloud } from './engine/soundcloud';
 import { ScrollingWave } from './ui/Waveforms';
-import { DOCK_QUERY, useDocked } from './ui/library/dock';
-import { Splitter, useDockSize } from './ui/library/Splitter';
+import { LIB_BAR, closeLibrary, libraryFlyout, openLibrary, toggleLibrary, useDocked } from './ui/library/dock';
+import { useSheetSize } from './ui/library/Splitter';
 import { Studio } from './slicer/studio';
 import { SlicerView } from './ui/slicer/SlicerView';
 import { PhoneDock, PhoneTabs, usePhone, type PhoneFocus } from './ui/Phone';
@@ -51,11 +51,13 @@ export default function App() {
   const { open: slicing } = useStore(studio.store);
   const [zoom, setZoom] = useState(8);
   const root = useRef<HTMLDivElement>(null);
-  const rig = useRef<HTMLDivElement>(null);
+  const pinned = useRef<HTMLDivElement>(null);
   const docked = useDocked();
   const phone = usePhone();
   const [focus, setFocus] = useState<PhoneFocus>('A');
-  const dock = useDockSize(rig, docked);
+  // The library flyout sits on the phone's play dock (see .phoneDock).
+  const sheet = useSheetSize(pinned, phone ? 68 : 0);
+  const { open: libOpen } = useStore(libraryFlyout);
   // Only the audio state: subscribing to the whole mixer re-rendered the
   // entire rig on every fader and knob movement.
   const audio = useStoreSelect(session.mixer, (m) => m.audio);
@@ -160,13 +162,17 @@ export default function App() {
         BracketLeft: () => session.setCrossfader(x() - step),
         BracketRight: () => session.setCrossfader(x() + step),
         Backslash: () => session.setCrossfader(0),
-        // The track list, from anywhere: the library's search when it's
-        // docked in view, else the mini window (or its search if it's open).
+        // The track list, from anywhere: the mini window's search when it's
+        // out, else the library's, opening the library on the crate.
         Slash: () => {
           if (!once || e.shiftKey) return;
-          if (crateBrowser.get().view !== 'page' || window.matchMedia(DOCK_QUERY).matches) focusCrateSearch();
-          else openCrate('mini');
+          if (crateBrowser.get().view === 'page') openLibrary('crate');
+          requestAnimationFrame(() => focusCrateSearch());
         },
+        KeyT: () => once && toggleLibrary(),
+        // Esc puts the library away from anywhere in the rig (inside it, the
+        // library handles Esc itself, after its search and menus).
+        ...(libraryFlyout.get().open ? { Escape: () => closeLibrary() } : {}),
       };
       const fn = map[e.code];
       if (!fn) return;
@@ -235,7 +241,7 @@ export default function App() {
   );
 
   const waves = (
-    <div className={s.waves}>
+    <div ref={phone ? undefined : pinned} className={s.waves}>
       <div className={s.waveRow} data-deck="A">
         <WaveTag deck={deckA} />
         <ScrollingWave deck={deckA} loop={loop} zoom={zoom} label="Deck A waveform around the playhead" />
@@ -281,12 +287,14 @@ export default function App() {
       // The slicer covers the rig: it's inert (no keys, no focus) and not drawn
       // underneath, while the decks keep playing.
       inert={slicing || undefined}
-      style={{ ...(docked ? ({ '--dock-h': `${dock.height}px` } as React.CSSProperties) : {}), ...(slicing ? { display: 'none' } : {}) }}
+      // What the library flyout covers at the bottom, so the rig (or page)
+      // can scroll everything above it.
+      style={{ '--lib-reserve': `${libOpen ? sheet.height : LIB_BAR}px`, ...(slicing ? { display: 'none' } : {}) } as React.CSSProperties}
     >
       <TopBar session={session} loop={loop} onSlicer={() => void studio.open()} />
 
       {phone ? (
-        <div className={s.phoneTop}>
+        <div ref={pinned} className={s.phoneTop}>
           {waves}
           <PhoneTabs session={session} focus={focus} onFocus={setFocus} />
         </div>
@@ -294,7 +302,7 @@ export default function App() {
         waves
       )}
 
-      <div ref={rig} className={s.rig}>
+      <div className={s.rig}>
         <div className={s.stage}>
           <DeckPanel session={session} deck={deckA} loop={loop} still={still} />
           <Mixer session={session} loop={loop} />
@@ -305,9 +313,8 @@ export default function App() {
         {docked && credits}
       </div>
 
-      {docked && <Splitter height={dock.height} max={dock.max} rig={rig} />}
-      <Library session={session} docked={docked} />
       {!docked && credits}
+      <Library session={session} height={sheet.height} max={sheet.max} />
       <MusicFlyout session={session} />
       <SoundsFlyout session={session} />
       <CrateDock session={session} />
