@@ -319,8 +319,9 @@ const watchUploads = (req) => req.method() !== 'GET' && otherDuringSplit.push(`$
 page.on('request', watchUploads);
 const stemsB = page.getByRole('group', { name: 'Deck B stems' });
 const bTrack = await page.evaluate(() => window.platter.decks[1].store.get().track?.title);
-await stemsB.getByRole('button', { name: /^(Split|Load stems)$/ }).click();
+// No click: with auto-split on, the stems arrive by themselves once the track is on the deck.
 await stemsB.getByRole('button', { name: 'Vocals' }).waitFor({ timeout: 60000 });
+check((await stemsB.getByRole('button', { name: /^(Split|Load stems)$/ }).count()) === 0, 'deck B gets its stems without anyone pressing Split');
 page.off('request', watchUploads);
 check(modelRequests.length === 1 && modelRequests[0] === 'GET', `the separation model is fetched once, for auto-split and deck B's split of ${bTrack} together`);
 check(otherDuringSplit.length === 0, `nothing is sent anywhere while splitting${otherDuringSplit.length ? `: ${otherDuringSplit.join(', ')}` : ''}`);
@@ -497,6 +498,8 @@ await page.route('https://huggingface.co/Xenova/clap-htsat-unfused/**', (route) 
 });
 const watchSoundUploads = (req) => req.method() !== 'GET' && postsDuringSound.push(`${req.method()} ${req.url()}`);
 page.on('request', watchSoundUploads);
+if ((await page.getByRole('button', { name: 'Browse music', exact: true }).getAttribute('aria-expanded')) === 'true') await page.getByRole('button', { name: 'Close browse music' }).click();
+await page.getByRole('tab', { name: 'Crate' }).click(); // the add-files button lives on the Crate tab
 await page.getByLabel('Audio files to add to the crate').setInputFiles([
   { name: 'Test Artist - Kick Loop 122.wav', mimeType: 'audio/wav', buffer: kickWav(20, 122) },
   { name: 'Test Artist - Kick Loop 124.wav', mimeType: 'audio/wav', buffer: kickWav(20, 124) },

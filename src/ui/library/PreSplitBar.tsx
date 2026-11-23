@@ -41,6 +41,9 @@ function speedLine(st: PreSplitState) {
  */
 export function PreSplitBar({ presplit }: { presplit: PreSplitter }) {
   const st = useStore(presplit.store);
+  const access = useStore(presplit.libraryStore).folderAccess;
+  // After a browser restart the linked folder needs one click to read again.
+  const needsAccess = st.locked > 0 && access !== 'granted';
   const counts = st.total ? `${st.done} of ${st.total} tracks split` : null;
   const saved = st.bytes ? `${size(st.bytes)} kept` : null;
 
@@ -48,7 +51,7 @@ export function PreSplitBar({ presplit }: { presplit: PreSplitter }) {
   let action: { label: string; title: string; run: () => void } | null = null;
   switch (st.phase) {
     case 'off':
-      line = 'Auto-split is off. Turn it on to split every track you add into stems in the background, about 30 MB a track, so Split is instant.';
+      line = 'Auto-split is off. Turn it on to split every track you add into stems in the background, about 30 MB a track, so a track’s stems are ready by the time it’s on a deck.';
       action = { label: 'Turn on', title: 'Split your own tracks in the background as they’re added', run: () => void presplit.start() };
       break;
     case 'checking':
@@ -76,8 +79,21 @@ export function PreSplitBar({ presplit }: { presplit: PreSplitter }) {
       <p className={m.presplitLine} role="status" aria-live="polite">
         {line}
         {st.failed > 0 && ` · ${st.failed} skipped`}
-        {st.locked > 0 && ` · ${st.locked} linked track${st.locked === 1 ? '' : 's'} wait for folder access`}
+        {st.locked > 0 &&
+          (needsAccess
+            ? ` · ${st.locked} linked track${st.locked === 1 ? '' : 's'} wait for you to allow the folder`
+            : ` · ${st.locked} linked track${st.locked === 1 ? '' : 's'} couldn’t be read`)}
       </p>
+      {needsAccess && (
+        <button
+          type="button"
+          className={s.action}
+          onClick={() => void presplit.allowFolder()}
+          title="The browser asks once; choose “Allow on every visit” and Platter won’t need to ask again. Loading any linked track asks too."
+        >
+          Allow folder
+        </button>
+      )}
       {action && (
         <button type="button" className={s.action} onClick={action.run} title={action.title}>
           {action.label}

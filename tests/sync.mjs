@@ -137,6 +137,9 @@ check(err.max < 8 && (await page.evaluate(() => window.platter.decks[1].store.ge
 
 /* ── Bars ───────────────────────────────────────────────────────────────── */
 
+// Start from lined-up bars: where deck B's 1 falls before this depends on when it was started.
+await page.evaluate(() => window.platter.decks[1].alignBars());
+await page.waitForTimeout(300);
 await page.evaluate(() => window.platter.decks[1].shift(window.platter.decks[1].beatLength() * 2));
 await page.waitForTimeout(900);
 const bars = await page.evaluate(() => window.platter.decks[1].barOffset());

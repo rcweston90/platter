@@ -1,8 +1,9 @@
-import { useId, useMemo, useState } from 'react';
+import { useEffect, useId, useMemo, useState } from 'react';
 import { createStore } from '../../engine/store';
 import { keyName } from '../../engine/key';
 import type { DjSession } from '../../engine/session';
-import { useStore } from '../../engine/store';
+import { warmProps } from '../warm';
+import { useStore, useStoreSelect } from '../../engine/store';
 import { suggestMatches, verdict, type EnergyDirection, type Match, type MixTrack } from '../../library/mashup';
 import { useRig } from '../crate/rig';
 import { TRACK_MIME } from '../DeckPanel';
@@ -77,6 +78,13 @@ function useUpNext(session: DjSession, limit: number) {
     () => (seed ? suggestMatches(seed, pool, { direction, exclude, maxStretchPct: stretch, limit }) : []),
     [seed, pool, direction, exclude, stretch, limit],
   );
+
+  // The best match is the likeliest next load: decode it ahead, once audio is on.
+  const top = matches[0]?.track.id ?? null;
+  const audioOn = useStoreSelect(session.mixer, (m) => m.audio === 'running');
+  useEffect(() => {
+    if (top && audioOn) session.warmTrack(top);
+  }, [top, audioOn, session]);
 
   const load = async (id: string, deck: 0 | 1) => {
     setBusy(true);
@@ -164,7 +172,7 @@ function UpNextTab({ session }: { session: DjSession }) {
           ) : (
             <ol className={m.matches} aria-label={`Tracks to play after ${seed.title}, best first`}>
               {matches.map((mt) => (
-                <NextCard key={mt.track.id} match={mt} seed={seed} target={target} busy={busy} playing={rig.playing} onLoad={(d) => void load(mt.track.id, d)} />
+                <NextCard key={mt.track.id} match={mt} seed={seed} target={target} busy={busy} playing={rig.playing} onLoad={(d) => void load(mt.track.id, d)} warm={warmProps(session, mt.track.id)} />
               ))}
             </ol>
           )}
@@ -174,7 +182,7 @@ function UpNextTab({ session }: { session: DjSession }) {
   );
 }
 
-function NextCard(p: { match: Match; seed: MixTrack; target: 0 | 1 | null; busy: boolean; playing: [boolean, boolean]; onLoad: (d: 0 | 1) => void }) {
+function NextCard(p: { match: Match; seed: MixTrack; target: 0 | 1 | null; busy: boolean; playing: [boolean, boolean]; onLoad: (d: 0 | 1) => void; warm?: ReturnType<typeof warmProps> }) {
   const { match: mt, seed } = p;
   const v = verdict(mt.score);
   const t = mt.track;
@@ -188,6 +196,7 @@ function NextCard(p: { match: Match; seed: MixTrack; target: 0 | 1 | null; busy:
     <li
       className={m.card}
       data-verdict={v}
+      {...p.warm}
       draggable
       onDragStart={(e) => {
         e.dataTransfer.setData(TRACK_MIME, t.id);
@@ -315,7 +324,7 @@ function UpNextRail({ session, onMore }: { session: DjSession; onMore?: () => vo
       ) : (
         <ol className={u.list} aria-label={`Tracks to play after ${seed.title}, best first`}>
           {matches.map((mt) => (
-            <RailRow key={mt.track.id} match={mt} seed={seed} target={rig.target} playing={rig.playing} busy={busy} onLoad={(d) => void load(mt.track.id, d)} />
+            <RailRow key={mt.track.id} match={mt} seed={seed} target={rig.target} playing={rig.playing} busy={busy} onLoad={(d) => void load(mt.track.id, d)} warm={warmProps(session, mt.track.id)} />
           ))}
         </ol>
       )}
@@ -328,7 +337,7 @@ function UpNextRail({ session, onMore }: { session: DjSession; onMore?: () => vo
   );
 }
 
-function RailRow(p: { match: Match; seed: MixTrack; target: 0 | 1 | null; playing: [boolean, boolean]; busy: boolean; onLoad: (d: 0 | 1) => void }) {
+function RailRow(p: { match: Match; seed: MixTrack; target: 0 | 1 | null; playing: [boolean, boolean]; busy: boolean; onLoad: (d: 0 | 1) => void; warm?: ReturnType<typeof warmProps> }) {
   const { match: mt, seed } = p;
   const t = mt.track;
   const v = verdict(mt.score);
@@ -343,6 +352,7 @@ function RailRow(p: { match: Match; seed: MixTrack; target: 0 | 1 | null; playin
     <li
       className={u.row}
       data-verdict={v}
+      {...p.warm}
       draggable
       onDragStart={(e) => {
         e.dataTransfer.setData(TRACK_MIME, t.id);

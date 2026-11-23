@@ -16,6 +16,9 @@ export interface LibraryState {
   lastSaved: string | null;
   /** One-line result of the last action. */
   note: string | null;
+  /** Can the linked folder be read now? 'prompt' after a browser restart,
+   *  until a click allows it again. Null with no folder linked. */
+  folderAccess: PermissionState | null;
 }
 
 /**
@@ -26,6 +29,8 @@ export interface LibraryState {
  */
 export interface LibraryController {
   readonly store: Store<LibraryState>;
+  /** Inside a click: ask once to read the linked folder again. */
+  allowFolder(): Promise<boolean>;
   /** Look in the linked folder again for files added (or removed) since. */
   rescan(): Promise<void>;
   /** Link a music folder (Chromium) — same as the crate's Link folder, but remembered for rescans. */
@@ -45,7 +50,7 @@ export interface LibraryController {
 }
 
 export function emptyLibraryState(): LibraryState {
-  return { folderName: null, canRescan: false, progress: null, syncFolder: null, lastSaved: null, note: null };
+  return { folderName: null, canRescan: false, progress: null, syncFolder: null, lastSaved: null, note: null, folderAccess: null };
 }
 
 export function createLibraryStore(): Store<LibraryState> {

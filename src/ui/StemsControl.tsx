@@ -5,9 +5,9 @@ import s from '../platter.module.css';
 import t from './stems.module.css';
 
 const PHASE: Record<string, string> = {
-  download: 'Getting model',
-  prepare: 'Preparing',
-  separate: 'Splitting',
+  download: 'Getting the stems model',
+  prepare: 'Getting stems ready',
+  separate: 'Stems coming',
 };
 
 /** Peak (0–1) to meter fill (0–1): −48 dB to full scale. */
@@ -108,7 +108,7 @@ export function StemsControl({ stems, label }: { stems: DeckStems; label: string
         <>
           <span className={s.keyLabel}>Stems</span>
           <span className={t.status} role="status">
-            {st.saved && st.status === 'prepare' ? 'Loading saved stems' : `${PHASE[st.status]} ${Math.round(st.progress * 100)}%`}
+            {st.status === 'prepare' ? (st.saved ? 'Loading saved stems' : PHASE.prepare) : `${PHASE[st.status]} ${Math.round(st.progress * 100)}%`}
           </span>
           <button type="button" className={s.mini} onClick={() => stems.cancel()}>
             Stop
@@ -124,7 +124,7 @@ export function StemsControl({ stems, label }: { stems: DeckStems; label: string
             disabled={st.status === 'blocked'}
             title={st.status === 'blocked' ? st.message ?? undefined : st.saved ? 'Already split in the background: loads the stems at once' : 'Split into vocals, drums, bass and other'}
           >
-            {st.saved ? 'Load stems' : 'Split'}
+            {st.status === 'error' ? 'Try again' : st.saved ? 'Load stems' : 'Split'}
           </button>
         </>
       )}
@@ -138,6 +138,7 @@ export function StemsControl({ stems, label }: { stems: DeckStems; label: string
         </p>
       )}
       {st.status === 'download' && <p className={t.note}>First time only: the separation model is about 170 MB.</p>}
+      {busy && st.status !== 'download' && stems.automatic && <p className={t.note}>The whole track plays meanwhile; the parts appear here when they’re ready.</p>}
     </div>
   );
 }

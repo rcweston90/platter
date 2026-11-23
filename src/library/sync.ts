@@ -1,5 +1,6 @@
 import { trackFromFile } from '../engine/analysis';
 import { getValue, setValue } from '../engine/library';
+import { mapLimit } from '../engine/limit';
 import type { DjSession } from '../engine/session';
 import type { TrackRecord } from '../engine/types';
 import { saveFile as downloadFile } from '../ui/save';
@@ -55,6 +56,7 @@ export class LibrarySync implements LibraryController {
     this.syncDir = isDir(sync) ? sync : null;
     if (imported?.length) this.imported = new LibraryIndex(imported);
     this.store.set({ folderName: this.folder?.name ?? null, canRescan: !!this.folder, syncFolder: this.syncDir?.name ?? null, lastSaved: saved ?? null });
+    void this.checkFolderAccess();
     this.unsub?.();
     this.unsub = this.session.crate.subscribe(() => this.onCrateChange());
     this.queueOldTracks();
@@ -74,14 +76,40 @@ export class LibrarySync implements LibraryController {
     if (!dir) return;
     this.folder = dir;
     void setValue(KV_FOLDER, dir);
-    this.store.set({ folderName: dir.name, canRescan: true });
+    this.store.set({ folderName: dir.name, canRescan: true, folderAccess: 'granted' });
     await this.scan(dir);
+  }
+
+  /** Inside a click: asks once for the linked folder (Chrome offers "Allow on
+   *  every visit"), which covers every linked track, then lets auto-split
+   *  and analysis know they can read again. True when allowed. */
+  async allowFolder(): Promise<boolean> {
+    const dir = this.folder;
+    if (!dir) return false;
+    const before = await permission(dir, 'read', false);
+    if (before === 'granted') return true;
+    const after = before === 'prompt' ? await permission(dir, 'read', true) : before;
+    this.store.set({ folderAccess: after });
+    if (after !== 'granted') return false;
+    // Tracks that waited for access get their reading now.
+    this.queueOldTracks();
+    return true;
+  }
+
+  /** Whether the linked folder can be read now (no asking). */
+  async checkFolderAccess(): Promise<PermissionState | null> {
+    if (!this.folder) return null;
+    const state = await permission(this.folder, 'read', false);
+    if (state !== this.store.get().folderAccess) this.store.set({ folderAccess: state });
+    return state;
   }
 
   async rescan() {
     if (!this.folder) return this.linkFolder();
     // A click is when the browser may ask again after a restart.
-    if ((await permission(this.folder, 'read', true)) !== 'granted') {
+    const state = await permission(this.folder, 'read', true);
+    this.store.set({ folderAccess: state });
+    if (state !== 'granted') {
       this.note(`Platter needs permission to read “${this.folder.name}”: allow it when the browser asks, or link the folder again.`);
       return;
     }
@@ -99,9 +127,9 @@ export class LibrarySync implements LibraryController {
       if (t.library?.path) byPath.set(t.library.path, t);
       else legacyByName.set(t.fileName, t);
     }
-    const fresh: TrackRecord[] = [];
     const seen = new Set<string>();
     let retry = 0;
+    const unknown: { handle: FileSystemFileHandle; path: string }[] = [];
     for (const { handle, path } of found) {
       seen.add(path);
       const have = byPath.get(path);
@@ -126,16 +154,22 @@ export class LibrarySync implements LibraryController {
         if (!analysed) retry++;
         continue;
       }
+      unknown.push({ handle, path });
+    }
+    // New files: tags read a few at a time, so a big folder fills the crate in seconds.
+    const read = await mapLimit(unknown, 4, async ({ handle, path }) => {
       try {
         const file = await handle.getFile();
         const rec = await trackFromFile(file);
         const prior = this.imported.find({ path, fileName: file.name, fileSize: file.size });
         const linked: TrackRecord = { ...rec, blob: null, handle, library: { ...rec.library!, path } };
-        fresh.push(prior?.analysis?.analyzer === ANALYZER_VERSION ? applyPrior(linked, prior) : linked);
+        return prior?.analysis?.analyzer === ANALYZER_VERSION ? applyPrior(linked, prior) : linked;
       } catch {
         // Unreadable (moved mid-scan, or a cloud placeholder): skip it.
+        return null;
       }
-    }
+    });
+    const fresh = read.filter((r): r is TrackRecord => !!r);
     const missing = [...byPath.keys()].filter((p) => !seen.has(p)).length;
     this.batch += fresh.filter((r) => r.status === 'analysing').length + retry;
     this.session.addRecords(fresh);
