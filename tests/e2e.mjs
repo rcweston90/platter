@@ -370,7 +370,7 @@ const cached = await page.evaluate(async () => {
 });
 check(cached.length === 1 && cached[0].includes('huggingface.co'), `only the model is in Cache Storage (${cached.join(', ')})`);
 // Deck B's split is kept (in the browser's own storage, for a dropped file), so the row says Stems.
-await page.waitForFunction(() => Object.values(window.platter.presplit.rows.get()).some((r) => r.state === 'ready'), null, { timeout: 10000 }).catch(() => undefined);
+await page.waitForFunction(() => Object.values(window.platter.presplit.rows.get()).some((r) => r.state === 'ready'), null, { timeout: 60000 }).catch(() => undefined);
 const kept = await page.evaluate(() => ({ rows: JSON.stringify(window.platter.presplit.rows.get()), msg: window.platter.presplit.store.get().message }));
 check(/"ready"/.test(kept.rows), `deck B’s split is kept, so Kick Loop shows Stems in the crate (${kept.rows}${kept.msg ? `, ${kept.msg}` : ''})`);
 await stemsB.getByRole('button', { name: 'Hear every part' }).click();

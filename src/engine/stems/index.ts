@@ -118,6 +118,10 @@ export class DeckStems {
   /** Waiting on the background's split of this track (a number, so a cancel can drop it). */
   private joining: number | null = null;
   private joins = 0;
+  /** Stems that came in while the deck only showed the track (no audio yet). */
+  private held: { stems: StemPcm[]; rate: number } | null = null;
+  /** The track is on the deck as a picture only (e.g. after a reload). */
+  private armed = false;
 
   /**
    * `decode` gives the track's audio at 44.1 kHz stereo, decoded afresh
@@ -140,10 +144,49 @@ export class DeckStems {
     return typeof Worker !== 'undefined' && typeof OfflineAudioContext !== 'undefined';
   }
 
+  /**
+   * The deck shows this track but has no audio yet (after a reload the last
+   * tracks come back like this). Its stems get ready now, so they're there
+   * the moment it plays: saved ones load, else it's split if `fresh`.
+   */
+  trackArmed(rec: TrackRecord, fresh: boolean) {
+    if (this.deck.hasAudio || this.deck.store.get().track?.id !== rec.id) return;
+    this.reset(rec.id);
+    this.armed = true;
+    this.setUp(rec);
+    if (!stemsPolicy(rec).allowed || !DeckStems.supported() || !this.auto()) return;
+    void (async () => {
+      if (!fresh && !(await this.saved?.has(rec.id).catch(() => false))) return;
+      if (this.trackId === rec.id) void this.split();
+    })();
+  }
+
   /** The deck now holds this track's audio (stems start off). */
   trackLoaded(rec: TrackRecord) {
+    if (this.armed && this.trackId === rec.id) {
+      // Got ready while armed: hand over what's in, or let a split under way finish.
+      this.armed = false;
+      const held = this.held;
+      this.held = null;
+      if (held) {
+        this.deck.setStems(held.stems, held.rate);
+        this.applyGains();
+        return;
+      }
+      const s = this.store.get().status;
+      if (s !== 'idle' && s !== 'error' && s !== 'blocked' && s !== 'none') return;
+    }
     // Loading drops the worklet's stems, even for the same track again.
     this.reset(rec.id);
+    this.setUp(rec);
+    // Nobody should have to ask: saved stems load, a split under way is
+    // joined, else this deck's track is split now, ahead of everything else.
+    // The deck plays the whole track meanwhile; with every part up the stems
+    // add back to exactly that, so they swap in without a sound.
+    if (stemsPolicy(rec).allowed && DeckStems.supported() && this.auto()) void this.split();
+  }
+
+  private setUp(rec: TrackRecord) {
     const { allowed, reason } = stemsPolicy(rec);
     if (!DeckStems.supported()) this.store.set({ status: 'blocked', message: 'This browser can’t split stems.' });
     else this.store.set({ status: allowed ? 'idle' : 'blocked', message: reason });
@@ -159,11 +202,12 @@ export class DeckStems {
       // Split in the background while it sits here: Split becomes instant.
       this.unwatch = this.saved.watch?.(id, mark) ?? null;
     }
-    // Nobody should have to ask: saved stems load, a split under way is
-    // joined, else this deck's track is split now, ahead of everything else.
-    // The deck plays the whole track meanwhile; with every part up the stems
-    // add back to exactly that, so they swap in without a sound.
-    if (allowed && DeckStems.supported() && this.auto()) void this.split();
+  }
+
+  /** Stems in: onto the deck, or held until its audio arrives. */
+  private attach(stems: StemPcm[], rate: number) {
+    if (this.deck.hasAudio) this.deck.setStems(stems, rate);
+    else this.held = { stems, rate };
   }
 
   /** Stems arrive by themselves on this deck (no Split to press). */
@@ -173,6 +217,8 @@ export class DeckStems {
 
   private reset(trackId: string | null) {
     this.joining = null;
+    this.held = null;
+    this.armed = false;
     this.unwatch?.();
     this.unwatch = null;
     if (this.job !== null) {
@@ -188,13 +234,13 @@ export class DeckStems {
   async split() {
     const s = this.store.get();
     const trackId = this.trackId;
-    if (!trackId || !this.deck.hasAudio || (s.status !== 'idle' && s.status !== 'error')) return;
+    if (!trackId || (!this.deck.hasAudio && !this.armed) || (s.status !== 'idle' && s.status !== 'error')) return;
     this.store.set({ status: 'prepare', message: null, progress: 0 });
     if (this.saved) {
       const found = await this.saved.load(trackId).catch(() => null);
       if (this.trackId !== trackId) return;
       if (found) {
-        this.deck.setStems(found.stems, found.rate);
+        this.attach(found.stems, found.rate);
         this.store.set({ status: 'ready', progress: 1, backend: null, seconds: null, message: null });
         this.applyGains();
         return;
@@ -210,7 +256,7 @@ export class DeckStems {
         if (this.trackId !== trackId || this.joining !== token) return;
         this.joining = null;
         if (stems) {
-          this.deck.setStems(stems, STEM_RATE);
+          this.attach(stems, STEM_RATE);
           this.store.set({ status: 'ready', progress: 1, seconds: null, message: 'Split in the background, as the track came in.' });
           this.applyGains();
           return;
@@ -260,7 +306,7 @@ export class DeckStems {
           // The deck takes the buffers; the copy goes to disk.
           this.saved.keep(trackId, m.stems.map((p) => ({ left: p.left.slice(), right: p.right.slice() })));
         }
-        this.deck.setStems(m.stems, STEM_RATE);
+        this.attach(m.stems, STEM_RATE);
         this.store.set({ status: 'ready', progress: 1, backend: m.backend, seconds: m.seconds });
         this.applyGains();
         break;
@@ -311,7 +357,7 @@ export class DeckStems {
   }
 
   private applyGains() {
-    if (this.store.get().status !== 'ready') return;
+    if (this.store.get().status !== 'ready' || !this.deck.hasAudio) return;
     const g = (n: StemName) => (this.heard(n) ? 1 : 0);
     // The worklet's order: drums, bass, vocals, other (separate.ts KEPT, then the rest).
     this.deck.setStemGains([g('drums'), g('bass'), g('vocals'), g('other')]);
