@@ -11,7 +11,7 @@ export const ROLL_BEATS = [0.125, 0.25, 0.5, 1] as const;
 export const SPEEDS = [33, 45] as const;
 export type Speed = (typeof SPEEDS)[number];
 const SPEED_RATIO: Record<Speed, number> = { 33: 1, 45: 45 / (100 / 3) };
-const BEND = 0.04; // pitch-bend buttons: ±4%, like holding a finger to the platter edge
+export const BEND = 0.04; // pitch-bend buttons: ±4%, like holding a finger to the platter edge
 const FALLBACK_BPM = 120; // beat-sized loops and jumps still work on an unanalysed track
 
 /* Sync lock: a synced deck keeps chasing the leader's beat, not just lining
