@@ -12,8 +12,9 @@ import * as ort from 'onnxruntime-web/webgpu';
 import wasmUrl from 'onnxruntime-web/ort-wasm-simd-threaded.asyncify.wasm?url';
 import { Cancelled, MODEL_FAILED, MODEL_OFFLINE, separate, type Runner, type StemPcm } from './separate';
 
-export const MODEL_URL = 'https://huggingface.co/timcsy/demucs-web-onnx/resolve/main/htdemucs_embedded.onnx';
-const MODEL_CACHE = 'platter-models-v1';
+import { MODEL_CACHE, MODEL_URL } from './model';
+
+export { MODEL_URL };
 
 export type ToWorker =
   | { type: 'separate'; id: number; left: Float32Array; right: Float32Array }

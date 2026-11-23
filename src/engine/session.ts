@@ -31,6 +31,7 @@ import { crossfaderGains, defaultChannel, faderGain, type ChannelState, type Cro
 import { PADS, Sampler } from './sampler';
 import { DeckStems, STEM_RATE } from './stems';
 import { PreSplitter } from './stems/presplit';
+import { modelCached } from './stems/model';
 import { Preloader } from './preload';
 import { mapLimit } from './limit';
 import { analysisLanes } from '../library/client';
@@ -205,7 +206,38 @@ export class DjSession {
     void this.midi.init();
     void loadRecordings().then((list) => this.recordings.set({ list }));
     void this.runAnalysis();
-    void this.library.init().then(() => Promise.all([this.presplit.init(), this.sound.init()]));
+    void this.library.init().then(() => {
+      void this.presplit.init().then(() => {
+        void this.armStems();
+        // A linked folder allowed later: armed decks can read their tracks now.
+        let was = this.library.store.get().folderAccess;
+        this.unsubs.push(
+          this.library.store.subscribe(() => {
+            const now = this.library.store.get().folderAccess;
+            if (now === 'granted' && was !== 'granted') void this.armStems();
+            was = now;
+          }),
+        );
+      });
+      void this.sound.init();
+    });
+  }
+
+  /** After a reload the decks show their tracks without audio: get each one's
+   *  stems ready now (saved ones load; a split starts if the model is already
+   *  here and the track can be read without asking), so they're there on play. */
+  private async armStems() {
+    if (this.disposed) return;
+    const cached = await modelCached();
+    const access = this.library.store.get().folderAccess;
+    for (const i of [0, 1] as const) {
+      const id = this.decks[i].store.get().track?.id;
+      const rec = id ? this.crate.get().tracks.find((t) => t.id === id) : null;
+      const st = this.stems[i].store.get().status;
+      if (!rec || this.decks[i].hasAudio || (st !== 'none' && st !== 'idle')) continue;
+      const readable = !!rec.demo || !!rec.blob || (!!rec.handle && access === 'granted');
+      this.stems[i].trackArmed(rec, cached && readable);
+    }
   }
 
   /** Puts the last session's tracks (or the crate's first two) on the decks

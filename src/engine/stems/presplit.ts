@@ -83,6 +83,9 @@ export interface PreSplitState {
 /** One track, as the track list shows it. */
 export type RowStems = { state: 'ready' } | { state: 'splitting'; progress: number; stage: Stage } | { state: 'queued' } | { state: 'failed' };
 
+/** Bump when demo.ts changes how the demos sound, so old demo stems aren't reused. */
+const DEMO_STEMS_VERSION = 1;
+
 interface Source {
   path: string;
   fingerprint: string;
@@ -311,7 +314,18 @@ export class PreSplitter implements SavedStemsHook {
   }
 
   /** The file behind a track now, with its fingerprint (reused while size and date hold). Null: can't read it now. */
+  /** Whose stems a deck may keep and load: anything the background splits,
+   *  plus the built-in demos (split on a deck, never queued). */
+  private keepable(rec: TrackRecord): boolean {
+    return this.eligible(rec) || (!!rec.demo && stemsPolicy(rec).allowed);
+  }
+
   private async source(rec: TrackRecord): Promise<{ file: Blob; src: Source } | null> {
+    if (rec.demo) {
+      // Synthesised the same way every time: the demo's id names its stems.
+      const key = `demo-${rec.demo}-v${DEMO_STEMS_VERSION}`;
+      return { file: new Blob(), src: { path: key, fingerprint: key, size: 0, modified: null } };
+    }
     if (this.fromFolder(rec)) {
       let file: File;
       try {
@@ -616,7 +630,7 @@ export class PreSplitter implements SavedStemsHook {
 
   private rec(trackId: string) {
     const rec = this.session.crate.get().tracks.find((t) => t.id === trackId);
-    return rec && this.eligible(rec) ? rec : null;
+    return rec && this.keepable(rec) ? rec : null;
   }
 
   async has(trackId: string): Promise<boolean> {
