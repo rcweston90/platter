@@ -31,6 +31,9 @@ import { crossfaderGains, defaultChannel, faderGain, type ChannelState, type Cro
 import { PADS, Sampler } from './sampler';
 import { DeckStems, STEM_RATE } from './stems';
 import { PreSplitter } from './stems/presplit';
+import { Preloader } from './preload';
+import { mapLimit } from './limit';
+import { analysisLanes } from '../library/client';
 import { createStore, type Store } from './store';
 import { emptyCues, type TrackRecord } from './types';
 
@@ -59,6 +62,23 @@ export interface CrateState {
   loaded: boolean;
   /** A one-line result of the last import, link or add, shown under the crate. */
   note: string | null;
+}
+
+let probedRate: number | null = null;
+/** The output's sample rate before the engine starts (what its AudioContext
+ *  will run at), so a track can be decoded ahead of the first load. */
+function outputRate(): number | null {
+  if (probedRate) return probedRate;
+  try {
+    const Ctx = globalThis.AudioContext;
+    if (!Ctx) return null;
+    const probe = new Ctx({ latencyHint: 'interactive' });
+    probedRate = probe.sampleRate;
+    void probe.close().catch(() => undefined);
+  } catch {
+    return null;
+  }
+  return probedRate;
 }
 
 /** What Platter remembers between visits besides the crate. */
@@ -109,9 +129,14 @@ export class DjSession {
   readonly presplit: PreSplitter = new PreSplitter(this);
   /** Each deck's stems (vocals, drums, bass, other): split on request (or loaded if saved), held in memory. */
   readonly stems: [DeckStems, DeckStems] = [
-    new DeckStems(this.decks[0], (id) => this.decodeForStems(id), this.presplit),
-    new DeckStems(this.decks[1], (id) => this.decodeForStems(id), this.presplit),
+    new DeckStems(this.decks[0], (id) => this.decodeForStems(id), this.presplit, () => this.presplit.on),
+    new DeckStems(this.decks[1], (id) => this.decodeForStems(id), this.presplit, () => this.presplit.on),
   ];
+  /** Decodes the track you're about to load ahead of the click (preload.ts). */
+  readonly preload = new Preloader(
+    (id, rate) => this.decodeQuietly(id, rate),
+    () => this.engine?.ctx.sampleRate ?? outputRate(),
+  );
   readonly mixer: Store<MixerState> = createStore(initialMixer());
   readonly crate: Store<CrateState> = createStore<CrateState>({ tracks: [], loaded: false, note: null });
   readonly recordings: Store<{ list: RecordingRecord[] }> = createStore({ list: [] as RecordingRecord[] });
@@ -121,7 +146,10 @@ export class DjSession {
   readonly autoDj: AutoDj;
   engine: DjEngine | null = null;
   private starting: Promise<DjEngine> | null = null;
-  private analysing = false;
+  private analysing = 0;
+  /** Deck loads under way: background analysis waits for them. */
+  private loading = 0;
+  private loadsIdle: (() => void)[] = [];
   private loadTokens = [0, 0];
   /** A load already on its way to each deck, and whether to play after it. */
   private inflight: [{ id: string; play: boolean } | null, { id: string; play: boolean } | null] = [null, null];
@@ -306,6 +334,7 @@ export class DjSession {
     this.sampler.silence();
     if (this.saveTimer !== null) window.clearTimeout(this.saveTimer);
     this.decks.forEach((d) => d.destroy());
+    this.preload.clear();
     const rec = this.mixer.get().lastRecording;
     if (rec) URL.revokeObjectURL(rec.url);
     this.unsubs.forEach((u) => u());
@@ -447,11 +476,9 @@ export class DjSession {
 
   async addFiles(files: File[]) {
     const audio = files.filter((f) => f.type.startsWith('audio/') || /\.(mp3|wav|aiff?|flac|ogg|oga|opus|m4a|aac|webm)$/i.test(f.name));
-    const recs: TrackRecord[] = [];
-    for (const file of audio) {
-      recs.push(await trackFromFile(file));
-      if (this.disposed) return 0;
-    }
+    // Tags are read a few files at a time: the crate fills in seconds, not a minute.
+    const recs = await mapLimit(audio, 4, (file) => trackFromFile(file));
+    if (this.disposed) return 0;
     this.addRecords(recs);
     return audio.length;
   }
@@ -535,6 +562,7 @@ export class DjSession {
     if (this.decks.some((d) => d.store.get().track?.id === id)) return false;
     this.crate.set({ tracks: this.crate.get().tracks.filter((t) => t.id !== id) });
     this.autoDj.dequeue(id);
+    this.preload.forget(id);
     void removeTrack(id);
     return true;
   }
@@ -543,41 +571,85 @@ export class DjSession {
    *  (a linked file after a browser restart); background work never does. */
   private async audioBlob(rec: TrackRecord, interactive: boolean): Promise<Blob | null> {
     if (rec.blob) return rec.blob;
-    if (rec.handle) return fileFromHandle(rec.handle, interactive);
+    if (rec.handle) {
+      // One ask for the whole linked folder rather than this one file: every
+      // linked track (and auto-split) can read again after it.
+      if (interactive && rec.library?.path) await this.library.allowFolder();
+      return fileFromHandle(rec.handle, interactive);
+    }
     if (rec.audius) return fetchAudiusAudio(rec.audius);
     if (rec.soundcloud) return fetchSoundCloudAudio(rec.soundcloud);
     return null;
   }
 
-  /** One track at a time, in the background: decoding is memory-hungry, and
-   *  the decks need the CPU more than the crate does. */
+  /** In the background, one track at a time (two where the machine has the
+   *  cores and memory: library/client analysisLanes): decoding is
+   *  memory-hungry, and the decks need the CPU more than the crate does, so a
+   *  deck load in progress always goes first. */
   async runAnalysis() {
-    if (this.analysing) return;
-    this.analysing = true;
-    try {
-      for (;;) {
-        const next = this.crate.get().tracks.find((t) => t.status === 'analysing');
-        if (!next || this.disposed) break;
-        try {
-          const blob = await this.audioBlob(next, false);
-          // No access yet (a linked file): analysed when it's first loaded.
-          if (!blob) this.updateTrack(next.id, { status: 'ready' });
-          else this.updateTrack(next.id, await analyseTrack(next, blob));
-        } catch (err) {
-          if (next.soundcloud && err instanceof SoundCloudError) {
-            // Signed out, or offline: analysed when it next loads.
-            this.updateTrack(next.id, { status: 'ready' });
-            continue;
-          }
-          this.updateTrack(next.id, {
-            status: 'error',
-            error: next.audius ? 'Audius couldn’t be reached from here.' : next.soundcloud ? 'SoundCloud’s stream couldn’t be decoded.' : 'This file could not be decoded.',
-          });
-        }
-      }
-    } finally {
-      this.analysing = false;
+    const lanes = analysisLanes();
+    while (this.analysing < lanes) {
+      this.analysing++;
+      void this.analysisLane().finally(() => this.analysing--);
+      // Only start a second lane when there's a second track to read.
+      if (this.crate.get().tracks.filter((t) => t.status === 'analysing').length < 2) break;
     }
+  }
+
+  private claimed = new Set<string>();
+
+  private async analysisLane() {
+    for (;;) {
+      await this.deckLoadsDone();
+      const next = this.crate.get().tracks.find((t) => t.status === 'analysing' && !this.claimed.has(t.id));
+      if (!next || this.disposed) break;
+      this.claimed.add(next.id);
+      try {
+        const blob = await this.audioBlob(next, false);
+        // No access yet (a linked file): analysed when it's first loaded.
+        if (!blob) this.updateTrack(next.id, { status: 'ready' });
+        else this.updateTrack(next.id, await analyseTrack(next, blob, () => this.deckLoadsDone()));
+      } catch (err) {
+        if (next.soundcloud && err instanceof SoundCloudError) {
+          // Signed out, or offline: analysed when it next loads.
+          this.updateTrack(next.id, { status: 'ready' });
+          continue;
+        }
+        this.updateTrack(next.id, {
+          status: 'error',
+          error: next.audius ? 'Audius couldn’t be reached from here.' : next.soundcloud ? 'SoundCloud’s stream couldn’t be decoded.' : 'This file could not be decoded.',
+        });
+      } finally {
+        this.claimed.delete(next.id);
+      }
+    }
+  }
+
+  /** A deck is loading a track right now. */
+  get deckLoading() {
+    return this.loading > 0;
+  }
+
+  /** Resolves once no deck is loading. */
+  private deckLoadsDone(): Promise<void> {
+    if (!this.loading) return Promise.resolve();
+    return new Promise((r) => this.loadsIdle.push(r));
+  }
+
+  /** A track's audio decoded at `rate`, for the preloader: never asks for
+   *  permission and never fetches a stream (those wait for the click). */
+  private async decodeQuietly(trackId: string, rate: number): Promise<AudioBuffer | null> {
+    const rec = this.crate.get().tracks.find((t) => t.id === trackId);
+    if (!rec || rec.demo || rec.audius || rec.soundcloud || rec.status === 'error') return null;
+    const blob = rec.blob ?? (rec.handle ? await fileFromHandle(rec.handle, false).catch(() => null) : null);
+    return blob ? decodeAudio(blob, rate) : null;
+  }
+
+  /** You're about to load this track (pointer over it, keyboard on it, next
+   *  in Up next): decode it now, so the load itself is instant. */
+  warmTrack(trackId: string) {
+    if (this.decks.some((d) => d.store.get().track?.id === trackId && d.hasAudio)) return;
+    this.preload.warm(trackId);
   }
 
   /** A loaded track's audio again, at the stems model's rate (engine/stems). */
@@ -613,16 +685,27 @@ export class DjSession {
     }
     this.inflight[i] = { id: trackId, play };
     const token = ++this.loadTokens[i];
+    const artUrl = rec.art ? URL.createObjectURL(rec.art) : null;
+    // Show the track at once (title, art, waveform) while its audio decodes;
+    // Play pressed meanwhile starts it as soon as the audio is in.
+    const armed = !!rec.peaks;
+    if (rec.peaks) deck.arm(rec, rec.peaks, artUrl);
     deck.setLoading(true);
+    this.loading++;
+    this.preload.hold(true);
     try {
       const engine = await this.ensureEngine();
-      let buffer: AudioBuffer;
+      let buffer: AudioBuffer | null = null;
       if (rec.demo) {
         buffer = await renderDemo(rec.demo, engine.ctx.sampleRate);
       } else {
-        const blob = await this.audioBlob(rec, true);
-        if (!blob) throw new Error('No access to that file — allow it when the browser asks.');
-        buffer = await decodeAudio(blob, engine.ctx.sampleRate);
+        // Decoded ahead (preload.ts)? Then there's nothing left to wait for.
+        buffer = (await this.preload.take(rec.id, engine.ctx.sampleRate)) ?? null;
+        if (!buffer) {
+          const blob = await this.audioBlob(rec, true);
+          if (!blob) throw new Error('No access to that file — allow it when the browser asks.');
+          buffer = await decodeAudio(blob, engine.ctx.sampleRate);
+        }
       }
       if (token !== this.loadTokens[i] || this.disposed) return;
       let ready = rec;
@@ -632,7 +715,7 @@ export class DjSession {
         ready = { ...rec, peaks, duration: buffer.duration };
         this.updateTrack(rec.id, { peaks, duration: buffer.duration });
       }
-      deck.load(ready, buffer, rec.art ? URL.createObjectURL(rec.art) : null);
+      deck.load(ready, buffer, artUrl);
       this.stems[i].trackLoaded(this.crate.get().tracks.find((t) => t.id === rec.id) ?? rec);
       if (this.inflight[i]?.play) deck.play();
       // Never analysed (no access in the background): do it now.
@@ -640,6 +723,7 @@ export class DjSession {
         void this.analyseLoaded(rec, buffer);
       }
     } catch (err) {
+      if (artUrl && !armed) URL.revokeObjectURL(artUrl);
       if (token === this.loadTokens[i]) {
         const why =
           err instanceof SoundCloudError || (err instanceof Error && err.message.startsWith('No access')) ? err.message : `“${rec.title}” could not be loaded.`;
@@ -647,6 +731,11 @@ export class DjSession {
       }
     } finally {
       if (token === this.loadTokens[i]) this.inflight[i] = null;
+      this.loading--;
+      if (!this.loading) {
+        this.preload.hold(false);
+        this.loadsIdle.splice(0).forEach((r) => r());
+      }
     }
   }
 

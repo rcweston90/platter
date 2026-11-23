@@ -15,8 +15,8 @@
 
 import { defaultFx, FxUnit, type FxState } from './fx';
 
-export const EQ_LOW_HZ = 220;
-export const EQ_HIGH_HZ = 2600;
+import { EQ_HIGH_HZ, EQ_LOW_HZ } from './eq';
+export { EQ_HIGH_HZ, EQ_LOW_HZ };
 const BUTTERWORTH_Q = Math.SQRT1_2;
 const SMOOTH = 0.015; // s — parameter glide, fast enough to feel direct, slow enough not to zipper
 

@@ -55,6 +55,8 @@ class FileH {
     this.dir = dir;
   }
   async getFile() {
+    // After a browser restart a linked folder can't be read until it's allowed again.
+    if (globalThis.__locked && this.dir.name !== 'opfs') throw new DOMException('not allowed', 'NotAllowedError');
     const e = this.dir.files.get(this.name);
     if (!e) throw new DOMException('gone', 'NotFoundError');
     return new File([e.bytes], this.name, { lastModified: e.modified });
@@ -124,8 +126,9 @@ const crate = store({
   ],
 });
 const decks = [store({ playing: false, track: null }), store({ playing: false, track: null })].map((s) => ({ store: s }));
-const library = { musicFolder: music, store: store({ progress: null }) };
-const session = { crate, decks, library };
+const library = { musicFolder: music, store: store({ progress: null, folderAccess: 'granted' }), allowFolder: async () => true };
+const autoDj = { store: store({ queue: [] }) };
+const session = { crate, decks, library, autoDj, deckLoading: false };
 
 // The fake worker: stems = the input scaled; runs when released (so tests can step it).
 const splits = [];
@@ -309,4 +312,34 @@ assert.equal(splits.length, n1);
 assert.ok(await p.load('a'), 'saved stems still load');
 p.dispose();
 console.log('✓ presplit: turning it off sticks; saved stems still load');
+
+/* 11. Linked tracks the browser won't read yet (after a restart) wait; once the
+   folder is allowed they go at once, Up next before the newest. */
+globalThis.__auto = true;
+globalThis.__locked = true;
+crate.set({
+  tracks: [
+    ...crate.get().tracks,
+    track('l1', 'L1.flac', music.put('L1.flac', 'l'.repeat(90))),
+    track('l2', 'L2.flac', music.put('L2.flac', 'm'.repeat(90))),
+    track('l3', 'L3.flac', music.put('L3.flac', 'n'.repeat(90))),
+  ],
+});
+library.store.set({ folderAccess: 'prompt' });
+p = new PreSplitter(session);
+await p.init();
+await p.start();
+await until(() => p.store.get().phase === 'done' && p.store.get().locked >= 3, 'locked tracks wait', 5000);
+assert.equal(p.rows.get().l1, undefined, 'not shown as queued while locked');
+globalThis.__auto = false;
+autoDj.store.set({ queue: ['l2'] });
+globalThis.__locked = false;
+library.store.set({ folderAccess: 'granted' });
+await until(() => p.store.get().current?.id === 'l2' && splits.at(-1) && !splits.at(-1).cancelled, 'Up next first, once allowed', 5000);
+globalThis.__auto = true;
+splits.at(-1).finish();
+await until(() => ['l1', 'l2', 'l3'].every((id) => p.rows.get()[id]?.state === 'ready'), 'the rest follow', 5000);
+assert.equal(p.store.get().locked, 0);
+p.dispose();
+console.log('✓ presplit: linked tracks waiting for folder access go as soon as it’s allowed; Up next goes first');
 process.exit(0);

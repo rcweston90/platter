@@ -127,6 +127,8 @@ export class DeckStems {
     private readonly deck: Deck,
     private readonly decode: (trackId: string) => Promise<AudioBuffer>,
     private readonly saved: SavedStemsHook | null = null,
+    /** Stems come by themselves when a track loads (auto-split is on). */
+    private readonly auto: () => boolean = () => false,
   ) {
     deck.store.subscribe(() => {
       const id = deck.store.get().track?.id ?? null;
@@ -157,6 +159,16 @@ export class DeckStems {
       // Split in the background while it sits here: Split becomes instant.
       this.unwatch = this.saved.watch?.(id, mark) ?? null;
     }
+    // Nobody should have to ask: saved stems load, a split under way is
+    // joined, else this deck's track is split now, ahead of everything else.
+    // The deck plays the whole track meanwhile; with every part up the stems
+    // add back to exactly that, so they swap in without a sound.
+    if (allowed && DeckStems.supported() && this.auto()) void this.split();
+  }
+
+  /** Stems arrive by themselves on this deck (no Split to press). */
+  get automatic() {
+    return this.auto();
   }
 
   private reset(trackId: string | null) {

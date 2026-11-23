@@ -2,6 +2,7 @@ import { useEffect, useLayoutEffect, useRef, useState, type KeyboardEvent, type 
 import { compatible, keyName } from '../../engine/key';
 import { keyRelation, type KeyRelation } from '../../library/mashup';
 import type { DjSession } from '../../engine/session';
+import { warmProps, warmSoon } from '../warm';
 import type { TrackRecord } from '../../engine/types';
 import type { RowStems } from '../../engine/stems/presplit';
 import { useStore } from '../../engine/store';
@@ -159,6 +160,8 @@ export function TrackList({
     }
     focusNext.current = true;
     setActive(n);
+    // Decode where the arrows stop: Enter or ← → then loads at once.
+    if (rows[n]) warmSoon(session, rows[n].id);
   };
 
   const load = (t: TrackRecord, deck: 0 | 1 | null) => {
@@ -281,6 +284,7 @@ export function TrackList({
                   if (e.target === e.currentTarget || e.currentTarget.contains(e.target)) setActive(i);
                 }}
                 onDoubleClick={(e) => onDouble(e, t)}
+                {...warmProps(session, t.id)}
                 aria-label={`${t.title}${t.artist ? `, ${t.artist}` : ''}${t.bpm ? `, ${t.bpm.toFixed(0)} BPM` : ''}${t.key ? `, ${t.key}` : ''}${on ? `, on deck ${on}` : ''}`}
               >
                 <td className={c.colTrack}>

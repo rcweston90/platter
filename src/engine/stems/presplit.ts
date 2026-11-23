@@ -156,10 +156,17 @@ export class PreSplitter implements SavedStemsHook {
   private modelDown = false;
   /** Split, and being written to storage now. */
   private saving = new Set<string>();
+  /** The linked folder's read permission, as last seen. */
+  private access: PermissionState | null = null;
   /** Before the first split says which backend runs: whether this browser offers a GPU (WebGPU). */
   private gpu = false;
 
   constructor(private readonly session: DjSession) {}
+
+  /** Auto-split is switched on (paused or not): decks get their stems by themselves. */
+  get on() {
+    return this.enabled;
+  }
 
   private get folder(): FileSystemDirectoryHandle | null {
     return this.session.library.musicFolder;
@@ -186,6 +193,13 @@ export class PreSplitter implements SavedStemsHook {
     this.unsubs.push(
       this.session.crate.subscribe(poke),
       this.session.library.store.subscribe(() => {
+        const access = this.session.library.store.get().folderAccess;
+        if (access === 'granted' && this.access !== 'granted' && this.unreadable.size) {
+          // Allowed again: the tracks that waited can be read now.
+          this.unreadable.clear();
+          this.tally();
+        }
+        this.access = access;
         const name = this.folder?.name ?? null;
         if (name !== this.folderName) {
           // Another folder: what's saved there is looked up again.
@@ -197,6 +211,7 @@ export class PreSplitter implements SavedStemsHook {
         poke();
       }),
       ...this.session.decks.map((d) => d.store.subscribe(poke)),
+      this.session.autoDj.store.subscribe(poke),
     );
     if (!this.enabled) {
       this.store.set({ phase: 'off' });
@@ -241,6 +256,19 @@ export class PreSplitter implements SavedStemsHook {
     this.writable = true;
     this.store.set({ inFolder: true, message: null });
     this.wake?.();
+  }
+
+  /** Inside a click: allow the linked folder again, so its tracks can be split. */
+  async allowFolder() {
+    if (!(await this.session.library.allowFolder())) return;
+    this.unreadable.clear();
+    this.tally();
+    this.wake?.();
+  }
+
+  /** The library's state (for whether the linked folder can be read). */
+  get libraryStore() {
+    return this.session.library.store;
   }
 
   pause() {
@@ -393,6 +421,8 @@ export class PreSplitter implements SavedStemsHook {
   /* ── The loop ──────────────────────────────────────────────────────── */
 
   private holdReason(): 'deck' | 'analysis' | null {
+    // A deck loading a track goes first (both decode).
+    if (this.session.deckLoading) return 'deck';
     if (this.session.library.store.get().progress) return 'analysis';
     if (this.session.crate.get().tracks.some((t) => t.status === 'analysing')) return 'analysis';
     // On the GPU, splitting leaves the audio thread alone: carry on while a deck plays.
@@ -425,17 +455,20 @@ export class PreSplitter implements SavedStemsHook {
     return this.enabled && !this.paused && !this.disposed;
   }
 
-  /** What to split next: a deck's track first, then the newest added. */
+  /** What to split next: a deck's track first, then Up next in its order,
+   *  then the newest added. */
   private next(): TrackRecord | null {
     const onDeck = new Set(this.session.decks.map((d) => d.store.get().track?.id).filter(Boolean));
+    const queue = this.session.autoDj.store.get().queue;
+    const rank = (t: TrackRecord) => (onDeck.has(t.id) ? 0 : queue.includes(t.id) ? 1 + queue.indexOf(t.id) : Infinity);
     let best: TrackRecord | null = null;
+    let bestRank = Infinity;
     for (const t of this.tracks()) {
       if (this.saved.has(t.id) || this.saving.has(t.id) || this.failed.has(this.failKey(t)) || this.unreadable.has(t.id)) continue;
-      if (!best) best = t;
-      else {
-        const a = onDeck.has(t.id);
-        const b = onDeck.has(best.id);
-        if ((a && !b) || (a === b && t.addedAt > best.addedAt)) best = t;
+      const r = rank(t);
+      if (!best || r < bestRank || (r === bestRank && t.addedAt > best.addedAt)) {
+        best = t;
+        bestRank = r;
       }
     }
     return best;
