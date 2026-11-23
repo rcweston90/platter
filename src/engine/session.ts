@@ -1,3 +1,4 @@
+import { DeckHits } from './hits';
 import { analyseTrack, computePeaksAsync, decodeAudio, detectTempo, newTrackId, pickGrid, trackFromFile } from './analysis';
 import { analyzeBuffer } from '../library/client';
 import { normaliseTags } from '../library/tags';
@@ -133,6 +134,8 @@ export class DjSession {
     new DeckStems(this.decks[0], (id) => this.decodeForStems(id), this.presplit, () => this.presplit.on),
     new DeckStems(this.decks[1], (id) => this.decodeForStems(id), this.presplit, () => this.presplit.on),
   ];
+  /** Each deck's hits and how high or low each sounds, read when its audio loads (engine/hits). */
+  readonly hits: [DeckHits, DeckHits] = [new DeckHits(), new DeckHits()];
   /** Decodes the track you're about to load ahead of the click (preload.ts). */
   readonly preload = new Preloader(
     (id, rate) => this.decodeQuietly(id, rate),
@@ -748,6 +751,7 @@ export class DjSession {
         this.updateTrack(rec.id, { peaks, duration: buffer.duration });
       }
       deck.load(ready, buffer, artUrl);
+      this.hits[i].read(rec.id, buffer);
       this.stems[i].trackLoaded(this.crate.get().tracks.find((t) => t.id === rec.id) ?? rec);
       if (this.inflight[i]?.play) deck.play();
       // Never analysed (no access in the background): do it now.

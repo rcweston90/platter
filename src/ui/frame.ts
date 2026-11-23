@@ -113,6 +113,7 @@ export function readPalette(el: Element) {
     ok: v('--dj-play'),
     line: v('--dj-line-2'),
     text: v('--dj-dim'),
+    bright: v('--dj-text'),
     // Canvas fonts can't resolve var(); custom properties compute to the
     // substituted family list, so read the site's mono stack here.
     mono: v('--font-mono') || 'monospace',

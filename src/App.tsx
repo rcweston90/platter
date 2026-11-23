@@ -19,6 +19,8 @@ import { focusCrateSearch } from './ui/crate/TrackBrowser';
 import { openBrowse } from './ui/browse';
 import { cameBackFromSoundCloud } from './engine/soundcloud';
 import { ScrollingWave } from './ui/Waveforms';
+import { PitchLane } from './ui/PitchLane';
+import { PitchIcon } from './ui/icons';
 import { LIB_BAR, closeLibrary, libraryFlyout, openLibrary, toggleLibrary, useDocked } from './ui/library/dock';
 import { useSheetSize } from './ui/library/Splitter';
 import { Studio } from './slicer/studio';
@@ -35,6 +37,8 @@ import s from './platter.module.css';
  */
 
 const ZOOMS = [4, 8, 16, 32]; // seconds of track across the scrolling waveform
+/** Whether the beat pitch lanes show (on unless turned off). */
+const PITCH_KEY = 'platter.pitchLanes';
 
 const TEXT_ENTRY = new Set(['text', 'search', 'email', 'url', 'tel', 'password', 'number']);
 
@@ -50,6 +54,22 @@ export default function App() {
   const [studio] = useState(() => new Studio(session));
   const { open: slicing } = useStore(studio.store);
   const [zoom, setZoom] = useState(8);
+  const [pitchLanes, setPitchLanes] = useState(() => {
+    try {
+      return localStorage.getItem(PITCH_KEY) !== 'off';
+    } catch {
+      return true;
+    }
+  });
+  const togglePitchLanes = () =>
+    setPitchLanes((on) => {
+      try {
+        localStorage.setItem(PITCH_KEY, on ? 'off' : 'on');
+      } catch {
+        /* private mode: just this visit */
+      }
+      return !on;
+    });
   const root = useRef<HTMLDivElement>(null);
   const pinned = useRef<HTMLDivElement>(null);
   const docked = useDocked();
@@ -243,13 +263,19 @@ export default function App() {
   const waves = (
     <div ref={phone ? undefined : pinned} className={s.waves}>
       <div className={s.waveRow} data-deck="A">
-        <WaveTag deck={deckA} />
-        <ScrollingWave deck={deckA} loop={loop} zoom={zoom} label="Deck A waveform around the playhead" />
+        {pitchLanes && <PitchLane deck={deckA} hits={session.hits[0]} loop={loop} zoom={zoom} />}
+        <div className={s.waveBox}>
+          <WaveTag deck={deckA} />
+          <ScrollingWave deck={deckA} loop={loop} zoom={zoom} label="Deck A waveform around the playhead" />
+        </div>
       </div>
       <SyncStrip decks={session.decks} loop={loop} zoom={zoom} />
       <div className={s.waveRow} data-deck="B">
-        <WaveTag deck={deckB} />
-        <ScrollingWave deck={deckB} loop={loop} zoom={zoom} label="Deck B waveform around the playhead" />
+        <div className={s.waveBox}>
+          <WaveTag deck={deckB} />
+          <ScrollingWave deck={deckB} loop={loop} zoom={zoom} label="Deck B waveform around the playhead" />
+        </div>
+        {pitchLanes && <PitchLane deck={deckB} hits={session.hits[1]} loop={loop} zoom={zoom} />}
       </div>
       <div className={s.zoom} role="group" aria-label="Waveform zoom">
         <button
@@ -270,6 +296,16 @@ export default function App() {
           aria-label="Zoom out"
         >
           −
+        </button>
+        <button
+          type="button"
+          className={`${s.mini} ${s.pitchToggle}`}
+          onClick={togglePitchLanes}
+          aria-pressed={pitchLanes}
+          aria-label="Beat pitch: show each hit, higher or lower"
+          title="Beat pitch"
+        >
+          <PitchIcon />
         </button>
       </div>
     </div>

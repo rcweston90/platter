@@ -18,6 +18,10 @@ is needed:
   Copyright (c) Microsoft Corporation
 - [demucs-web](https://github.com/timcsy/demucs-web) — the STFT and model
   input/output handling around HTDemucs. Copyright (c) 2024 timcsy
+- [pitchy](https://github.com/ianprime0509/pitchy) — the McLeod pitch method
+  that checks each hit's note in the beat pitch lanes. Copyright 2018-2021
+  Ian Johnson. It uses [fft.js](https://github.com/indutny/fft.js)
+  (Copyright Fedor Indutny).
 
 The stem separation model itself is [HTDemucs](https://github.com/facebookresearch/demucs)
 (Hybrid Transformer Demucs, MIT, Copyright (c) Meta Platforms, Inc. and

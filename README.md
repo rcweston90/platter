@@ -44,6 +44,13 @@ GitHub Actions).
   start together, with **Line up bars** to put the 1s together. The
   waveforms scroll in heard time, so at the same tempo a beat is the same
   width on both.
+- **Beat pitch** lanes above deck A's waveform and below deck B's: each hit
+  as a bar, higher hits higher, so you can hear and see which beats in a
+  loop sit above or below the others. Notes read as note names (C#3);
+  drums and other unpitched hits show hollow, placed by their brightness.
+  The hit under the playhead lights up, and with a loop set the lane holds
+  the whole pattern still and a playhead sweeps across it. Read in your
+  browser when a track loads; the pitch button by the zoom hides them.
 - **Keylock** holds the key while you change tempo.
 - **Stems**: split a track into vocals, drums, bass and other, then tap a part
   to mute it or hold it to hear it alone. The split runs in your browser

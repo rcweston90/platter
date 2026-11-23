@@ -3,7 +3,7 @@
  * scratches, key-locks, imports a file, records a mix; then key matching,
  * beat FX, rolls, the sampler's sound library and kits, the beat board, MIDI
  * learn, Auto-DJ, backup and Rekordbox import, recordings, stems (with a tiny
- * stand-in for the separation model), Audius and SoundCloud (with their APIs
+ * stand-in for the separation model), beat pitch lanes, Audius and SoundCloud (with their APIs
  * mocked).
  *
  *   npm run dev            # or: npm run build && npm run preview
@@ -91,6 +91,19 @@ await B.getByRole('button', { name: 'Deck B play' }).click();
 await page.waitForTimeout(1500);
 const meter = await page.$eval('[aria-label="Master left level meter"] [class*="meterCover"]', (e) => parseFloat(/scaleY\(([^)]+)\)/.exec(e.style.transform)?.[1] ?? '1') * 100);
 check(meter < 95, `master meter shows signal (${meter.toFixed(0)}% covered)`);
+
+// Beat pitch: both decks' hits are read on load and drawn in their lanes;
+// the toggle hides and shows the lanes.
+await page.waitForFunction(() => window.platter.hits.every((h) => h.store.get().status === 'ready'), null, { timeout: 20000 });
+const hitCounts = await page.evaluate(() => window.platter.hits.map((h) => h.store.get().hits.length));
+check(hitCounts.every((n) => n > 50), `beat pitch reads both demos' hits (${hitCounts.join(', ')})`);
+const lanes = page.getByRole('img', { name: /beat pitch: each hit/ });
+check((await lanes.count()) === 2, 'a beat pitch lane shows for each deck');
+const pitchToggle = page.getByRole('button', { name: /^Beat pitch/ });
+await pitchToggle.click();
+check((await lanes.count()) === 0 && (await pitchToggle.getAttribute('aria-pressed')) === 'false', 'the beat pitch button hides the lanes');
+await pitchToggle.click();
+check((await lanes.count()) === 2, 'and shows them again');
 
 // Scratch deck A back one full turn (1.8 s of audio).
 const platter = page.getByRole('slider', { name: /Deck A platter/ });

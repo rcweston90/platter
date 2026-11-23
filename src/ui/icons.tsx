@@ -43,3 +43,12 @@ export const ListIcon = () => (
     <path d="M4 6.5h16M4 12h16M4 17.5h10" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
   </svg>
 );
+
+/** Beat pitch: three hits at three heights, the way the pitch lane draws them. */
+export const PitchIcon = () => (
+  <svg {...box}>
+    <rect x="2" y="15.5" width="6" height="4" rx="2" fill="currentColor" />
+    <rect x="9" y="4.5" width="6" height="4" rx="2" fill="currentColor" />
+    <rect x="16" y="10" width="6" height="4" rx="2" fill="currentColor" />
+  </svg>
+);
