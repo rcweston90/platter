@@ -2,7 +2,8 @@ import { useEffect, useId, useLayoutEffect, useRef, useState, type CSSProperties
 import { createPortal } from 'react-dom';
 import { BEND, LOOP_BEATS, PITCH_RANGES, ROLL_BEATS } from '../engine/deck';
 import { beatsLabel } from '../engine/fx';
-import { HOT_CUES } from '../engine/types';
+import { bankLabel, CUE_COLORS } from '../engine/cues';
+import { HOT_BANK_SIZE, HOT_CUES, MEMORY_CUES } from '../engine/types';
 import { InfoIcon } from './icons';
 import { usePhone } from './Phone';
 import s from '../platter.module.css';
@@ -111,7 +112,27 @@ export const DECK_GUIDE: GuideSection[] = [
     items: [
       {
         name: 'Hot cue',
-        text: `${HOT_CUES} markers. Press an empty pad to mark the spot; press a marked pad to jump there. To clear one, Shift-click it, right-click it or long-press it.`,
+        text: `${HOT_CUES} markers, ${HOT_BANK_SIZE} to a bank. Press an empty pad to mark the spot (on the beat with Quant on); press a marked pad to jump there. To clear one, Shift-click it, right-click it or long-press it.`,
+      },
+      {
+        name: `${bankLabel(0)}  ${bankLabel(1)}`,
+        text: `Which bank of ${HOT_BANK_SIZE} the pads show. A dot on the other bank means it holds cues. Keys 1–4 (deck A) and 7–0 (deck B) play the shown bank’s first four pads; 5 and 6 switch bank.`,
+      },
+      {
+        name: 'Hot loop',
+        text: 'Press an empty pad while a loop is running and the pad keeps that loop; its pad is striped and shows the loop’s length. Pressing it later goes to the loop’s start and loops it again, and Loop leaves it as usual.',
+      },
+      {
+        name: 'Gate',
+        text: 'With Gate on, a hot cue plays only while you hold its pad. Let go and the deck stops and goes back to the cue point, as letting go of Cue does. Clear pads from Edit while Gate is on.',
+      },
+      {
+        name: 'Edit',
+        text: `With Edit on, pressing a marked pad opens it: pick one of ${CUE_COLORS.length} colours, or clear it. Its marker on the waveforms takes the same colour and letter.`,
+      },
+      {
+        name: 'Mem  <  +  >  ×',
+        text: `Memory cues: up to ${MEMORY_CUES} saved points, shown as small notches along the foot of the waveforms. + saves one at the playhead (on the beat with Quant on). < and > call up the previous or next one: it becomes the cue point and the track goes there. × deletes the memory cue at the cue point.`,
       },
       {
         name: 'Roll',
