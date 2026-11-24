@@ -44,6 +44,15 @@ export const ListIcon = () => (
   </svg>
 );
 
+/** Beat pitch: three hits at three heights, the way the pitch lane draws them. */
+export const PitchIcon = () => (
+  <svg {...box}>
+    <rect x="2" y="15.5" width="6" height="4" rx="2" fill="currentColor" />
+    <rect x="9" y="4.5" width="6" height="4" rx="2" fill="currentColor" />
+    <rect x="16" y="10" width="6" height="4" rx="2" fill="currentColor" />
+  </svg>
+);
+
 /** Info: a ring with an "i", for the deck guide. */
 export const InfoIcon = () => (
   <svg {...box}>

@@ -295,8 +295,33 @@
 }
 
 .waveRow {
-  position: relative;
+  display: flex;
   grid-column: 1;
+  flex-direction: column;
+  gap: 3px;
+  min-width: 0;
+}
+
+.waveBox {
+  position: relative;
+}
+
+/* ── Beat pitch: each deck's hits, high or low, beside its waveform ────────── */
+
+.pitchLane {
+  display: block;
+  width: 100%;
+  height: 64px;
+  border-radius: 4px;
+}
+
+.pitchToggle {
+  margin-top: 4px;
+}
+
+.pitchToggle svg {
+  width: 18px;
+  height: 18px;
 }
 
 /* ── Sync strip: the beat ruler between the waveforms ─────────────────────── */
@@ -2409,6 +2434,10 @@
   .root[data-docked] .wave {
     height: clamp(44px, 7vh, 76px);
   }
+
+  .root[data-docked] .pitchLane {
+    height: clamp(36px, 7vh, 64px);
+  }
 }
 
 /* Panels inside the library sit on its surface rather than in boxes of their own. */
@@ -2539,6 +2568,14 @@
 
   .phoneTop .wave {
     height: 44px;
+  }
+
+  .phoneTop .pitchLane {
+    height: 30px;
+  }
+
+  .phoneTop .pitchToggle {
+    margin-top: 0;
   }
 
   .phoneTop .syncStrip {
