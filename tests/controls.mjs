@@ -26,6 +26,40 @@ const browser = await chromium.launch({
   args: ['--autoplay-policy=no-user-gesture-required'],
 });
 const page = await browser.newPage({ viewport: { width: 1440, height: 900 } });
+// A stand-in Screen Wake Lock that counts what the app asks of it (headless
+// Chrome's own may refuse), and lets the test drop it as a hidden tab would.
+await page.addInitScript(() => {
+  const w = { requests: 0, releases: 0, active: null };
+  window.__wake = w;
+  Object.defineProperty(navigator, 'wakeLock', {
+    configurable: true,
+    value: {
+      async request() {
+        w.requests++;
+        const fns = [];
+        const s = {
+          released: false,
+          type: 'screen',
+          addEventListener: (_t, fn) => fns.push(fn),
+          async release() {
+            if (s.released) return;
+            s.released = true;
+            w.releases++;
+            if (w.active === s) w.active = null;
+            fns.forEach((fn) => fn());
+          },
+          drop() {
+            s.released = true;
+            if (w.active === s) w.active = null;
+            fns.forEach((fn) => fn());
+          },
+        };
+        w.active = s;
+        return s;
+      },
+    },
+  });
+});
 const errors = [];
 page.on('pageerror', (e) => errors.push(e.message));
 
@@ -166,6 +200,46 @@ for (const [dir, name] of [
 }
 check((await bpm(A)) === '124.0', 'Nudge: the tempo setting is untouched afterwards');
 
+/* ── Scroll to nudge ────────────────────────────────────────────────────── */
+
+const platterA = A.getByRole('slider', { name: /Deck A platter/ });
+/** Puts the pointer on deck A's record, clear of the pinned waveforms. */
+const overPlatter = async () => {
+  await platterA.evaluate((el) => el.scrollIntoView({ block: 'center' }));
+  await page.waitForTimeout(150);
+  const box = await platterA.boundingBox();
+  const x = box.x + box.width / 2;
+  const y = box.y + box.height * 0.7;
+  const hit = await page.evaluate(([x, y]) => !!document.elementFromPoint(x, y)?.closest('[aria-label*="platter"]'), [x, y]);
+  if (!hit) throw new Error('deck A’s record is covered');
+  await page.mouse.move(x, y);
+};
+{
+  await overPlatter();
+  await page.waitForTimeout(400);
+  const base = await rate('A', 600);
+  const scrollY0 = await page.evaluate(() => window.scrollY);
+  let wheeling = true;
+  const spin = (async () => {
+    while (wheeling) {
+      await page.mouse.wheel(0, 100);
+      await page.waitForTimeout(50);
+    }
+  })();
+  await page.waitForTimeout(300);
+  const held = await rate('A', 600);
+  const showsHeld = await platterA.getAttribute('aria-valuenow');
+  wheeling = false;
+  await spin;
+  const scrolled = (await page.evaluate(() => window.scrollY)) !== scrollY0;
+  await page.waitForTimeout(400);
+  const after = await rate('A', 600);
+  check(held - base > 0.015 && showsHeld === '1', `Scroll nudge: scrolling down over the record bends it faster (rate ${base.toFixed(3)} → ${held.toFixed(3)}, nudge ${showsHeld})`);
+  check(near(after, base, 0.04) && (await platterA.getAttribute('aria-valuenow')) === '0', `Scroll nudge: it lets go when the scrolling stops (rate ${after.toFixed(3)})`);
+  check(!scrolled, 'Scroll nudge: the page doesn’t scroll under it');
+  check((await bpm(A)) === '124.0', 'Scroll nudge: the tempo setting is untouched afterwards');
+}
+
 /* ── Toggles ────────────────────────────────────────────────────────────── */
 
 for (const name of ['Deck A key lock', 'Quant', 'Slip']) {
@@ -256,6 +330,20 @@ for (const [label, name] of [
   check(box.width === box.height, `${label}: a true circle (${box.width} × ${box.height})`);
 }
 
+/* ── Shift-scroll to scrub (paused) ─────────────────────────────────────── */
+
+{
+  await overPlatter();
+  const s0 = await secs();
+  await page.keyboard.down('Shift');
+  for (let i = 0; i < 20; i++) await page.mouse.wheel(0, 100);
+  await page.keyboard.up('Shift');
+  await page.waitForTimeout(300);
+  const s1 = await secs();
+  check(s1 - s0 >= 3 && s1 - s0 <= 5, `Shift-scroll: paused, it scrubs the record ahead (${s0}s → ${s1}s, 20 notches ≈ 4 s)`);
+  check(await A.getByRole('button', { name: 'Deck A play' }).isVisible(), 'Shift-scroll: the deck stays paused');
+}
+
 /* ── Mixer ──────────────────────────────────────────────────────────────── */
 
 await A.getByRole('button', { name: 'Deck A play' }).click();
@@ -287,6 +375,115 @@ const n = await curves.count();
 for (let i = 0; i < n; i++) {
   await curves.nth(i).click();
   check(await pressed(curves.nth(i)), `Mixer: crossfader curve “${await curves.nth(i).textContent()}” selects`);
+}
+
+/* ── Screen wake lock ───────────────────────────────────────────────────── */
+
+{
+  const wake = () => page.evaluate(() => ({ requests: window.__wake.requests, releases: window.__wake.releases, held: !!window.__wake.active, state: document.documentElement.dataset.screenAwake }));
+  // Deck A is playing (from the mixer checks).
+  await page.waitForTimeout(200);
+  let w = await wake();
+  check(w.held && w.state === 'held', `Wake lock: held while deck A plays (${JSON.stringify(w)})`);
+  await A.getByRole('button', { name: 'Deck A pause' }).click();
+  await page.waitForTimeout(200);
+  w = await wake();
+  check(!w.held && w.state === 'off', `Wake lock: let go when nothing plays (${JSON.stringify(w)})`);
+  await A.getByRole('button', { name: 'Deck A play' }).click();
+  await page.waitForTimeout(200);
+  const r0 = (await wake()).requests;
+  // The tab hides: the browser drops the lock, then comes back.
+  await page.evaluate(() => {
+    Object.defineProperty(document, 'visibilityState', { configurable: true, get: () => 'hidden' });
+    window.__wake.active?.drop();
+    document.dispatchEvent(new Event('visibilitychange'));
+  });
+  await page.waitForTimeout(100);
+  w = await wake();
+  check(!w.held && w.requests === r0, `Wake lock: gone while the tab is hidden, not asked for again (${JSON.stringify(w)})`);
+  await page.evaluate(() => {
+    Object.defineProperty(document, 'visibilityState', { configurable: true, get: () => 'visible' });
+    document.dispatchEvent(new Event('visibilitychange'));
+  });
+  await page.waitForTimeout(200);
+  w = await wake();
+  check(w.held && w.requests === r0 + 1 && w.state === 'held', `Wake lock: taken again when the tab is back (${JSON.stringify(w)})`);
+}
+
+/* ── Listen to ──────────────────────────────────────────────────────────── */
+
+{
+  // What the main output carries, read from the engine's output node: deck A
+  // plays with its channel fader down, so the master is silent but deck A's
+  // cue is not.
+  const outLevel = () =>
+    page.evaluate(
+      () =>
+        new Promise((done) => {
+          const e = window.platter.engine;
+          const an = e.ctx.createAnalyser();
+          an.fftSize = 2048;
+          e.out.connect(an);
+          setTimeout(() => {
+            const buf = new Float32Array(an.fftSize);
+            an.getFloatTimeDomainData(buf);
+            e.out.disconnect(an);
+            done(Math.sqrt(buf.reduce((a, v) => a + v * v, 0) / buf.length));
+          }, 300);
+        }),
+    );
+  const masterLevel = () =>
+    page.evaluate(() => {
+      const an = window.platter.engine.masterMeters[0];
+      const buf = new Float32Array(an.fftSize);
+      an.getFloatTimeDomainData(buf);
+      return Math.sqrt(buf.reduce((a, v) => a + v * v, 0) / buf.length);
+    });
+  await mixer.getByRole('slider', { name: 'Channel A volume' }).fill('0');
+  await page.getByText('Outputs', { exact: true }).click();
+  const listen = page.getByRole('group', { name: 'Listen to' });
+  check(await pressed(listen.getByRole('button', { name: 'Master', exact: true })), 'Listen to: Master at start');
+  const onMaster = await outLevel();
+  await listen.getByRole('button', { name: 'Deck A cue' }).click();
+  await page.waitForTimeout(150);
+  const onCueA = await outLevel();
+  check(onMaster < 0.002 && onCueA > 0.01, `Listen to: Deck A cue plays deck A with its fader down (out ${onMaster.toFixed(4)} → ${onCueA.toFixed(4)})`);
+  check((await masterLevel()) < 0.002, 'Listen to: the master stays silent meanwhile');
+  await listen.getByRole('button', { name: 'Deck B cue' }).click();
+  await page.waitForTimeout(150);
+  check((await outLevel()) < 0.002, 'Listen to: Deck B cue doesn’t hear deck A');
+  await listen.getByRole('button', { name: 'Deck A cue' }).click();
+  const vol = page.getByRole('slider', { name: 'Listening volume' });
+  await vol.fill('0');
+  await page.waitForTimeout(150);
+  check((await outLevel()) < 0.0005 && (await vol.getAttribute('aria-valuetext')) === 'off', 'Listening volume: down to off silences the output');
+  // Volume still off: the master carries on (its meter, and so the recorder,
+  // which taps the same point).
+  await mixer.getByRole('slider', { name: 'Channel A volume' }).fill('1');
+  await listen.getByRole('button', { name: 'Master', exact: true }).click();
+  await page.waitForTimeout(150);
+  let peak = 0;
+  for (let i = 0; i < 20; i++) {
+    peak = Math.max(peak, await masterLevel());
+    await page.waitForTimeout(25);
+  }
+  const silentOut = await outLevel();
+  check(peak > 0.05 && silentOut < 0.0005, `Listening volume: off here leaves the master playing (meter ${peak.toFixed(3)}, out ${silentOut.toFixed(4)})`);
+  await listen.getByRole('button', { name: 'Deck A cue' }).click();
+  await vol.fill('0.2');
+  const hp = page.getByLabel('Headphones (cue)');
+  await hp.selectOption('split');
+  await page.waitForTimeout(100);
+  check(await listen.getByRole('button', { name: 'Deck B cue' }).isDisabled(), 'Listen to: with Split headphones only Master can be picked');
+  await hp.selectOption('off');
+  await page.waitForTimeout(700); // saved a moment after the change
+  await page.reload({ waitUntil: 'networkidle' });
+  await page.getByText('Outputs', { exact: true }).click();
+  check(await pressed(page.getByRole('group', { name: 'Listen to' }).getByRole('button', { name: 'Deck A cue' })), 'Listen to: the choice is remembered after a reload');
+  check((await page.getByRole('slider', { name: 'Listening volume' }).inputValue()) === '0.2', 'Listening volume: remembered after a reload');
+  await page.getByRole('group', { name: 'Listen to' }).getByRole('button', { name: 'Master', exact: true }).click();
+  await page.getByRole('slider', { name: 'Listening volume' }).fill('0.8');
+  await page.waitForTimeout(700);
 }
 
 check(errors.length === 0, `no page errors${errors.length ? `: ${errors.join(' | ')}` : ''}`);
