@@ -312,16 +312,37 @@ const backup = await page.evaluate(async () => {
   const text = await blob.text();
   const data = JSON.parse(text);
   const id = data.tracks.find((t) => t.title === 'Kick Loop').id;
+  // A version 1 backup: four hot cues as plain numbers, no memory cues.
+  data.version = 1;
   data.tracks.find((t) => t.id === id).cues = { main: 1.5, hot: [2, null, 4, null] };
   await p.importFile(new File([JSON.stringify(data)], 'b.json'));
   const after = p.crate.get().tracks.find((t) => t.id === id);
-  const rb = `<?xml version="1.0"?><DJ_PLAYLISTS Version="1.0.0"><COLLECTION Entries="1"><TRACK Name="Kick Loop" Artist="Test Artist" Location="file://localhost/Users/me/Music/Test%20Artist%20-%20Kick%20Loop.wav" AverageBpm="120.00" Tonality="Am" TotalTime="20"><TEMPO Inizio="0.050" Bpm="120.00" Metro="4/4" Battito="1"/><POSITION_MARK Name="" Type="0" Start="0.050" Num="-1"/><POSITION_MARK Name="" Type="0" Start="8.050" Num="0"/></TRACK></COLLECTION></DJ_PLAYLISTS>`;
+  // And today's form, with a hot loop, a colour and memory cues, round-trips.
+  const v2 = JSON.parse(await p.exportBackup().blob.text());
+  v2.tracks.find((t) => t.id === id).cues = {
+    main: 1.5,
+    hot: [{ t: 2, color: 9 }, null, null, null, null, null, null, null, null, { t: 6, color: 4, loop: { end: 8, beats: 4 } }],
+    memory: [3, 1],
+  };
+  await p.importFile(new File([JSON.stringify(v2)], 'b2.json'));
+  const again = JSON.parse(await p.exportBackup().blob.text()).tracks.find((t) => t.id === id).cues;
+  const rb = `<?xml version="1.0"?><DJ_PLAYLISTS Version="1.0.0"><COLLECTION Entries="1"><TRACK Name="Kick Loop" Artist="Test Artist" Location="file://localhost/Users/me/Music/Test%20Artist%20-%20Kick%20Loop.wav" AverageBpm="120.00" Tonality="Am" TotalTime="20"><TEMPO Inizio="0.050" Bpm="120.00" Metro="4/4" Battito="1"/><POSITION_MARK Name="" Type="0" Start="0.050" Num="-1"/><POSITION_MARK Name="" Type="0" Start="8.050" Num="0"/><POSITION_MARK Name="" Type="4" Start="2.050" End="4.050" Num="1" Red="69" Green="216" Blue="140"/></TRACK></COLLECTION></DJ_PLAYLISTS>`;
   await p.importFile(new File([rb], 'rekordbox.xml'));
   const rbAfter = p.crate.get().tracks.find((t) => t.id === id);
-  return { cues: after.cues, note: p.crate.get().note, rbKey: rbAfter.key, rbHot0: rbAfter.cues.hot[0], rbGrid: rbAfter.gridOffset };
+  return { cues: after.cues, again, note: p.crate.get().note, rbKey: rbAfter.key, rbHot: rbAfter.cues.hot, rbGrid: rbAfter.gridOffset };
 });
-check(backup.cues.main === 1.5 && backup.cues.hot[2] === 4, 'a backup round-trips cue points');
-check(backup.rbKey === '8A' && backup.rbHot0 === 8.05 && backup.rbGrid === 0.05, `Rekordbox XML imports key, grid and hot cues (${backup.note})`);
+check(
+  backup.cues.main === 1.5 && backup.cues.hot.length === 16 && backup.cues.hot[0]?.t === 2 && backup.cues.hot[2]?.t === 4 && backup.cues.hot[2]?.color === 2 && backup.cues.hot[1] === null,
+  'a version 1 backup imports its four hot cues into the first slots, in their old colours',
+);
+check(
+  backup.again.hot[0]?.color === 9 && backup.again.hot[9]?.loop?.end === 8 && backup.again.memory.join() === '1,3',
+  'a backup round-trips hot cue colours, hot loops and memory cues',
+);
+check(
+  backup.rbKey === '8A' && backup.rbHot[0]?.t === 8.05 && backup.rbHot[1]?.loop?.beats === 4 && backup.rbHot[1]?.color === 1 && backup.rbGrid === 0.05,
+  `Rekordbox XML imports key, grid, hot cues and hot loops (${backup.note})`,
+);
 
 // ── Recordings are kept ──
 await page.getByRole('tab', { name: /Recordings/ }).click();

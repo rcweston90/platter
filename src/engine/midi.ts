@@ -1,6 +1,7 @@
 import { getValue, setValue } from './library';
 import { createStore, type Store } from './store';
 import { PADS } from './sampler';
+import { HOT_BANK_SIZE } from './types';
 
 /**
  * MIDI controllers, by MIDI learn: pick an action, move a control, done.
@@ -49,12 +50,17 @@ function deckActions(d: 'A' | 'B'): MidiAction[] {
     b('loop', 'Loop on / off'),
     b('loopHalf', 'Loop ½'),
     b('loopDouble', 'Loop 2×'),
+    b('loopIn', 'Loop in (hold: 4-beat loop)'),
+    b('loopOut', 'Loop out'),
+    b('reloop', 'Reloop / exit'),
     b('jumpBack', 'Beat jump back'),
     b('jumpFwd', 'Beat jump forward'),
-    b('hot1', 'Hot cue 1'),
-    b('hot2', 'Hot cue 2'),
-    b('hot3', 'Hot cue 3'),
-    b('hot4', 'Hot cue 4'),
+    // Ids hot1–hot8 are pads 1–8 of the bank the deck shows (hot1–hot4
+    // were the four hot cues before banks, so old mappings still work).
+    ...Array.from({ length: HOT_BANK_SIZE }, (_, k) => b(`hot${k + 1}`, `Hot cue pad ${k + 1}`)),
+    b('hotBank', 'Hot cue bank A–H / I–P'),
+    b('memPrev', 'Memory cue: previous'),
+    b('memNext', 'Memory cue: next'),
     b('roll', 'Beat roll ¼ (hold)'),
     b('censor', 'Censor (hold)'),
     b('fx', 'FX on / off'),

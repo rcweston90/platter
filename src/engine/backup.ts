@@ -1,5 +1,7 @@
+import { defaultCueColor, nearestCueColor, normaliseCues, tidyMemory } from './cues';
+import { LOOP_BEATS } from './deck';
 import { camelot, parseKeyName } from './key';
-import { HOT_CUES, type TrackCues, type TrackRecord } from './types';
+import { HOT_BANK_SIZE, HOT_CUES, type HotCue, type TrackCues, type TrackRecord } from './types';
 
 /**
  * Getting your work in and out of Platter.
@@ -9,8 +11,12 @@ import { HOT_CUES, type TrackCues, type TrackRecord } from './types';
  *   Import it on another browser after adding the same files, and the cues
  *   come back.
  * - Rekordbox XML (File → Export Collection in xml format): tempo, first
- *   beat, key, memory cue and hot cues A–D, matched to crate tracks by file
- *   name.
+ *   beat, key, memory cues (the first is the cue point) and hot cues and
+ *   hot loops A–H with their colours, matched to crate tracks by file name.
+ *
+ * Backups are version 2 since hot cue banks: each hot cue is an object
+ * ({ t, color, loop? }) and there are memory cues. Version 1 backups (four
+ * hot cues as plain numbers) still import: normaliseCues reads both.
  */
 
 export interface BackupTrack {
@@ -31,7 +37,8 @@ export interface BackupTrack {
 
 export interface Backup {
   app: 'platter';
-  version: 1;
+  /** 1: hot cues as four plain numbers. 2: hot cue objects, banks, memory cues. */
+  version: 1 | 2;
   exportedAt: string;
   tracks: BackupTrack[];
   settings: unknown;
@@ -41,7 +48,7 @@ export interface Backup {
 export function makeBackup(tracks: TrackRecord[], settings: unknown, midi: unknown): Backup {
   return {
     app: 'platter',
-    version: 1,
+    version: 2,
     exportedAt: new Date().toISOString(),
     tracks: tracks.map((t) => ({
       id: t.id,
@@ -52,7 +59,7 @@ export function makeBackup(tracks: TrackRecord[], settings: unknown, midi: unkno
       bpm: t.bpm,
       gridOffset: t.gridOffset,
       key: t.key,
-      cues: t.cues,
+      cues: normaliseCues(t.cues),
       ...(t.demo ? { demo: t.demo } : {}),
       ...(t.audius ? { audius: t.audius, link: t.link } : {}),
       ...(t.soundcloud ? { soundcloud: t.soundcloud, link: t.link } : {}),
@@ -83,6 +90,13 @@ export interface ImportedTrack {
 
 const base = (path: string) => path.split(/[\\/]/).pop() ?? path;
 
+/** The loop size nearest `seconds` at `bpm` (4 beats when the tempo is unknown). */
+function loopBeats(seconds: number, bpm: number): number {
+  if (!(bpm > 0)) return 4;
+  const beats = (seconds * bpm) / 60;
+  return LOOP_BEATS.reduce((a, b) => (Math.abs(Math.log2(b / beats)) < Math.abs(Math.log2(a / beats)) ? b : a));
+}
+
 /** Parses a Rekordbox collection export. */
 export function parseRekordboxXml(text: string): ImportedTrack[] {
   const doc = new DOMParser().parseFromString(text, 'application/xml');
@@ -101,16 +115,25 @@ export function parseRekordboxXml(text: string): ImportedTrack[] {
     const tempo = t.querySelector('TEMPO');
     const tonality = attr('Tonality');
     const parsedKey = tonality ? parseKeyName(tonality) : null;
-    const hot: (number | null)[] = Array.from({ length: HOT_CUES }, () => null);
+    const bpm = Number(tempo?.getAttribute('Bpm') ?? attr('AverageBpm'));
+    const hot: (HotCue | null)[] = Array.from({ length: HOT_CUES }, () => null);
+    const memory: number[] = [];
     let main: number | null = null;
     for (const mark of t.querySelectorAll('POSITION_MARK')) {
       const num = Number(mark.getAttribute('Num'));
       const start = Number(mark.getAttribute('Start'));
-      if (!Number.isFinite(start)) continue;
-      if (num === -1 && main === null) main = start;
-      else if (num >= 0 && num < HOT_CUES) hot[num] = start;
+      if (!Number.isFinite(start) || start < 0) continue;
+      const end = Number(mark.getAttribute('End'));
+      const isLoop = mark.getAttribute('Type') === '4' && Number.isFinite(end) && end > start;
+      if (num === -1) {
+        if (main === null) main = start;
+        if (!isLoop) memory.push(start);
+      } else if (num >= 0 && num < HOT_BANK_SIZE) {
+        const rgb = ['Red', 'Green', 'Blue'].map((c) => Number(mark.getAttribute(c)));
+        const color = rgb.every(Number.isFinite) ? nearestCueColor(rgb[0], rgb[1], rgb[2]) : defaultCueColor(num);
+        hot[num] = isLoop ? { t: start, color, loop: { end, beats: loopBeats(end - start, bpm) } } : { t: start, color };
+      }
     }
-    const bpm = Number(tempo?.getAttribute('Bpm') ?? attr('AverageBpm'));
     const inizio = Number(tempo?.getAttribute('Inizio'));
     return {
       title: attr('Name') ?? file,
@@ -120,7 +143,7 @@ export function parseRekordboxXml(text: string): ImportedTrack[] {
       bpm: bpm > 0 ? bpm : null,
       gridOffset: Number.isFinite(inizio) ? inizio : null,
       key: parsedKey ? camelot(parsedKey) : null,
-      cues: main !== null || hot.some((h) => h !== null) ? { main: main ?? 0, hot } : null,
+      cues: main !== null || hot.some((h) => h !== null) ? { main: main ?? 0, hot, memory: tidyMemory(memory) } : null,
     };
   });
 }
@@ -135,7 +158,8 @@ export function backupToImported(b: Backup): (ImportedTrack & { id: string })[] 
     bpm: t.bpm,
     gridOffset: t.gridOffset,
     key: t.key,
-    cues: t.cues,
+    // Version 1 backups keep four plain numbers; read either form.
+    cues: t.cues ? normaliseCues(t.cues) : null,
   }));
 }
 

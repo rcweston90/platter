@@ -137,11 +137,40 @@ export default function App() {
       if (t && t !== document.body && t !== document.documentElement && !r.contains(t)) return false;
       return !isTyping(e.target) && !e.metaKey && !e.ctrlKey && !e.altKey;
     };
-    const hot = (deck: typeof A, i: number, shift: boolean) => (shift ? deck.clearHotCue(i) : deck.hotCue(i));
+    // Number keys play pads 1–4 of the bank each deck shows (there's no room
+    // on the row for 5–8 without taking another key; 5 and 6 switch bank
+    // instead, so all sixteen are in reach). Held for Gate mode;
+    // the slot pressed is kept so a bank switch mid-hold lets go of it.
+    const heldHot = new Map<string, [typeof A, number]>();
+    const hot = (deck: typeof A, i: number, e: KeyboardEvent) => {
+      const slot = deck.bankSlot(i);
+      if (e.shiftKey) {
+        deck.clearHotCue(slot);
+        return;
+      }
+      heldHot.set(e.code, [deck, slot]);
+      deck.hotCueDown(slot);
+    };
     const x = () => session.mixer.get().crossfader;
+
+    // A loop edge picked for adjusting takes ← and →, unless something with
+    // its own use for arrows has focus (a fader, a knob, a list, the record).
+    const edgeDeck = () => session.decks.find((d) => d.store.get().loop.active && d.store.get().loopEdge);
+    const arrowsFree = (e: KeyboardEvent) => {
+      if (e.defaultPrevented) return false;
+      const t = e.target;
+      if (t === document.body || t === document.documentElement || t === null) return true;
+      return t instanceof HTMLButtonElement && !t.hasAttribute('role');
+    };
 
     const down = (e: KeyboardEvent) => {
       if (!handles(e)) return;
+      const ed = (e.code === 'ArrowLeft' || e.code === 'ArrowRight') && arrowsFree(e) ? edgeDeck() : undefined;
+      if (ed) {
+        e.preventDefault();
+        ed.nudgeLoopEdge(e.code === 'ArrowLeft' ? -1 : 1, e.shiftKey);
+        return;
+      }
       const once = !e.repeat;
       const step = e.shiftKey ? 2 : 0.1;
       const map: Record<string, () => void> = {
@@ -155,20 +184,26 @@ export default function App() {
         KeyS: () => once && A.setBend(1),
         KeyK: () => once && B.setBend(-1),
         KeyL: () => once && B.setBend(1),
-        KeyD: () => once && A.toggleLoop(),
-        KeyJ: () => once && B.toggleLoop(),
+        KeyD: () => once && (e.shiftKey ? A.reloop() : A.toggleLoop()),
+        KeyJ: () => once && (e.shiftKey ? B.reloop() : B.toggleLoop()),
+        KeyR: () => once && A.loopInDown(),
+        KeyG: () => once && A.loopOut(),
+        KeyU: () => once && B.loopInDown(),
+        KeyY: () => once && B.loopOut(),
         KeyZ: () => A.beatJump(-1),
         KeyX: () => A.beatJump(1),
         KeyN: () => B.beatJump(-1),
         KeyM: () => B.beatJump(1),
-        Digit1: () => once && hot(A, 0, e.shiftKey),
-        Digit2: () => once && hot(A, 1, e.shiftKey),
-        Digit3: () => once && hot(A, 2, e.shiftKey),
-        Digit4: () => once && hot(A, 3, e.shiftKey),
-        Digit7: () => once && hot(B, 0, e.shiftKey),
-        Digit8: () => once && hot(B, 1, e.shiftKey),
-        Digit9: () => once && hot(B, 2, e.shiftKey),
-        Digit0: () => once && hot(B, 3, e.shiftKey),
+        Digit1: () => once && hot(A, 0, e),
+        Digit2: () => once && hot(A, 1, e),
+        Digit3: () => once && hot(A, 2, e),
+        Digit4: () => once && hot(A, 3, e),
+        Digit5: () => once && A.toggleHotBank(),
+        Digit6: () => once && B.toggleHotBank(),
+        Digit7: () => once && hot(B, 0, e),
+        Digit8: () => once && hot(B, 1, e),
+        Digit9: () => once && hot(B, 2, e),
+        Digit0: () => once && hot(B, 3, e),
         // Beat FX on deck A and deck B: F and H, either side of the mixer. B for the master (G is loop out on deck A).
         KeyF: () => once && session.fx.toggleFor('A'),
         KeyB: () => once && session.fx.toggleFor('M'),
@@ -190,7 +225,11 @@ export default function App() {
         KeyT: () => once && toggleLibrary(),
         // Esc puts the library away from anywhere in the rig (inside it, the
         // library handles Esc itself, after its search and menus).
-        ...(libraryFlyout.get().open ? { Escape: () => closeLibrary() } : {}),
+        ...(libraryFlyout.get().open
+          ? { Escape: () => closeLibrary() }
+          : edgeDeck()
+            ? { Escape: () => edgeDeck()?.selectLoopEdge(null) }
+            : {}),
       };
       const fn = map[e.code];
       if (!fn) return;
@@ -198,6 +237,11 @@ export default function App() {
       fn();
     };
     const up = (e: KeyboardEvent) => {
+      const held = heldHot.get(e.code);
+      if (held) {
+        heldHot.delete(e.code);
+        held[0].hotCueUp(held[1]);
+      }
       const map: Record<string, () => void> = {
         KeyQ: () => A.cueUp(),
         KeyP: () => B.cueUp(),
@@ -207,6 +251,8 @@ export default function App() {
         KeyL: () => B.setBend(0),
         KeyC: () => A.censor(false),
         Comma: () => B.censor(false),
+        KeyR: () => A.loopInUp(),
+        KeyU: () => B.loopInUp(),
       };
       map[e.code]?.();
     };
