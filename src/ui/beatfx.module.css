@@ -1,0 +1,236 @@
+/* The mixer's Beat FX section (BeatFxPanel) and the deck's FX row (FxStrip).
+   Buttons, the select and the knob reuse platter.module.css; only what is
+   new lives here. --deck is the colour of the channel the effect is on. */
+
+.panel {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding-top: 12px;
+  border-top: 1px solid var(--dj-line);
+}
+
+.head,
+.row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+}
+
+.title {
+  margin: 0 auto 0 0;
+  font-family: var(--font-label);
+  font-size: 15px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--dj-dim);
+}
+
+.panel[data-on] .title {
+  color: var(--deck);
+}
+
+.channels,
+.bands,
+.tempo {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+/* Each channel button lights in its own deck's colour. */
+.channel[data-channel='A'] {
+  --deck: var(--dj-a);
+}
+.channel[data-channel='B'] {
+  --deck: var(--dj-b);
+}
+.channel[data-channel='M'] {
+  --deck: var(--dj-text);
+}
+
+.info {
+  flex: none;
+}
+
+.select {
+  flex: 1 1 0;
+  min-width: 104px;
+}
+
+/* The beat value, with its time in milliseconds under it. */
+.beatValue {
+  display: inline-flex;
+  flex-direction: column;
+  align-items: center;
+  min-width: 64px;
+  line-height: 1.1;
+}
+
+.time,
+.bpmCap {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+  color: var(--dj-dim);
+  white-space: nowrap;
+}
+
+.bpm {
+  display: inline-flex;
+  flex-direction: column;
+  align-items: center;
+  min-width: 52px;
+  padding: 0 2px;
+  line-height: 1.1;
+}
+
+.bpmValue {
+  font-family: var(--font-mono);
+  font-size: 14px;
+  font-variant-numeric: tabular-nums;
+}
+
+.bpm[data-none] .bpmValue {
+  color: var(--dj-dim);
+}
+
+.spacer {
+  flex: 1 1 0;
+}
+
+/* ── X-pad ─────────────────────────────────────────────────────────────── */
+
+.xpadWrap {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.xpad {
+  position: relative;
+  display: flex;
+  height: 52px;
+  overflow: hidden;
+  border: 1px solid var(--dj-line-2);
+  border-radius: 6px;
+  background: var(--dj-wave-bg);
+  /* A drag along the pad is the control, never a scroll or a selection. */
+  touch-action: none;
+  -webkit-user-select: none;
+  user-select: none;
+  -webkit-touch-callout: none;
+}
+
+.panel[data-on] .xpad {
+  border-color: var(--deck);
+}
+
+.zone {
+  position: relative;
+  flex: 1 1 0;
+  min-width: 0;
+  padding: 0;
+  border: 0;
+  border-right: 1px solid var(--dj-line);
+  background: transparent;
+  color: var(--dj-dim);
+  font-family: var(--font-mono);
+  font-size: 13px;
+  font-variant-numeric: tabular-nums;
+  cursor: pointer;
+}
+
+.zone:last-of-type {
+  border-right: 0;
+}
+
+/* The stored beat value: a bar along the bottom. */
+.zone[data-set] {
+  color: var(--dj-text);
+}
+.zone[data-set]::after {
+  content: '';
+  position: absolute;
+  right: 6px;
+  bottom: 5px;
+  left: 6px;
+  height: 3px;
+  border-radius: 2px;
+  background: var(--deck);
+}
+
+/* The held zone. */
+.zone[aria-pressed='true'] {
+  background: var(--deck);
+  color: var(--dj-ink);
+}
+.zone[aria-pressed='true']::after {
+  background: var(--dj-ink);
+}
+
+.xpad .zone:focus-visible {
+  outline-offset: -3px;
+}
+
+/* Where a drag is along the pad. */
+.mark {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 2px;
+  margin-left: -1px;
+  background: var(--dj-focus);
+  pointer-events: none;
+}
+
+.caption {
+  min-height: 1.3em;
+  margin: 0;
+  font-size: 12px;
+  color: var(--dj-dim);
+}
+
+/* ── The deck's FX row ─────────────────────────────────────────────────── */
+
+.deckFx {
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+  min-width: 0;
+  line-height: 1.2;
+}
+
+.deckFxName {
+  overflow: hidden;
+  font-family: var(--font-label);
+  font-size: 15px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.deckFx:not([data-here]) .deckFxName {
+  color: var(--dj-dim);
+}
+
+.deckFxBeats {
+  font-family: var(--font-mono);
+  font-size: 14px;
+  text-transform: none;
+}
+
+.deckFxWhere {
+  font-size: 12px;
+  color: var(--dj-dim);
+}
+
+@media (pointer: coarse) {
+  .xpad {
+    height: 60px;
+  }
+}

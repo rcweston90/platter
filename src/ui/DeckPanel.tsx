@@ -3,7 +3,7 @@ import { LOOP_BEATS, PITCH_RANGES, ROLL_BEATS, type Deck } from '../engine/deck'
 import { beatsLabel } from '../engine/fx';
 import { compatible, keyName } from '../engine/key';
 import type { DjSession } from '../engine/session';
-import { useStore, useStoreSelect } from '../engine/store';
+import { useStore } from '../engine/store';
 import { setText, useDropTarget, useFrame, type FrameLoop } from './frame';
 import { DECK_GUIDE, InfoTip, PITCH_GUIDE } from './DeckGuide';
 import { FxStrip } from './FxStrip';
@@ -60,7 +60,6 @@ export function DeckPanel({
 }) {
   const st = useStore(deck.store);
   const other = useStore((deck.other ?? deck).store);
-  const fx = useStoreSelect(session.mixer, (m) => m.channels[deck.index].fx);
   const [padMode, setPadMode] = useState<PadMode>('hot');
   const time = useRef<HTMLSpanElement>(null);
   const remain = useRef<HTMLSpanElement>(null);
@@ -581,7 +580,7 @@ export function DeckPanel({
         </button>
       </div>
 
-      <FxStrip session={session} index={idx} fx={fx} />
+      <FxStrip session={session} index={idx} />
 
       <StemsControl stems={session.stems[idx]} label={deck.label} />
 

@@ -3,6 +3,7 @@ import { useRef } from 'react';
 import { eqLabel, filterLabel, meterLevel, readPeak, trimDb, type CrossfaderCurve } from '../engine/mixer';
 import type { DjSession } from '../engine/session';
 import { useStore } from '../engine/store';
+import { BeatFxPanel } from './BeatFxPanel';
 import { useFrame, type FrameLoop } from './frame';
 import { Knob } from './Knob';
 import s from '../platter.module.css';
@@ -135,6 +136,7 @@ export function Mixer({ session, loop }: { session: DjSession; loop: FrameLoop }
           </button>
         ))}
       </div>
+      <BeatFxPanel session={session} />
     </section>
   );
 }

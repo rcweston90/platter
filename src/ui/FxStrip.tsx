@@ -1,65 +1,37 @@
-import { beatsLabel, FX_BEATS, FX_TYPES, type FxState, type FxType } from '../engine/fx';
+import { beatsLabel, FX_META } from '../engine/fx';
 import type { DjSession } from '../engine/session';
-import { ChevronIcon } from './icons';
-import { Knob } from './Knob';
+import { useStore } from '../engine/store';
 import s from '../platter.module.css';
+import b from './beatfx.module.css';
 
-/** The deck's Beat FX: type, length in beats, depth, on. */
-export function FxStrip({ session, index, fx }: { session: DjSession; index: 0 | 1; fx: FxState }) {
+/**
+ * The deck's FX button: puts the mixer's Beat FX on this deck and turns it
+ * on (or off, if it's already on here), and says what the effect is. The
+ * effect itself is set in the mixer (BeatFxPanel).
+ */
+export function FxStrip({ session, index }: { session: DjSession; index: 0 | 1 }) {
   const deck = index === 0 ? 'A' : 'B';
-  const set = (patch: Partial<FxState>) => session.setChannel(index, { fx: { ...fx, ...patch } });
-  const at = FX_BEATS.indexOf(fx.beats as (typeof FX_BEATS)[number]);
-  const step = (dir: -1 | 1) => {
-    const next = FX_BEATS[Math.min(FX_BEATS.length - 1, Math.max(0, at + dir))];
-    if (next !== fx.beats) set({ beats: next });
-  };
-  const id = `fx-type-${deck}`;
+  const st = useStore(session.fx.store);
+  const here = st.channel === deck;
+  const on = here && (st.on || st.pad.engaged);
+  const meta = FX_META[st.type];
+  const where = st.channel === 'M' ? 'the master' : `deck ${st.channel}`;
   return (
     <div className={s.fxStrip} role="group" aria-label={`Deck ${deck} beat FX`}>
-      <label htmlFor={id} className={s.srOnly}>
-        Deck {deck} effect
-      </label>
-      <select id={id} className={s.fxSelect} value={fx.type} onChange={(e) => set({ type: e.target.value as FxType })}>
-        {FX_TYPES.map((t) => (
-          <option key={t.id} value={t.id}>
-            {t.label}
-          </option>
-        ))}
-      </select>
-      <div className={s.fxBeats}>
-        <button type="button" className={s.mini} onClick={() => step(-1)} disabled={at <= 0} aria-label="Shorter (fewer beats)">
-          <ChevronIcon dir={-1} />
-        </button>
-        <span className={s.fxBeatValue} aria-live="polite" aria-label={`${beatsLabel(fx.beats)} beat`}>
-          {beatsLabel(fx.beats)}
+      <span className={b.deckFx} data-here={here || undefined}>
+        <span className={b.deckFxName}>
+          {meta.label}
+          {meta.timed && <span className={b.deckFxBeats}> {beatsLabel(session.fx.liveBeats(st))}</span>}
         </span>
-        <button
-          type="button"
-          className={s.mini}
-          onClick={() => step(1)}
-          disabled={at >= FX_BEATS.length - 1}
-          aria-label="Longer (more beats)"
-        >
-          <ChevronIcon dir={1} />
-        </button>
-      </div>
-      <Knob
-        label="Depth"
-        name={`Deck ${deck} effect depth`}
-        value={fx.depth}
-        min={0}
-        max={1}
-        defaultValue={0.5}
-        size="sm"
-        format={(v) => `${Math.round(v * 100)}%`}
-        onChange={(depth) => set({ depth })}
-      />
+        <span className={b.deckFxWhere}>{here ? 'Beat FX on this deck' : `Beat FX on ${where}`}</span>
+      </span>
       <button
         type="button"
         className={`${s.toggle} ${s.fxOn}`}
-        aria-pressed={fx.on}
-        onClick={() => set({ on: !fx.on })}
-        aria-label={`Deck ${deck} effect ${fx.on ? 'off' : 'on'}`}
+        aria-pressed={on}
+        onClick={() => session.fx.toggleFor(deck)}
+        aria-label={`Deck ${deck} effect ${on ? 'off' : 'on'}`}
+        title={here ? undefined : `Moves the Beat FX from ${where} to this deck`}
       >
         FX
       </button>
