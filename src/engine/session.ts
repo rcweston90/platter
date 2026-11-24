@@ -9,7 +9,7 @@ import { fetchArtwork, fetchAudiusAudio, type AudiusTrack } from './audius';
 import { fetchSoundCloudAudio, SoundCloudError, type ScTrack } from './soundcloud';
 import { AutoDj } from './autodj';
 import { backupToImported, makeBackup, matchTrack, parseBackup, parseRekordboxXml, type ImportedTrack } from './backup';
-import { Deck, PITCH_RANGES } from './deck';
+import { Deck, JUMP_BEATS, PITCH_RANGES, QUANTIZE_BEATS } from './deck';
 import { DEMOS, demoRecords, renderDemo } from './demo';
 import { DjEngine, listOutputDevices, unlockDeviceNames, type CueRouting, type OutputDevice } from './engine';
 import { fileFromHandle } from './folder';
@@ -91,7 +91,15 @@ interface Settings {
   cueMix: number;
   cueLevel: number;
   fx: [Omit<FxState, 'on'>, Omit<FxState, 'on'>];
-  decks: { range: number; quantize: boolean; slip: boolean; keyLock: boolean }[];
+  decks: {
+    range: number;
+    quantize: boolean;
+    slip: boolean;
+    keyLock: boolean;
+    /** Added after v1 shipped: absent in older saves. */
+    jumpBeats?: number;
+    quantizeBeats?: number;
+  }[];
   samplerLevel: number;
 }
 
@@ -279,6 +287,8 @@ export class DjSession {
       d.setQuantize(p.quantize);
       d.setSlip(p.slip);
       d.store.set({ keyLock: p.keyLock });
+      if (p.jumpBeats !== undefined && (JUMP_BEATS as readonly number[]).includes(p.jumpBeats)) d.setJumpBeats(p.jumpBeats);
+      if (p.quantizeBeats !== undefined && (QUANTIZE_BEATS as readonly number[]).includes(p.quantizeBeats)) d.setQuantizeBeats(p.quantizeBeats);
     });
     this.sampler.setLevel(s.samplerLevel);
   }
@@ -295,7 +305,14 @@ export class DjSession {
       fx,
       decks: this.decks.map((d) => {
         const st = d.store.get();
-        return { range: st.range, quantize: st.quantize, slip: st.slip, keyLock: st.keyLock };
+        return {
+          range: st.range,
+          quantize: st.quantize,
+          slip: st.slip,
+          keyLock: st.keyLock,
+          jumpBeats: st.jumpBeats,
+          quantizeBeats: st.quantizeBeats,
+        };
       }),
       samplerLevel: this.sampler.store.get().level,
     };
@@ -865,6 +882,9 @@ export class DjSession {
       press(`${L}.loop`, () => d.toggleLoop());
       press(`${L}.loopHalf`, () => d.stepLoop(-1));
       press(`${L}.loopDouble`, () => d.stepLoop(1));
+      h[`${L}.loopIn`] = (v) => (v ? d.loopInDown() : d.loopInUp());
+      press(`${L}.loopOut`, () => d.loopOut());
+      press(`${L}.reloop`, () => d.reloop());
       press(`${L}.jumpBack`, () => d.beatJump(-1));
       press(`${L}.jumpFwd`, () => d.beatJump(1));
       [0, 1, 2, 3].forEach((k) => press(`${L}.hot${k + 1}`, () => d.hotCue(k)));
@@ -926,7 +946,12 @@ export class DjSession {
       case 'slip':
         return st.slip;
       case 'loop':
+      case 'reloop':
         return st.loop.active;
+      case 'loopIn':
+        return st.loop.active ? st.loopEdge === 'in' : st.loopInPoint !== null;
+      case 'loopOut':
+        return st.loop.active && st.loopEdge === 'out';
       case 'fx':
         return ch.fx.on;
       case 'pfl':
