@@ -7,6 +7,26 @@ import { HOT_CUES, type TrackCues, type TrackRecord, type WavePeaks } from './ty
 export const PITCH_RANGES = [0.08, 0.16, 0.5] as const;
 export const LOOP_BEATS = [0.25, 0.5, 1, 2, 4, 8, 16, 32] as const;
 export const ROLL_BEATS = [0.125, 0.25, 0.5, 1] as const;
+/** Beat jump sizes — separate from the loop's size. */
+export const JUMP_BEATS = [0.5, 1, 2, 4, 8, 16, 32, 64] as const;
+/** What quantise snaps to, in beats. */
+export const QUANTIZE_BEATS = [0.125, 0.25, 0.5, 1] as const;
+/** A beat count as a DJ reads it: 1/4, 1/2, 1, 4, 3.5 (a manual loop needn't be whole beats). */
+export function loopLabel(b: number): string {
+  if (b >= 1 || b <= 0) {
+    const r = Math.round(b * 100) / 100;
+    return String(r);
+  }
+  const n = Math.round(1 / b);
+  return Math.abs(1 / n - b) < 1e-6 ? `1/${n}` : String(Math.round(b * 100) / 100);
+}
+/** The next size along `list` from `v`, or from where `v` would sit in it. */
+function stepIn(list: readonly number[], v: number, dir: -1 | 1): number {
+  const i = list.indexOf(v);
+  if (i >= 0) return list[Math.min(list.length - 1, Math.max(0, i + dir))];
+  if (dir > 0) return list.find((x) => x > v) ?? list[list.length - 1];
+  return [...list].reverse().find((x) => x < v) ?? list[0];
+}
 /** Platter speeds, in rpm. A record cut at 33⅓ played at 45 runs 45 / 33⅓ = 1.35× fast. */
 export const SPEEDS = [33, 45] as const;
 export type Speed = (typeof SPEEDS)[number];
@@ -68,7 +88,19 @@ export interface DeckState {
   roll: number | null;
   cue: number;
   hotCues: (number | null)[];
+  /** The running loop, or the last one (start < end) that Reloop brings back.
+   *  `beats` is its length in beats; a manual loop may be fractional. */
   loop: { active: boolean; beats: number; start: number; end: number };
+  /** Beats the Loop button loops (one of LOOP_BEATS). */
+  autoLoop: number;
+  /** A manual loop's in point, set by Loop In, waiting for Loop Out. */
+  loopInPoint: number | null;
+  /** The loop edge picked for adjusting, or null. */
+  loopEdge: 'in' | 'out' | null;
+  /** Beats a beat jump moves (one of JUMP_BEATS). */
+  jumpBeats: number;
+  /** Beats quantise snaps to (one of QUANTIZE_BEATS). */
+  quantizeBeats: number;
 }
 
 function initialState(): DeckState {
@@ -94,6 +126,11 @@ function initialState(): DeckState {
     cue: 0,
     hotCues: Array.from({ length: HOT_CUES }, () => null),
     loop: { active: false, beats: 4, start: 0, end: 0 },
+    autoLoop: 4,
+    loopInPoint: null,
+    loopEdge: null,
+    jumpBeats: 16,
+    quantizeBeats: 1,
   };
 }
 
@@ -273,10 +310,10 @@ export class Deck {
   }
 
   private snap(t: number): number {
-    const { quantize, bpm, gridOffset } = this.store.get();
+    const { quantize, quantizeBeats, bpm, gridOffset } = this.store.get();
     if (!quantize || !bpm) return t;
-    const beat = 60 / bpm;
-    return gridOffset + Math.round((t - gridOffset) / beat) * beat;
+    const step = (60 / bpm) * quantizeBeats;
+    return gridOffset + Math.round((t - gridOffset) / step) * step;
   }
 
   /* ── Loading ──────────────────────────────────────────────────────────── */
@@ -347,6 +384,7 @@ export class Deck {
       roll: null,
     });
     this.post({ type: 'loop', in: -1, out: -1 });
+    this.forgetLoop();
     this.post({ type: 'slip', on: this.store.get().slip });
     this.post({ type: 'seek', frame: rec.cues.main * this.sr });
     this.store.set({ syncOffset: 0 });
@@ -406,6 +444,7 @@ export class Deck {
     const art = this.store.get().track?.artUrl;
     if (art) URL.revokeObjectURL(art);
     this.store.set({ track: null, bpm: null, loop: { ...this.store.get().loop, active: false } });
+    this.forgetLoop();
   }
 
   /* ── Transport ────────────────────────────────────────────────────────── */
@@ -572,50 +611,235 @@ export class Deck {
   }
 
   /* ── Loops and beat jumps ─────────────────────────────────────────────── */
+  /*
+   * A beat loop (Loop) loops the chosen number of beats from here. A manual
+   * loop is Loop In, then Loop Out; holding Loop In makes a 4-beat loop from
+   * the in point. Reloop leaves a running loop and, pressed again, jumps back
+   * to its start and loops it again. While looping, In or Out picks that edge
+   * to adjust (buttons, arrow keys or a drag on the waveform); the pick lets
+   * go after a few seconds without a move. Beat jump has its own size, and a
+   * running loop travels with it.
+   */
 
+  /** Hold Loop In this long for a 4-beat loop. */
+  private static readonly LOOP_IN_HOLD_MS = 500;
+  private static readonly HOLD_LOOP_BEATS = 4;
+  /** An adjusted edge lets go after this long untouched. */
+  private static readonly EDGE_TIMEOUT_MS = 6000;
+  /** The shortest loop an edge can be pulled to, in seconds. */
+  private static readonly MIN_LOOP = 0.01;
+
+  private loopInTimer: number | null = null;
+  private loopInHeld = false;
+  private edgeTimer: number | null = null;
+
+  /** Track seconds of one quantise step, or null with quantise off or no grid. */
+  quantizeStep(): number | null {
+    const { quantize, quantizeBeats, bpm } = this.store.get();
+    return quantize && bpm ? (60 / bpm) * quantizeBeats : null;
+  }
+
+  /** Loop from start to end (track seconds); a running loop just changes shape. */
+  private applyLoop(start: number, end: number) {
+    const beats = Math.round(((end - start) / this.beatLength()) * 1e4) / 1e4;
+    this.post({ type: 'loop', in: start * this.sr, out: end * this.sr });
+    this.store.set({ loop: { active: true, beats, start, end }, loopInPoint: null });
+  }
+
+  /** A new track (or none): no loop to come back to. */
+  private forgetLoop() {
+    this.clearLoopInTimer();
+    this.clearEdgeTimer();
+    const { loop, autoLoop } = this.store.get();
+    this.store.set({ loop: { ...loop, active: false, beats: autoLoop, start: 0, end: 0 }, loopInPoint: null, loopEdge: null });
+  }
+
+  /** A loop Reloop can bring back (or the running one). */
+  hasLoop(): boolean {
+    const { loop } = this.store.get();
+    return loop.active || loop.end > loop.start;
+  }
+
+  /** The Loop button: a beat loop of `autoLoop` beats from here, or leave the loop. */
   toggleLoop() {
     const s = this.store.get();
     if (!this.ready()) return;
-    if (s.loop.active) {
-      this.post({ type: 'loop', in: -1, out: -1 });
-      this.store.set({ loop: { ...s.loop, active: false } });
-      return;
-    }
+    if (s.loop.active) return this.exitLoop();
     const start = this.snap(this.position());
-    const end = start + s.loop.beats * this.beatLength();
-    this.post({ type: 'loop', in: start * this.sr, out: end * this.sr });
-    this.store.set({ loop: { ...s.loop, active: true, start, end } });
+    this.applyLoop(start, start + s.autoLoop * this.beatLength());
   }
 
+  /** Leave the running loop; the track plays on through its end. */
+  exitLoop() {
+    const s = this.store.get();
+    if (!s.loop.active) return;
+    this.post({ type: 'loop', in: -1, out: -1 });
+    this.clearEdgeTimer();
+    this.store.set({ loop: { ...s.loop, active: false }, loopEdge: null });
+  }
+
+  /** Reloop / Exit: leave a running loop; otherwise back to the last loop's
+   *  start, looping it again. */
+  reloop() {
+    const s = this.store.get();
+    if (!this.ready()) return;
+    if (s.loop.active) return this.exitLoop();
+    if (!(s.loop.end > s.loop.start)) return;
+    this.seek(s.loop.start);
+    this.applyLoop(s.loop.start, s.loop.end);
+  }
+
+  /** Loop In pressed. Looping: picks the in edge to adjust. Otherwise marks
+   *  the in point here (snapped), and held, makes a 4-beat loop from it. */
+  loopInDown() {
+    const s = this.store.get();
+    if (!this.ready()) return;
+    if (s.loop.active) return this.selectLoopEdge(s.loopEdge === 'in' ? null : 'in');
+    const at = this.snap(this.position());
+    this.store.set({ loopInPoint: at });
+    this.loopInHeld = true;
+    this.clearLoopInTimer();
+    this.loopInTimer = window.setTimeout(() => {
+      this.loopInTimer = null;
+      const st = this.store.get();
+      if (!this.loopInHeld || st.loop.active || st.loopInPoint === null) return;
+      this.applyLoop(st.loopInPoint, st.loopInPoint + Deck.HOLD_LOOP_BEATS * this.beatLength());
+    }, Deck.LOOP_IN_HOLD_MS);
+  }
+
+  loopInUp() {
+    this.loopInHeld = false;
+    this.clearLoopInTimer();
+  }
+
+  /** Loop Out. After Loop In: the loop ends here (snapped) and starts looping.
+   *  Looping: picks the out edge to adjust. */
+  loopOut() {
+    const s = this.store.get();
+    if (!this.ready()) return;
+    if (s.loop.active) return this.selectLoopEdge(s.loopEdge === 'out' ? null : 'out');
+    const start = s.loopInPoint;
+    const here = this.position();
+    // No in point, or the playhead went back past it: nothing to close.
+    if (start === null || here <= start) return;
+    let end = this.snap(here);
+    if (end - start < Deck.MIN_LOOP) end = start + (this.quantizeStep() ?? Deck.MIN_LOOP);
+    this.applyLoop(start, end);
+  }
+
+  private clearLoopInTimer() {
+    if (this.loopInTimer !== null) window.clearTimeout(this.loopInTimer);
+    this.loopInTimer = null;
+  }
+
+  private clearEdgeTimer() {
+    if (this.edgeTimer !== null) window.clearTimeout(this.edgeTimer);
+    this.edgeTimer = null;
+  }
+
+  /** (Re)starts the countdown that lets go of the picked edge. */
+  private armEdgeTimer() {
+    this.clearEdgeTimer();
+    if (!this.store.get().loopEdge) return;
+    this.edgeTimer = window.setTimeout(() => {
+      this.edgeTimer = null;
+      this.store.set({ loopEdge: null });
+    }, Deck.EDGE_TIMEOUT_MS);
+  }
+
+  /** Pick the running loop's in or out edge to adjust, or null to let go. */
+  selectLoopEdge(edge: 'in' | 'out' | null) {
+    if (edge && !this.store.get().loop.active) return;
+    this.store.set({ loopEdge: edge });
+    this.armEdgeTimer();
+  }
+
+  /** Move a running loop's edge to `t` (track seconds); `snap` puts it on the
+   *  quantise grid. The loop keeps at least MIN_LOOP long. */
+  setLoopEdge(edge: 'in' | 'out', t: number, snap = false) {
+    const s = this.store.get();
+    if (!s.loop.active || !s.track) return;
+    const at = snap ? this.snap(t) : t;
+    let { start, end } = s.loop;
+    if (edge === 'in') start = clamp(at, 0, end - Deck.MIN_LOOP);
+    else end = clamp(at, start + Deck.MIN_LOOP, s.track.duration);
+    if (start !== s.loop.start || end !== s.loop.end) this.applyLoop(start, end);
+    this.store.set({ loopEdge: edge });
+    this.armEdgeTimer();
+  }
+
+  /** Nudge the picked edge one quantise step (10 ms with quantise off);
+   *  `fine` moves it 1 ms, off the grid. */
+  nudgeLoopEdge(dir: -1 | 1, fine = false) {
+    const s = this.store.get();
+    const edge = s.loopEdge;
+    if (!edge || !s.loop.active) return;
+    const from = edge === 'in' ? s.loop.start : s.loop.end;
+    const step = this.quantizeStep();
+    if (fine || step === null) {
+      this.setLoopEdge(edge, from + dir * (fine ? 0.001 : 0.01));
+      return;
+    }
+    // On the grid: to the next grid line that way, even from between lines.
+    const { gridOffset } = s;
+    const k = (from - gridOffset) / step;
+    const next = dir > 0 ? Math.floor(k + 1e-6) + 1 : Math.ceil(k - 1e-6) - 1;
+    this.setLoopEdge(edge, gridOffset + next * step);
+  }
+
+  /** Beat-loop size. A running loop changes length from its start. */
   setLoopBeats(beats: number) {
     const s = this.store.get();
+    this.store.set({ autoLoop: beats });
+    if (s.loop.active) this.applyLoop(s.loop.start, s.loop.start + beats * this.beatLength());
+    else if (!this.hasLoop()) this.store.set({ loop: { ...s.loop, beats } });
+  }
+
+  /** Halving or doubling the running loop stays within LOOP_BEATS' span. */
+  canStepLoop(dir: -1 | 1): boolean {
+    const s = this.store.get();
     if (!s.loop.active) {
-      this.store.set({ loop: { ...s.loop, beats } });
+      return dir < 0 ? s.autoLoop > LOOP_BEATS[0] : s.autoLoop < LOOP_BEATS[LOOP_BEATS.length - 1];
+    }
+    const beats = s.loop.beats * (dir > 0 ? 2 : 0.5);
+    return beats >= LOOP_BEATS[0] - 1e-6 && beats <= LOOP_BEATS[LOOP_BEATS.length - 1] + 1e-6;
+  }
+
+  /** ½ / 2×: halve or double the running loop — a manual one too — from its
+   *  start; with no loop running, the beat-loop size. */
+  stepLoop(dir: -1 | 1) {
+    const s = this.store.get();
+    if (!this.canStepLoop(dir)) return;
+    if (s.loop.active) {
+      const len = (s.loop.end - s.loop.start) * (dir > 0 ? 2 : 0.5);
+      const end = Math.min(s.loop.start + len, s.track?.duration ?? Infinity);
+      if (end - s.loop.start < Deck.MIN_LOOP) return;
+      this.applyLoop(s.loop.start, end);
+      // A beat loop's size follows, so the Loop button makes this size next.
+      const beats = this.store.get().loop.beats;
+      if ((LOOP_BEATS as readonly number[]).includes(beats)) this.store.set({ autoLoop: beats });
       return;
     }
-    const end = s.loop.start + beats * this.beatLength();
-    const here = this.position();
-    this.post({ type: 'loop', in: s.loop.start * this.sr, out: end * this.sr });
-    // Shrinking past the playhead: fold it back inside so the loop holds.
-    if (here >= end) {
-      const len = end - s.loop.start;
-      this.seek(s.loop.start + ((here - s.loop.start) % len));
-    }
-    this.store.set({ loop: { ...s.loop, beats, end } });
+    this.setLoopBeats(stepIn(LOOP_BEATS, s.autoLoop, dir));
   }
 
-  stepLoop(dir: -1 | 1) {
-    const { beats } = this.store.get().loop;
-    const i = LOOP_BEATS.indexOf(beats as (typeof LOOP_BEATS)[number]);
-    const next = LOOP_BEATS[clamp(i + dir, 0, LOOP_BEATS.length - 1)];
-    if (next !== beats) this.setLoopBeats(next);
+  setJumpBeats(beats: number) {
+    this.store.set({ jumpBeats: beats });
   }
 
-  /** Jump by the loop size; an active loop travels with the playhead. */
+  stepJump(dir: -1 | 1) {
+    this.setJumpBeats(stepIn(JUMP_BEATS, this.store.get().jumpBeats, dir));
+  }
+
+  setQuantizeBeats(beats: number) {
+    this.store.set({ quantizeBeats: beats });
+  }
+
+  /** Jump by the beat-jump size; a running loop travels with the playhead. */
   beatJump(dir: -1 | 1) {
     const s = this.store.get();
     if (!this.ready()) return;
-    const by = dir * s.loop.beats * this.beatLength();
+    const by = dir * s.jumpBeats * this.beatLength();
     if (s.loop.active) {
       const start = s.loop.start + by;
       const end = s.loop.end + by;
