@@ -1,5 +1,5 @@
 import { useRef, useState, type KeyboardEvent, type PointerEvent } from 'react';
-import { LOOP_BEATS, PITCH_RANGES, ROLL_BEATS, type Deck } from '../engine/deck';
+import { PITCH_RANGES, ROLL_BEATS, type Deck } from '../engine/deck';
 import { beatsLabel } from '../engine/fx';
 import { compatible, keyName } from '../engine/key';
 import type { DjSession } from '../engine/session';
@@ -7,6 +7,7 @@ import { useStore, useStoreSelect } from '../engine/store';
 import { setText, useDropTarget, useFrame, type FrameLoop } from './frame';
 import { DECK_GUIDE, InfoTip, PITCH_GUIDE } from './DeckGuide';
 import { FxStrip } from './FxStrip';
+import { LoopControls } from './LoopControls';
 import { StemsControl } from './StemsControl';
 import { Turntable } from './Turntable';
 import { formatTime, Overview } from './Waveforms';
@@ -18,7 +19,6 @@ import s from '../platter.module.css';
 
 export const TRACK_MIME = 'application/x-dj-track';
 
-const loopLabel = (b: number) => (b < 1 ? `1/${Math.round(1 / b)}` : String(b));
 type PadMode = 'hot' | 'roll' | 'tricks';
 const PAD_MODES: { id: PadMode; label: string }[] = [
   { id: 'hot', label: 'Hot cue' },
@@ -428,7 +428,7 @@ export function DeckPanel({
             className={s.toggle}
             aria-pressed={st.quantize}
             onClick={() => deck.setQuantize(!st.quantize)}
-            title="Quantise: cues and loops snap to the beat grid"
+            title={`Quantise: cues and loops snap to the beat grid, every ${st.quantizeBeats === 1 ? 'beat' : `${beatsLabel(st.quantizeBeats)} beat`} (set the step by the loops)`}
           >
             Quant
           </button>
@@ -550,36 +550,7 @@ export function DeckPanel({
         </div>
       )}
 
-      <div className={s.loops} role="group" aria-label={`Deck ${deck.label} loop and beat jump`}>
-        <button type="button" className={s.mini} onClick={() => deck.beatJump(-1)} disabled={!st.track} aria-label={`Jump back ${loopLabel(st.loop.beats)} beats`}>
-          ◂◂
-        </button>
-        <button type="button" className={s.mini} onClick={() => deck.stepLoop(-1)} disabled={st.loop.beats === LOOP_BEATS[0]} aria-label="Halve loop length">
-          ½
-        </button>
-        <button
-          type="button"
-          className={`${s.toggle} ${s.loopBtn}`}
-          aria-pressed={st.loop.active}
-          disabled={!st.track}
-          onClick={() => deck.toggleLoop()}
-          aria-label={`${st.loop.active ? 'Exit' : 'Start'} ${loopLabel(st.loop.beats)}-beat loop`}
-        >
-          Loop {loopLabel(st.loop.beats)}
-        </button>
-        <button
-          type="button"
-          className={s.mini}
-          onClick={() => deck.stepLoop(1)}
-          disabled={st.loop.beats === LOOP_BEATS[LOOP_BEATS.length - 1]}
-          aria-label="Double loop length"
-        >
-          2×
-        </button>
-        <button type="button" className={s.mini} onClick={() => deck.beatJump(1)} disabled={!st.track} aria-label={`Jump forward ${loopLabel(st.loop.beats)} beats`}>
-          ▸▸
-        </button>
-      </div>
+      <LoopControls deck={deck} />
 
       <FxStrip session={session} index={idx} fx={fx} />
 

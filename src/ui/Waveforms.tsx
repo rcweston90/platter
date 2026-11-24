@@ -1,6 +1,6 @@
 
 import { useEffect, useRef, type KeyboardEvent, type PointerEvent } from 'react';
-import type { Deck } from '../engine/deck';
+import { loopLabel, type Deck, type DeckState } from '../engine/deck';
 import type { WavePeaks } from '../engine/types';
 import { fitCanvas, readPalette, useFrame, type FrameLoop, type Palette } from './frame';
 import s from '../platter.module.css';
@@ -71,9 +71,76 @@ function drawPeaks(g: CanvasRenderingContext2D, p: WavePeaks, pal: Palette, t0: 
 
 /* ── The scrolling, zoomed waveform ──────────────────────────────────────── */
 
+/** How near (px) a pointer has to be to a loop edge to grab it. */
+const EDGE_GRAB = 10;
+
+/** The loop's region on the scrolling waveform: shaded, with in and out
+ *  markers and its length in beats; the edge being adjusted is drawn bright
+ *  with a handle. A loop Reloop can bring back is outlined faintly, and a
+ *  manual in point waiting for Loop Out gets its own marker. */
+function drawLoop(g: CanvasRenderingContext2D, st: DeckState, P: Palette, xOf: (t: number) => number, w: number, h: number) {
+  const lp = st.loop;
+  if (lp.active) {
+    const x0 = xOf(lp.start);
+    const x1 = xOf(lp.end);
+    g.fillStyle = P.loop;
+    g.fillRect(x0, 0, x1 - x0, h);
+    const edge = (x: number, picked: boolean, dir: 1 | -1) => {
+      if (x < -12 || x > w + 12) return;
+      g.fillStyle = picked ? P.bright : P.ok;
+      g.fillRect(Math.round(x) - (picked ? 1 : 0), 0, picked ? 3 : 2, h);
+      // A small flag pointing into the loop, top and bottom.
+      g.beginPath();
+      g.moveTo(x, 0);
+      g.lineTo(x + dir * (picked ? 9 : 6), 0);
+      g.lineTo(x, picked ? 9 : 6);
+      g.moveTo(x, h);
+      g.lineTo(x + dir * (picked ? 9 : 6), h);
+      g.lineTo(x, h - (picked ? 9 : 6));
+      g.fill();
+    };
+    const picked = st.loopEdge;
+    edge(x0, picked === 'in', 1);
+    edge(x1, picked === 'out', -1);
+    // The length, top right inside the loop (clear of the deck tags at the
+    // top left), kept on screen while it scrolls.
+    const text = `${loopLabel(lp.beats)} ${lp.beats === 1 ? 'beat' : 'beats'}`;
+    g.font = `600 12px ${P.mono}`;
+    const tw = g.measureText(text).width;
+    if (x1 - x0 > tw + 16) {
+      const tx = Math.max(x0 + 8, Math.min(x1 - tw - 8, w - tw - 6));
+      g.fillStyle = P.ok;
+      g.fillText(text, tx, 22);
+    }
+  } else if (lp.end > lp.start) {
+    // Reloop's loop: a faint outline of where it would go back to.
+    g.fillStyle = P.line;
+    for (const t of [lp.start, lp.end]) {
+      const x = Math.round(xOf(t));
+      if (x < -2 || x > w + 2) continue;
+      for (let y = 0; y < h; y += 8) g.fillRect(x, y, 1, 4);
+    }
+  }
+  if (st.loopInPoint !== null && !lp.active) {
+    const x = Math.round(xOf(st.loopInPoint));
+    if (x >= -12 && x <= w + 12) {
+      g.fillStyle = P.ok;
+      g.fillRect(x, 0, 2, h);
+      g.font = `600 11px ${P.mono}`;
+      g.fillText('IN', x + 5, 22);
+    }
+  }
+}
+
 export function ScrollingWave({ deck, loop, zoom, label }: { deck: Deck; loop: FrameLoop; zoom: number; label: string }) {
   const canvas = useRef<HTMLCanvasElement>(null);
   const pal = usePalette(canvas);
+  // Where the last frame put the track, so a drag on a loop edge knows what
+  // time is under the pointer.
+  const view = useRef({ t0: 0, pps: 1 });
+  // A drag moves the edge by how far the pointer has moved, not to the time
+  // under it: under a running loop the waveform jumps back at every pass.
+  const dragging = useRef<{ edge: 'in' | 'out'; x: number; t: number } | null>(null);
 
   useFrame(loop, () => {
     const c = canvas.current;
@@ -96,11 +163,9 @@ export function ScrollingWave({ deck, loop, zoom, label }: { deck: Deck; loop: F
       const pos = deck.position();
       const t0 = pos - cx / pps;
       const xOf = (t: number) => (t - t0) * pps;
+      view.current = { t0, pps };
 
-      if (st.loop.active) {
-        g.fillStyle = P.loop;
-        g.fillRect(xOf(st.loop.start), 0, (st.loop.end - st.loop.start) * pps, h);
-      }
+      drawLoop(g, st, P, xOf, w, h);
       if (st.track.peaks) drawPeaks(g, st.track.peaks, P, t0, pps, w, h);
 
       if (st.bpm) {
@@ -148,7 +213,52 @@ export function ScrollingWave({ deck, loop, zoom, label }: { deck: Deck; loop: F
     g.fillRect(cx - 1, 0, 2, h);
   });
 
-  return <canvas ref={canvas} className={s.wave} aria-label={label} role="img" />;
+  /** The loop edge under the pointer, if a loop is running. */
+  const edgeAt = (e: PointerEvent<HTMLCanvasElement>): 'in' | 'out' | null => {
+    const st = deck.store.get();
+    if (!st.loop.active) return null;
+    const x = e.clientX - e.currentTarget.getBoundingClientRect().left;
+    const { t0, pps } = view.current;
+    const dIn = Math.abs((st.loop.start - t0) * pps - x);
+    const dOut = Math.abs((st.loop.end - t0) * pps - x);
+    if (Math.min(dIn, dOut) > EDGE_GRAB) return null;
+    return dIn <= dOut ? 'in' : 'out';
+  };
+
+  return (
+    <canvas
+      ref={canvas}
+      className={s.wave}
+      aria-label={label}
+      role="img"
+      // Dragging a loop edge sideways; a vertical swipe still scrolls the page.
+      style={{ touchAction: 'pan-y' }}
+      onPointerDown={(e) => {
+        if (e.button !== 0) return;
+        const edge = edgeAt(e);
+        if (!edge) return;
+        e.currentTarget.setPointerCapture(e.pointerId);
+        const lp = deck.store.get().loop;
+        dragging.current = { edge, x: e.clientX, t: edge === 'in' ? lp.start : lp.end };
+        deck.selectLoopEdge(edge);
+      }}
+      onPointerMove={(e) => {
+        const d = dragging.current;
+        if (d) {
+          // On the quantise grid, unless Shift is held.
+          deck.setLoopEdge(d.edge, d.t + (e.clientX - d.x) / view.current.pps, !e.shiftKey);
+          return;
+        }
+        if (e.pointerType === 'mouse') e.currentTarget.style.cursor = edgeAt(e) ? 'ew-resize' : '';
+      }}
+      onPointerUp={() => {
+        dragging.current = null;
+      }}
+      onPointerCancel={() => {
+        dragging.current = null;
+      }}
+    />
+  );
 }
 
 /* ── The whole-track overview, which is also the needle-drop control ────── */
@@ -209,6 +319,13 @@ export function Overview({ deck, loop }: { deck: Deck; loop: FrameLoop }) {
     if (st.loop.active) {
       g.fillStyle = P.loop;
       g.fillRect(st.loop.start * pps, 0, Math.max(2, (st.loop.end - st.loop.start) * pps), h);
+    } else if (st.loop.end > st.loop.start) {
+      g.fillStyle = P.line;
+      g.fillRect(st.loop.start * pps, 0, Math.max(2, (st.loop.end - st.loop.start) * pps), 3);
+    }
+    if (st.loopInPoint !== null && !st.loop.active) {
+      g.fillStyle = P.ok;
+      g.fillRect(st.loopInPoint * pps, 0, 2, h);
     }
     g.fillStyle = P.cue;
     g.fillRect(st.cue * pps, 0, 2, h);
