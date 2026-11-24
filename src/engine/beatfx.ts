@@ -176,7 +176,7 @@ export class BeatFx {
     this.setOn(!(st.on || st.pad.engaged));
   }
 
-  /** The deck's FX button, F / G / H and MIDI: on for this channel, or off if it's already on there. */
+  /** The deck's FX button, F / H / B and MIDI: on for this channel, or off if it's already on there. */
   toggleFor(channel: FxChannel) {
     const st = this.store.get();
     if (st.channel === channel) {

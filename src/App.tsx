@@ -169,9 +169,9 @@ export default function App() {
         Digit8: () => once && hot(B, 1, e.shiftKey),
         Digit9: () => once && hot(B, 2, e.shiftKey),
         Digit0: () => once && hot(B, 3, e.shiftKey),
-        // Beat FX on deck A, the master, deck B: F G H, left to right like the mixer.
+        // Beat FX on deck A and deck B: F and H, either side of the mixer. B for the master (G is loop out on deck A).
         KeyF: () => once && session.fx.toggleFor('A'),
-        KeyG: () => once && session.fx.toggleFor('M'),
+        KeyB: () => once && session.fx.toggleFor('M'),
         KeyH: () => once && session.fx.toggleFor('B'),
         KeyC: () => once && A.censor(true),
         Comma: () => once && B.censor(true),

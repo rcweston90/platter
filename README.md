@@ -250,7 +250,7 @@ left hand, deck B on the right.
 | `D` · `J` | Loop on / off |
 | `Z` `X` · `N` `M` | Beat jump back / forward |
 | `1`–`4` · `7`–`0` | Hot cues (`Shift` to clear) |
-| `F` · `G` · `H` | Beat FX on / off for deck A, the master, deck B |
+| `F` · `H` · `B` | Beat FX on / off for deck A, deck B, the master |
 | `C` · `,` | Censor (hold) |
 | `V` · `.` | Slip on / off |
 | `[` `]` | Crossfader left / right (`Shift`: all the way) |

@@ -247,7 +247,7 @@ export const BEAT_FX_GUIDE: GuideSection = {
     },
     {
       name: 'On',
-      text: 'Turns the effect on and off. The delays, reverb, flanger and phaser ring out when you turn them off; Helix fades. Keys: F for deck A, G for the master, H for deck B.',
+      text: 'Turns the effect on and off. The delays, reverb, flanger and phaser ring out when you turn them off; Helix fades. Keys: F for deck A, H for deck B, B for the master.',
     },
   ],
 };
