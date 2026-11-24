@@ -1,7 +1,7 @@
 import { useEffect, useId, useLayoutEffect, useRef, useState, type CSSProperties, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
 import { BEND, JUMP_BEATS, LOOP_BEATS, PITCH_RANGES, QUANTIZE_BEATS, ROLL_BEATS, loopLabel } from '../engine/deck';
-import { beatsLabel } from '../engine/fx';
+import { beatsLabel, FX_GROUPS, FX_META, FX_TYPES } from '../engine/fx';
 import { bankLabel, CUE_COLORS } from '../engine/cues';
 import { HOT_BANK_SIZE, HOT_CUES, MEMORY_CUES } from '../engine/types';
 import { InfoIcon } from './icons';
@@ -182,20 +182,8 @@ export const DECK_GUIDE: GuideSection[] = [
     title: 'Beat FX',
     items: [
       {
-        name: 'Effect',
-        text: 'Echo, Reverb, Flanger, Phaser, Trans (chops the sound on the beat) or Crush (lo-fi, fewer bits).',
-      },
-      {
-        name: '<  3/4  >',
-        text: 'The effect’s timing in beats of this deck’s tempo: the echo’s repeat, the Flanger and Phaser sweep, the Trans chop, the Reverb’s size. Crush doesn’t use it.',
-      },
-      {
-        name: 'Depth',
-        text: 'How much effect: the effect’s level, how deep Trans chops, how hard Crush crushes.',
-      },
-      {
         name: 'FX',
-        text: 'Turns the effect on and off. Echo, Reverb, Flanger and Phaser ring out when you turn them off.',
+        text: 'Puts the mixer’s Beat FX on this deck and turns it on; press again to turn it off. Beside it: the effect, its beat value, and where the Beat FX is now. Pick the effect, its level and the rest in the Beat FX section of the mixer.',
       },
     ],
   },
@@ -243,6 +231,62 @@ export const DECK_GUIDE: GuideSection[] = [
     ],
   },
 ];
+
+const fxList = (g: (typeof FX_GROUPS)[number]) =>
+  FX_TYPES.filter((t) => t.group === g)
+    .map((t) => `${t.label}: ${t.hint}.`)
+    .join(' ');
+const straight = FX_META.echo.beats;
+const triplet = FX_META.triroll.beats;
+
+/** The mixer's Beat FX section (BeatFxPanel), written from engine/fx.ts and engine/beatfx.ts. */
+export const BEAT_FX_GUIDE: GuideSection = {
+  id: 'beatfx',
+  title: 'Beat FX',
+  items: [
+    {
+      name: 'A  B  Mst',
+      text: 'Where the effect goes: deck A’s channel, deck B’s, or the master, which takes in both decks, the sampler and the beat board. On a deck it sits before the fader, so the headphone cue hears it too. There’s one effect unit; moving it moves the effect.',
+    },
+    ...FX_GROUPS.map((g) => ({ name: g, text: fxList(g) })),
+    {
+      name: '<  3/4  >',
+      text: `The effect’s beat value, from ${beatsLabel(straight[0])} to ${beatsLabel(straight[straight.length - 1])} beats; the triplet effects step through triplet values (${triplet.map(beatsLabel).join(', ')}). Each effect remembers its own.`,
+    },
+    {
+      name: 'Time',
+      text: 'The beat value in milliseconds at the tempo the effect follows.',
+    },
+    {
+      name: 'Auto  Tap',
+      text: 'Auto follows the deck the effect is on, pitch fader included; on the master it follows the louder playing deck. For a track without a BPM, tap Tap on the beat two or more times; each tap also lines the beat up with your tap. Auto goes back to the deck. With no tempo at all the effect runs at 120 BPM.',
+    },
+    {
+      name: 'X-pad',
+      text: 'Hold a beat value on the strip and the effect plays it for as long as you hold; if the effect was off it comes on for the hold. Drag along the strip while holding to slide the effect’s X (shown under the strip: feedback, tone, resonance, width or level). Let go and everything goes back. From the keyboard: hold Space or Enter on a beat, with ↑ ↓ to slide.',
+    },
+    {
+      name: 'Low  Mid  Hi',
+      text: 'Which bands the effect is on, split where the EQ splits them. The others pass through untouched: an echo on the highs only, a roll that leaves the kick alone. At least one stays on.',
+    },
+    {
+      name: 'Level',
+      text: 'How much effect: its level, or how much of the dry sound it takes over. It starts at 0, dry, so nothing happens until you turn it up.',
+    },
+    {
+      name: 'Q',
+      text: 'FX quantize. While it’s lit, switching on and off, a new beat value and the X-pad land on the next beat of the deck (or your taps) instead of at once. With nothing playing they happen at once.',
+    },
+    {
+      name: '+  −',
+      text: 'Mobius only: rising or falling.',
+    },
+    {
+      name: 'On',
+      text: 'Turns the effect on and off. The delays, reverb, flanger and phaser ring out when you turn them off; Helix fades. Keys: F for deck A, H for deck B, B for the master.',
+    },
+  ],
+};
 
 /**
  * An ⓘ button that opens a guide panel. Click or tap pins it open; with

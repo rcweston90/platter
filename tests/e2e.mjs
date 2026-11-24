@@ -191,10 +191,13 @@ const matched = (await B.locator('[class*="keyChip"]').getAttribute('data-match'
 check(matched, `Match shifts deck B from ${bKey} to ${await keyOf(B)}, compatible with deck A (${await keyOf(A)})`);
 
 // ── Beat FX ──
+// The mixer's one unit, put on deck A by the deck's FX button, with some level.
 await page.getByRole('button', { name: 'Deck A effect on' }).click();
-for (const fx of ['echo', 'reverb', 'flanger', 'phaser', 'trans', 'crush']) {
-  await A.locator('select').selectOption(fx);
-  await page.waitForTimeout(400);
+await page.getByRole('slider', { name: 'Beat FX level' }).focus();
+for (let i = 0; i < 5; i++) await page.keyboard.press('PageUp');
+for (const fx of ['delay', 'echo', 'pingpong', 'spiral', 'reverb', 'helix', 'roll', 'triroll', 'flanger', 'phaser', 'filter', 'trifilter', 'mobius', 'trans', 'crush']) {
+  await page.getByLabel('Beat FX effect').selectOption(fx);
+  await page.waitForTimeout(250);
 }
 const fxMeter = await page.$eval('[aria-label="Channel A level meter"] [class*="meterCover"]', (e) => parseFloat(/scaleY\(([^)]+)\)/.exec(e.style.transform)?.[1] ?? '1') * 100);
 check(fxMeter < 95, `deck A sounds through every beat FX (${fxMeter.toFixed(0)}% covered)`);

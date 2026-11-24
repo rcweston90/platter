@@ -3,9 +3,12 @@
  * limiter, and a headphone (cue) bus.
  *
  * Signal per channel:
- *   trim → 3-band isolator → filter (LP→HP) → beat FX → post ─┬→ fader → crossfader → master
+ *   trim → 3-band isolator → filter (LP→HP) → FX slot → post ─┬→ fader → crossfader → master
  *                                                   ├→ cue send (PFL) → cue bus
  *                                                   └→ meter
+ *
+ * The FX slot is where the mixer's one Beat FX unit sits when its channel
+ * select points at this deck (fx.ts, engine.ts); otherwise it's a wire.
  *
  * The EQ is an isolator rather than shelving filters, so a band turned fully
  * down is gone, not −12 dB. Each band is a 4th-order Linkwitz–Riley section
@@ -13,7 +16,7 @@
  * club mixers use: low and high summed back together are flat.
  */
 
-import { defaultFx, FxUnit, type FxState } from './fx';
+import { FxSlot } from './fx';
 
 import { EQ_HIGH_HZ, EQ_LOW_HZ } from './eq';
 export { EQ_HIGH_HZ, EQ_LOW_HZ };
@@ -35,11 +38,10 @@ export interface ChannelState {
   fader: number;
   /** Pre-fader listen in the headphones. */
   cue: boolean;
-  fx: FxState;
 }
 
 export function defaultChannel(): ChannelState {
-  return { trim: 0.5, high: 0.5, mid: 0.5, low: 0.5, filter: 0, fader: 0.8, cue: false, fx: defaultFx() };
+  return { trim: 0.5, high: 0.5, mid: 0.5, low: 0.5, filter: 0, fader: 0.8, cue: false };
 }
 
 /* ── Value curves (shared by the audio graph and the knobs' readouts) ────── */
@@ -125,7 +127,8 @@ export class Channel {
   private hp: BiquadFilterNode;
   private fader: GainNode;
   readonly xfade: GainNode;
-  readonly fx: FxUnit;
+  /** Where the Beat FX unit plugs in when it's on this channel. */
+  readonly fxSlot: FxSlot;
   private cueSend: GainNode;
 
   constructor(
@@ -154,9 +157,9 @@ export class Channel {
     this.lp = biquad(ctx, 'lowpass', 22000);
     this.hp = biquad(ctx, 'highpass', 10);
     const post = ctx.createGain();
-    this.fx = new FxUnit(ctx);
-    chain(sum, this.lp, this.hp, this.fx.input);
-    this.fx.output.connect(post);
+    this.fxSlot = new FxSlot(ctx);
+    chain(sum, this.lp, this.hp, this.fxSlot.input);
+    this.fxSlot.output.connect(post);
 
     this.fader = ctx.createGain();
     this.xfade = ctx.createGain();
@@ -188,7 +191,6 @@ export class Channel {
     this.glide(this.hp.Q, f.active && s.filter > 0 ? 1.6 : BUTTERWORTH_Q);
     this.glide(this.fader.gain, faderGain(s.fader));
     this.glide(this.cueSend.gain, s.cue ? 1 : 0);
-    this.fx.apply(s.fx);
   }
 
   setCrossfade(gain: number) {

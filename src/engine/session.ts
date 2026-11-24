@@ -8,13 +8,13 @@ import { SoundMatch } from '../library/sound';
 import { fetchArtwork, fetchAudiusAudio, type AudiusTrack } from './audius';
 import { fetchSoundCloudAudio, SoundCloudError, type ScTrack } from './soundcloud';
 import { AutoDj } from './autodj';
+import { BeatFx } from './beatfx';
 import { backupToImported, makeBackup, matchTrack, parseBackup, parseRekordboxXml, type ImportedTrack } from './backup';
 import { cueState, Deck, JUMP_BEATS, PITCH_RANGES, QUANTIZE_BEATS } from './deck';
 import { normaliseCues } from './cues';
 import { DEMOS, demoRecords, renderDemo } from './demo';
 import { DjEngine, listOutputDevices, unlockDeviceNames, type CueRouting, type OutputDevice } from './engine';
 import { fileFromHandle } from './folder';
-import type { FxState } from './fx';
 import { detectKey } from './key';
 import {
   getValue,
@@ -91,7 +91,6 @@ interface Settings {
   master: number;
   cueMix: number;
   cueLevel: number;
-  fx: [Omit<FxState, 'on'>, Omit<FxState, 'on'>];
   decks: {
     range: number;
     quantize: boolean;
@@ -157,6 +156,8 @@ export class DjSession {
   readonly beats: BeatBoard;
   readonly midi: MidiController;
   readonly autoDj: AutoDj;
+  /** The mixer's Beat FX section (one unit, on deck A, deck B or the master). */
+  readonly fx: BeatFx;
   engine: DjEngine | null = null;
   private starting: Promise<DjEngine> | null = null;
   private analysing = 0;
@@ -182,10 +183,12 @@ export class DjSession {
       d.onPersist = (id, patch) => this.updateTrack(id, patch);
       d.onNeedAudio = (id, play) => void this.loadToDeck(id, d.index, play);
     }
-    this.beats = new BeatBoard(this.sampler, this.decks, (i) => {
+    const inMaster = (i: 0 | 1) => {
       const m = this.mixer.get();
       return faderGain(m.channels[i].fader) * crossfaderGains(m.crossfader, m.curve)[i];
-    });
+    };
+    this.beats = new BeatBoard(this.sampler, this.decks, inMaster);
+    this.fx = new BeatFx(this.decks, inMaster, this.mixer);
     this.sampler.previewToCue = () => this.mixer.get().cueRouting.kind !== 'off';
     this.midi = new MidiController(this.midiHandlers());
     this.autoDj = new AutoDj(this);
@@ -214,6 +217,7 @@ export class DjSession {
     });
     this.crate.set({ tracks, loaded: true });
     await this.restoreSettings();
+    await this.fx.init();
     await this.armDecks();
     this.watchForSaves();
     void this.sampler.init();
@@ -279,11 +283,7 @@ export class DjSession {
   private async restoreSettings() {
     const s = await getValue<Settings>('settings');
     if (!s || s.v !== 1) return;
-    const channels = this.mixer.get().channels.map((c, i) => ({
-      ...c,
-      fx: { ...c.fx, ...s.fx[i], on: false },
-    })) as [ChannelState, ChannelState];
-    this.mixer.set({ curve: s.curve, master: s.master, cueMix: s.cueMix, cueLevel: s.cueLevel, channels });
+    this.mixer.set({ curve: s.curve, master: s.master, cueMix: s.cueMix, cueLevel: s.cueLevel });
     s.decks.forEach((p, i) => {
       const d = this.decks[i];
       if (!d) return;
@@ -299,14 +299,12 @@ export class DjSession {
 
   private settings(): Settings {
     const m = this.mixer.get();
-    const fx = m.channels.map(({ fx: { type, beats, depth } }) => ({ type, beats, depth })) as Settings['fx'];
     return {
       v: 1,
       curve: m.curve,
       master: m.master,
       cueMix: m.cueMix,
       cueLevel: m.cueLevel,
-      fx,
       decks: this.decks.map((d) => {
         const st = d.store.get();
         return {
@@ -337,7 +335,7 @@ export class DjSession {
       this.sampler.store.subscribe(schedule),
       ...this.decks.map((d) => d.store.subscribe(schedule)),
       // Controller lights follow the rig.
-      ...[this.mixer, ...this.decks.map((d) => d.store)].map((s) =>
+      ...[this.mixer, this.fx.store, ...this.decks.map((d) => d.store)].map((s) =>
         s.subscribe(() => this.midi.updateLeds((id) => this.ledState(id))),
       ),
     );
@@ -358,12 +356,7 @@ export class DjSession {
           this.sampler.warm(this.sampler.store.get().bank);
           this.beats.attach(engine);
           this.applyMixer();
-          // Beat FX follow each deck's live tempo.
-          for (const d of this.decks) {
-            const sync = () => engine.channels[d.index].fx.setBpm(d.effectiveBpm());
-            sync();
-            this.unsubs.push(d.store.subscribe(sync));
-          }
+          this.fx.attach(engine);
           this.mixer.set({ audio: 'running' });
           return engine;
         },
@@ -387,6 +380,7 @@ export class DjSession {
     this.sound.dispose();
     void this.autoDj.setOn(false);
     this.beats.stop();
+    this.fx.dispose();
     this.sampler.silence();
     if (this.saveTimer !== null) window.clearTimeout(this.saveTimer);
     this.decks.forEach((d) => d.destroy());
@@ -910,10 +904,7 @@ export class DjSession {
       press(`${L}.memNext`, () => d.stepMemoryCue(1));
       h[`${L}.roll`] = (v) => d.roll(v ? 0.25 : null);
       h[`${L}.censor`] = (v) => d.censor(!!v);
-      press(`${L}.fx`, () => {
-        const fx = this.mixer.get().channels[i].fx;
-        this.setChannel(i, { fx: { ...fx, on: !fx.on } });
-      });
+      press(`${L}.fx`, () => this.fx.toggleFor(L));
       h[`${L}.bendDown`] = (v) => d.setBend(v ? -1 : 0);
       h[`${L}.bendUp`] = (v) => d.setBend(v ? 1 : 0);
       knob(`${L}.pitch`, (v) => d.setPitch((v * 2 - 1) * st().range));
@@ -973,7 +964,7 @@ export class DjSession {
       case 'loopOut':
         return st.loop.active && st.loopEdge === 'out';
       case 'fx':
-        return ch.fx.on;
+        return this.fx.litFor(m[1] === 'A' ? 'A' : 'B');
       case 'pfl':
         return ch.cue;
       case 'hot1':

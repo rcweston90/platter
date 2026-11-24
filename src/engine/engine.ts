@@ -1,3 +1,4 @@
+import { FxSlot, FxUnit } from './fx';
 import { Channel, crossfaderGains, levelGain, type ChannelState, type CrossfaderCurve } from './mixer';
 
 /** Worklets ship as files beside the page (public/worklets/), resolved
@@ -37,6 +38,9 @@ export class DjEngine {
   /** The mix bus before the master level: where the sampler joins. */
   readonly bus: GainNode;
   readonly masterMeters: [AnalyserNode, AnalyserNode];
+  /** The one Beat FX unit, and the places it can sit: deck A, deck B, master. */
+  readonly fx: FxUnit;
+  private fxSlots: [FxSlot, FxSlot, FxSlot];
   private masterGain: GainNode;
   private masterOut: GainNode;
   private cueBus: GainNode;
@@ -68,7 +72,15 @@ export class DjEngine {
     limiter.attack.value = 0.002;
     limiter.release.value = 0.12;
     this.masterOut = ctx.createGain();
-    master.connect(this.masterGain).connect(limiter).connect(this.masterOut);
+    // The master's FX slot sits after the bus, so a master effect takes in
+    // both decks, the sampler and the beat board, before the master level.
+    const masterSlot = new FxSlot(ctx);
+    master.connect(masterSlot.input);
+    masterSlot.output.connect(this.masterGain).connect(limiter).connect(this.masterOut);
+    this.fx = new FxUnit(ctx);
+    this.fxSlots = [this.channels[0].fxSlot, this.channels[1].fxSlot, masterSlot];
+    this.fxSlots.forEach((slot) => slot.attach(this.fx));
+    this.routeFx(0);
 
     const split = ctx.createChannelSplitter(2);
     this.masterOut.connect(split);
@@ -140,6 +152,11 @@ export class DjEngine {
 
   applyChannel(i: 0 | 1, s: ChannelState) {
     this.channels[i].apply(s);
+  }
+
+  /** Puts the Beat FX unit on channel A (0), B (1) or the master (2). */
+  routeFx(slot: 0 | 1 | 2) {
+    this.fxSlots.forEach((s, i) => s.select(i === slot));
   }
 
   applyCrossfader(x: number, curve: CrossfaderCurve) {

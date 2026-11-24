@@ -97,8 +97,11 @@ GitHub Actions).
 **Mixer**
 - Trim, three-band isolator EQ (fully left kills the band) and a one-knob
   low-/high-pass filter per channel.
-- **Beat FX** per channel — echo, reverb, flanger, phaser, trans and crush —
-  timed in beats of that deck's live tempo.
+- **Beat FX**: one unit you send to deck A, deck B or the master — delay,
+  echo, ping pong, spiral, reverb, helix, roll, triplet roll, flanger, phaser,
+  filter, triplet filter, mobius, trans and crush — timed in beats of the
+  deck's live tempo (or a tapped one), with a TIME readout, low/mid/high band
+  select, an X-pad and FX quantize.
 - Channel and master peak meters, a safety limiter on the master.
 - Crossfader with Smooth, Full and Cut (scratch) curves.
 - Headphone cue (PFL) with a cue/master blend: split one output (master left,
@@ -258,7 +261,7 @@ left hand, deck B on the right.
 | `Z` `X` · `N` `M` | Beat jump back / forward |
 | `1`–`4` · `7`–`0` | Hot cue pads 1–4 of the bank shown (`Shift` to clear) |
 | `5` · `6` | Hot cue bank A–H / I–P |
-| `F` · `H` | Beat FX on / off |
+| `F` · `H` · `B` | Beat FX on / off for deck A, deck B, the master |
 | `C` · `,` | Censor (hold) |
 | `V` · `.` | Slip on / off |
 | `[` `]` | Crossfader left / right (`Shift`: all the way) |
@@ -330,8 +333,9 @@ linking and offline install are only on a normal host.
 public/worklets/deck.js   the turntable: a signed, variable-rate playhead, plus slip and stems
 src/engine/
   deck.ts       transport, cues, loops, rolls, tricks, pitch, sync, key lock/shift
-  mixer.ts      channel strip: trim → isolator EQ → filter → beat FX → fader/cue/meter
-  fx.ts         the beat FX unit
+  mixer.ts      channel strip: trim → isolator EQ → filter → FX slot → fader/cue/meter
+  fx.ts         the beat FX unit and its insert slots
+  beatfx.ts     the Beat FX section: channel, tempo and tap, quantize, X-pad, saves
   engine.ts     AudioContext, master bus and limiter, headphone routing, recorder
   session.ts    the rig: decks, mixer, crate, sampler, MIDI, Auto-DJ, saves
   analysis.ts   decoding, three-band waveform peaks, tempo, tags
@@ -387,8 +391,12 @@ public/sounds/cc0/  the CC0 recordings, fetched on first use
 - **The EQ is an isolator**: Linkwitz–Riley crossovers at 220 Hz and 2.6 kHz,
   so a band turned all the way down is gone. Waveforms split at the same
   frequencies, so killing the low is the blue you'd expect to lose.
-- **Beat FX** read each deck's live tempo, so a 3/4-beat echo stays 3/4 of a
+- **Beat FX** read the deck's live tempo, so a 3/4-beat echo stays 3/4 of a
   beat when the pitch fader moves; send effects ring out when switched off.
+  There's one unit, which sits in an insert slot on either channel (before
+  the fader, so the cue hears it) or on the master bus. With quantize on,
+  switching and beat changes are scheduled on the audio clock for the next
+  beat of the deck's grid.
 - **Positions on screen** come from the context's output timestamp, so what
   you see is what you hear, output latency included. Loops are placed at the
   beat you hear and fold the playhead in if it has already passed.

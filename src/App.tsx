@@ -152,10 +152,6 @@ export default function App() {
       deck.hotCueDown(slot);
     };
     const x = () => session.mixer.get().crossfader;
-    const toggleFx = (i: 0 | 1) => {
-      const fx = session.mixer.get().channels[i].fx;
-      session.setChannel(i, { fx: { ...fx, on: !fx.on } });
-    };
 
     // A loop edge picked for adjusting takes ← and →, unless something with
     // its own use for arrows has focus (a fader, a knob, a list, the record).
@@ -208,8 +204,10 @@ export default function App() {
         Digit8: () => once && hot(B, 1, e),
         Digit9: () => once && hot(B, 2, e),
         Digit0: () => once && hot(B, 3, e),
-        KeyF: () => once && toggleFx(0),
-        KeyH: () => once && toggleFx(1),
+        // Beat FX on deck A and deck B: F and H, either side of the mixer. B for the master (G is loop out on deck A).
+        KeyF: () => once && session.fx.toggleFor('A'),
+        KeyB: () => once && session.fx.toggleFor('M'),
+        KeyH: () => once && session.fx.toggleFor('B'),
         KeyC: () => once && A.censor(true),
         Comma: () => once && B.censor(true),
         KeyV: () => once && A.setSlip(!A.store.get().slip),
