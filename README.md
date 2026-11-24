@@ -24,8 +24,11 @@ GitHub Actions).
   backwards), reverse, brake and spinback.
 - **Slip**: scratches, loops, rolls and reverse return to where the track
   would have been; a dashed ghost playhead shows where that is.
-- Beat loops (1/4 to 32 beats, halve and double) and beat jump, snapped to
-  the grid when QUANT is on.
+- Beat loops (1/4 to 32 beats) and manual loops (LOOP IN, LOOP OUT; hold IN
+  for 4 beats), halve and double for either, RELOOP / EXIT, and in/out edge
+  adjust by button, arrow key or a drag on the waveform. Beat jump has its own
+  size (1/2 to 64 beats) and carries a running loop with it. QUANT snaps to
+  1/8, 1/4, 1/2 or 1 beat.
 - Pitch fader with ±8 / ±16 / ±50% ranges and hold-to-bend nudge buttons, and a
   33 / 45 platter speed switch (45 plays 1.35× fast, on top of the fader).
 - **Sync lock**: press SYNC and that deck follows the other (tagged
@@ -245,6 +248,9 @@ left hand, deck B on the right.
 | `E` · `I` | Sync |
 | `A` `S` · `K` `L` | Bend slower / faster (hold) |
 | `D` · `J` | Loop on / off |
+| `R` `G` · `U` `Y` | Loop in (hold for 4 beats) / loop out; while looping, pick that edge |
+| `Shift+D` · `Shift+J` | Reloop / exit |
+| `←` `→` | Nudge the picked loop edge (`Shift`: 1 ms; `Esc` lets go) |
 | `Z` `X` · `N` `M` | Beat jump back / forward |
 | `1`–`4` · `7`–`0` | Hot cues (`Shift` to clear) |
 | `F` · `H` | Beat FX on / off |
