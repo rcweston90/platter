@@ -3033,3 +3033,201 @@
     border-radius: 5px;
   }
 }
+
+/* ── Deck guide: the ⓘ buttons and the panel they open ───────────────────
+   Quiet until wanted: a thin ring in the dim text colour that takes the
+   deck's colour on hover and while its panel is open. */
+.infoBtn {
+  position: relative;
+  display: inline-grid;
+  flex: none;
+  place-items: center;
+  width: 32px;
+  height: 32px;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  background: transparent;
+  color: var(--dj-dim);
+  cursor: pointer;
+  transition: color 120ms, background-color 120ms;
+}
+
+/* A finger-sized target around the small ring. */
+.infoBtn::after {
+  content: '';
+  position: absolute;
+  inset: -6px;
+}
+
+.infoBtn svg {
+  width: 20px;
+  height: 20px;
+}
+
+.infoBtn:hover,
+.infoBtn[aria-expanded='true'] {
+  color: var(--deck, var(--dj-text));
+  background: var(--dj-panel-2);
+}
+
+.deckInfo {
+  align-self: flex-start;
+}
+
+.pitchInfo {
+  margin-top: 2px;
+}
+
+/* The panel sits outside .root (portalled to the body), so it brings its own
+   type and colours. */
+.guide {
+  position: fixed;
+  z-index: 400;
+  width: min(380px, calc(100vw - 16px));
+  max-height: min(72vh, 620px);
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding: 14px 16px 6px;
+  border: 1px solid var(--dj-line-2);
+  border-top: 2px solid var(--deck, var(--dj-line-2));
+  border-radius: 10px;
+  background: var(--dj-panel);
+  box-shadow: 0 16px 40px var(--dj-shadow);
+  color: var(--dj-text);
+  font-family: var(--font-sans);
+  font-size: 14px;
+  line-height: 1.45;
+  text-align: left;
+}
+
+.guide:focus {
+  outline: none;
+}
+
+.guide:focus-visible {
+  outline: 2px solid var(--dj-focus);
+  outline-offset: 2px;
+}
+
+.guideHead {
+  position: sticky;
+  top: -14px;
+  z-index: 1;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin: -14px -16px 4px;
+  padding: 12px 10px 8px 16px;
+  background: var(--dj-panel);
+}
+
+.guideTitle {
+  margin: 0;
+  font-family: var(--font-label);
+  font-size: 15px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.guideClose {
+  display: grid;
+  flex: none;
+  place-items: center;
+  width: 36px;
+  height: 36px;
+  padding: 0;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--dj-dim);
+  font: inherit;
+  font-size: 22px;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.guideClose:hover {
+  background: var(--dj-panel-2);
+  color: var(--dj-text);
+}
+
+.guideClose:focus-visible {
+  outline: 2px solid var(--dj-focus);
+}
+
+.guideSection + .guideSection {
+  margin-top: 4px;
+  padding-top: 10px;
+  border-top: 1px solid var(--dj-line);
+}
+
+.guideSub {
+  margin: 0 0 6px;
+  color: var(--deck, var(--dj-text));
+  font-family: var(--font-label);
+  font-size: 13px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.guideList {
+  margin: 0;
+}
+
+.guideItem {
+  margin-bottom: 10px;
+}
+
+.guideItem dt {
+  font-family: var(--font-label);
+  font-size: 14px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.guideItem dd {
+  margin: 2px 0 0;
+  color: var(--dj-dim);
+}
+
+/* Phones: a sheet from the bottom of the screen, over a dimmed page. */
+.guideSheet {
+  top: auto;
+  right: 0;
+  bottom: 0;
+  left: 0;
+  width: auto;
+  max-height: 78dvh;
+  padding-bottom: calc(10px + env(safe-area-inset-bottom, 0px));
+  border-radius: 14px 14px 0 0;
+  border-right: 0;
+  border-bottom: 0;
+  border-left: 0;
+  font-size: 15px;
+}
+
+.guideBackdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 399;
+  background: rgb(0 0 0 / 0.5);
+}
+
+/* On a phone the pitch column is laid out in the deck body's grid: the ⓘ sits
+   in the row of range and nudge keys, between the two groups. */
+/* On a phone it sits in the gap between the range buttons (3 × 52px + 2 × 4px
+   = 164px) and the nudge pair (2 × 52px + 4px = 108px). A percentage margin
+   on a grid item is a share of its area, so 50% + (164 − 108) / 2, less half
+   the 32px button, centres it in that gap at any width. */
+.root[data-phone] .pitchInfo {
+  grid-row: 4;
+  grid-column: 1 / -1;
+  justify-self: start;
+  align-self: center;
+  margin: 0 0 0 calc(50% + 12px);
+}

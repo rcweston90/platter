@@ -52,3 +52,12 @@ export const PitchIcon = () => (
     <rect x="16" y="10" width="6" height="4" rx="2" fill="currentColor" />
   </svg>
 );
+
+/** Info: a ring with an "i", for the deck guide. */
+export const InfoIcon = () => (
+  <svg {...box}>
+    <circle cx="12" cy="12" r="9" fill="none" stroke="currentColor" strokeWidth="1.8" />
+    <path d="M12 11v6" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
+    <circle cx="12" cy="7.6" r="1.25" fill="currentColor" />
+  </svg>
+);

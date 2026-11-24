@@ -5,6 +5,7 @@ import { compatible, keyName } from '../engine/key';
 import type { DjSession } from '../engine/session';
 import { useStore, useStoreSelect } from '../engine/store';
 import { setText, useDropTarget, useFrame, type FrameLoop } from './frame';
+import { DECK_GUIDE, InfoTip, PITCH_GUIDE } from './DeckGuide';
 import { FxStrip } from './FxStrip';
 import { StemsControl } from './StemsControl';
 import { Turntable } from './Turntable';
@@ -72,6 +73,26 @@ export function DeckPanel({
   };
   const longPress = useRef<number | null>(null);
   const phone = usePhone();
+  // A double-tap on a touch screen resets the pitch, as a double-click does:
+  // touch browsers don't reliably turn two taps into a dblclick.
+  const lastTap = useRef(0);
+  const tapStart = useRef({ t: 0, y: 0 });
+  const faderDown = (e: PointerEvent<HTMLInputElement>) => {
+    if (e.pointerType === 'touch') tapStart.current = { t: e.timeStamp, y: e.clientY };
+  };
+  const faderTap = (e: PointerEvent<HTMLInputElement>) => {
+    if (e.pointerType !== 'touch') return;
+    // A drag isn't a tap: only short presses that stay put count.
+    const quick = e.timeStamp - tapStart.current.t < 300 && Math.abs(e.clientY - tapStart.current.y) < 10;
+    if (!quick) {
+      lastTap.current = 0;
+      return;
+    }
+    if (e.timeStamp - lastTap.current < 400) {
+      lastTap.current = 0;
+      deck.resetPitch();
+    } else lastTap.current = e.timeStamp;
+  };
 
   useFrame(loop, () => {
     const track = deck.store.get().track;
@@ -198,6 +219,13 @@ export function DeckPanel({
             {effKey ?? '—'}
           </span>
         </div>
+        <InfoTip
+          label={`What deck ${deck.label}'s controls do`}
+          title={`Deck ${deck.label}: what each control does`}
+          sections={DECK_GUIDE}
+          deck={deck.label}
+          className={s.deckInfo}
+        />
         {phone && (
           // On a phone the track list is a tap away from the deck you're on,
           // not at the bottom of a long page.
@@ -266,6 +294,17 @@ export function DeckPanel({
             aria-valuetext={`${pct(st.pitch)}, range ±${st.range * 100}%`}
             onChange={(e) => deck.setPitch(Number(e.target.value) * st.range)}
             onDoubleClick={() => deck.resetPitch()}
+            onPointerDown={faderDown}
+            onPointerUp={faderTap}
+            onKeyDown={(e) => {
+              // The fader runs top (−) to bottom (+). Arrow keys follow the
+              // thumb, but the browser's Page Up/Down go by value, which on
+              // this fader moves the thumb the opposite way to the key.
+              if (e.key !== 'PageUp' && e.key !== 'PageDown') return;
+              e.preventDefault();
+              const step = e.key === 'PageDown' ? 0.1 : -0.1;
+              deck.setPitch(Math.max(-1, Math.min(1, st.pitch / st.range + step)) * st.range);
+            }}
           />
           <span className={s.pitchEnd} aria-hidden="true">
             +{st.range * 100}
@@ -315,6 +354,14 @@ export function DeckPanel({
               </button>
             ))}
           </div>
+          <InfoTip
+            label={`What deck ${deck.label}'s pitch fader, range and nudge buttons do`}
+            title={`Deck ${deck.label}: tempo and pitch`}
+            sections={[PITCH_GUIDE]}
+            deck={deck.label}
+            hover
+            className={s.pitchInfo}
+          />
         </div>
       </div>
 
