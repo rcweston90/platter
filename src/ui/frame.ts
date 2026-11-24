@@ -1,4 +1,5 @@
 import { useEffect, useRef } from 'react';
+import { CUE_COLORS } from '../engine/cues';
 
 /**
  * One requestAnimationFrame for the whole rig. Platters, waveforms and meters
@@ -117,7 +118,8 @@ export function readPalette(el: Element) {
     // Canvas fonts can't resolve var(); custom properties compute to the
     // substituted family list, so read the site's mono stack here.
     mono: v('--font-mono') || 'monospace',
-    hot: [v('--dj-hot-1'), v('--dj-hot-2'), v('--dj-hot-3'), v('--dj-hot-4')],
+    hot: CUE_COLORS.map((_, i) => v(`--dj-hot-${i + 1}`)),
+    memory: v('--dj-memory'),
   };
 }
 

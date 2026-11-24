@@ -33,10 +33,23 @@
   --dj-loop: rgb(69 216 140 / 0.2);
   --dj-ghost: rgb(255 255 255 / 0.6);
   --dj-played: rgb(10 11 13 / 0.6);
+  /* Hot cue colours, in the order of CUE_COLORS (engine/cues.ts), which
+     keeps an RGB copy for matching imported cues. All read on the ink
+     colour (--dj-ink), since a set pad is filled with its cue's colour. */
   --dj-hot-1: #ff6b86;
   --dj-hot-2: #45d88c;
   --dj-hot-3: #5ec4ff;
   --dj-hot-4: #c99bff;
+  --dj-hot-5: #ffb347;
+  --dj-hot-6: #b5e655;
+  --dj-hot-7: #3fd0c4;
+  --dj-hot-8: #ff8a5c;
+  --dj-hot-9: #f78fd2;
+  --dj-hot-10: #8b96ff;
+  --dj-hot-11: #e8d5a8;
+  --dj-hot-12: #9aa5b8;
+  /* Memory cue markers on the waveforms. */
+  --dj-memory: #f2eee6;
   --dj-vinyl: #0b0b0c;
   --dj-groove: #1d1e21;
   --dj-plinth-1: #26282c;

@@ -1,0 +1,164 @@
+/* The hot cue pads, their bar and the cue editor (HotCues.tsx). Pads reuse
+   platter.module.css's .hotCues grid and .hotCue pad, buttons its .mini;
+   only what is new lives here. Each pad gets its cue's colour as --pad. */
+
+.hot {
+  display: grid;
+  gap: 6px;
+}
+
+.bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+}
+
+.group,
+.memory {
+  display: flex;
+  gap: 4px;
+}
+
+.memory {
+  align-items: center;
+  margin-left: auto;
+}
+
+.bank {
+  position: relative;
+  font-family: var(--font-mono);
+  font-size: 12px;
+}
+
+/* The bank that isn't showing still holds cues: a dot says so. */
+.bank[data-filled][aria-pressed='false']::after {
+  content: '';
+  position: absolute;
+  top: 6px;
+  right: 6px;
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: currentColor;
+}
+
+.memLabel {
+  font-family: var(--font-label);
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--dj-dim);
+}
+
+.memCount {
+  margin-left: 2px;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--dj-dim);
+}
+
+.wrap {
+  position: relative;
+}
+
+/* An empty pad shows the colour it will take as a line along its foot. */
+.pad {
+  box-shadow: inset 0 -2px 0 var(--pad);
+}
+
+.pad[data-set='true'] {
+  border-color: var(--pad);
+  background: var(--pad);
+  box-shadow: none;
+}
+
+/* A hot loop: the pad's colour, banded, with its length on it. */
+.pad[data-loop] {
+  background: repeating-linear-gradient(
+    -45deg,
+    var(--pad) 0 7px,
+    color-mix(in srgb, var(--pad) 72%, var(--dj-ink)) 7px 14px
+  );
+}
+
+/* That loop is the one playing. */
+.pad[data-live] {
+  outline: 2px solid var(--dj-text);
+  outline-offset: 2px;
+}
+
+/* Edit mode: set pads open their editor, and say so with a dashed inset. */
+.wrap[data-editing] .pad[data-set='true'] {
+  outline: 2px dashed var(--dj-ink);
+  outline-offset: -6px;
+}
+
+.loopTag {
+  margin-right: 6px;
+  font-weight: 700;
+}
+
+.editor {
+  position: absolute;
+  z-index: 20;
+  display: grid;
+  gap: 10px;
+  width: 240px;
+  max-width: 100%;
+  padding: 12px;
+  border: 1px solid var(--dj-line-2);
+  border-radius: 8px;
+  background: var(--dj-panel-3);
+  box-shadow: 0 10px 28px var(--dj-shadow);
+}
+
+.editorTitle {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+  margin: 0;
+  font-family: var(--font-label);
+  font-size: 15px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.editorTime {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  font-weight: 400;
+  letter-spacing: 0;
+  text-transform: none;
+  color: var(--dj-dim);
+}
+
+.swatches {
+  display: grid;
+  grid-template-columns: repeat(6, minmax(0, 1fr));
+  gap: 6px;
+}
+
+.swatch {
+  aspect-ratio: 1;
+  min-width: 28px;
+  padding: 0;
+  border: 2px solid transparent;
+  border-radius: 50%;
+  background: var(--pad);
+  cursor: pointer;
+}
+
+.swatch[aria-checked='true'] {
+  border-color: var(--dj-text);
+  box-shadow: inset 0 0 0 2px var(--dj-ink);
+}
+
+.editorActions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 6px;
+}
