@@ -289,6 +289,45 @@ for (let i = 0; i < n; i++) {
   check(await pressed(curves.nth(i)), `Mixer: crossfader curve “${await curves.nth(i).textContent()}” selects`);
 }
 
+/* ── Mixer DSP: the isolator's bands, at centre, sum back flat ──────────── */
+
+// An impulse through the channel isolator in an OfflineAudioContext, its
+// spectrum read by a plain DFT at log-spaced frequencies from 20 Hz to 20 kHz.
+const isoSpread = await page.evaluate(async () => {
+  const { Isolator } = await import('/src/engine/mixer.ts');
+  const sr = 48000;
+  const N = 16384;
+  const ctx = new OfflineAudioContext(1, N, sr);
+  const buf = ctx.createBuffer(1, N, sr);
+  buf.getChannelData(0)[0] = 1;
+  const src = ctx.createBufferSource();
+  src.buffer = buf;
+  const iso = new Isolator(ctx);
+  src.connect(iso.input);
+  iso.output.connect(ctx.destination);
+  src.start();
+  const out = (await ctx.startRendering()).getChannelData(0);
+  let min = Infinity;
+  let max = -Infinity;
+  for (let k = 0; k < 120; k++) {
+    const w = (2 * Math.PI * 20 * 1000 ** (k / 119)) / sr;
+    let re = 0;
+    let im = 0;
+    for (let n = 0; n < N; n++) {
+      re += out[n] * Math.cos(w * n);
+      im -= out[n] * Math.sin(w * n);
+    }
+    const db = 10 * Math.log10(re * re + im * im);
+    min = Math.min(min, db);
+    max = Math.max(max, db);
+  }
+  return { min, max };
+});
+check(
+  isoSpread.max < 0.5 && isoSpread.min > -0.5,
+  `Mixer: isolator bands at centre sum flat (${isoSpread.min.toFixed(2)} … +${isoSpread.max.toFixed(2)} dB)`,
+);
+
 check(errors.length === 0, `no page errors${errors.length ? `: ${errors.join(' | ')}` : ''}`);
 await browser.close();
 console.log(failures ? `\n${failures} failed` : '\nall passed');

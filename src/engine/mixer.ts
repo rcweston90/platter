@@ -20,7 +20,10 @@ import { FxSlot } from './fx';
 
 import { EQ_HIGH_HZ, EQ_LOW_HZ } from './eq';
 export { EQ_HIGH_HZ, EQ_LOW_HZ };
-const BUTTERWORTH_Q = Math.SQRT1_2;
+/** Web Audio reads Q on a lowpass or highpass biquad in dB: the level of the
+ *  resonance at the corner. A Butterworth (Q = 1/√2) is 20·log10(1/√2) dB.
+ *  (Allpass, peaking and the rest read Q as the plain number.) */
+export const BUTTERWORTH_Q_DB = 20 * Math.log10(Math.SQRT1_2); // −3.01 dB
 const SMOOTH = 0.015; // s — parameter glide, fast enough to feel direct, slow enough not to zipper
 
 export type CrossfaderCurve = 'power' | 'full' | 'cut';
@@ -104,7 +107,7 @@ export function crossfaderGains(x: number, curve: CrossfaderCurve): [number, num
 
 /* ── Channel strip ───────────────────────────────────────────────────────── */
 
-function biquad(ctx: BaseAudioContext, type: BiquadFilterType, hz: number, q = BUTTERWORTH_Q) {
+function biquad(ctx: BaseAudioContext, type: BiquadFilterType, hz: number, q = BUTTERWORTH_Q_DB) {
   const f = ctx.createBiquadFilter();
   f.type = type;
   f.frequency.value = hz;
@@ -115,6 +118,38 @@ function biquad(ctx: BaseAudioContext, type: BiquadFilterType, hz: number, q = B
 function chain(...nodes: AudioNode[]) {
   for (let i = 0; i < nodes.length - 1; i++) nodes[i].connect(nodes[i + 1]);
   return nodes[nodes.length - 1];
+}
+
+/**
+ * The 3-band isolator: low, mid and high bands split by 4th-order
+ * Linkwitz–Riley crossovers, each with its own gain, summed. With every band
+ * at unity the sum is flat (an allpass). Takes any context, so a test can
+ * render it offline.
+ */
+export class Isolator {
+  readonly input: GainNode;
+  readonly output: GainNode;
+  readonly bands: { low: GainNode; mid: GainNode; high: GainNode };
+
+  constructor(ctx: BaseAudioContext) {
+    this.input = ctx.createGain();
+    this.output = ctx.createGain();
+    const low = ctx.createGain();
+    chain(this.input, biquad(ctx, 'lowpass', EQ_LOW_HZ), biquad(ctx, 'lowpass', EQ_LOW_HZ), low, this.output);
+    const mid = ctx.createGain();
+    chain(
+      this.input,
+      biquad(ctx, 'highpass', EQ_LOW_HZ),
+      biquad(ctx, 'highpass', EQ_LOW_HZ),
+      biquad(ctx, 'lowpass', EQ_HIGH_HZ),
+      biquad(ctx, 'lowpass', EQ_HIGH_HZ),
+      mid,
+      this.output,
+    );
+    const high = ctx.createGain();
+    chain(this.input, biquad(ctx, 'highpass', EQ_HIGH_HZ), biquad(ctx, 'highpass', EQ_HIGH_HZ), high, this.output);
+    this.bands = { low, mid, high };
+  }
 }
 
 export class Channel {
@@ -137,22 +172,13 @@ export class Channel {
     cueBus: AudioNode,
   ) {
     this.input = ctx.createGain();
-    const sum = ctx.createGain();
-
-    this.low = ctx.createGain();
-    chain(this.input, biquad(ctx, 'lowpass', EQ_LOW_HZ), biquad(ctx, 'lowpass', EQ_LOW_HZ), this.low, sum);
-    this.mid = ctx.createGain();
-    chain(
-      this.input,
-      biquad(ctx, 'highpass', EQ_LOW_HZ),
-      biquad(ctx, 'highpass', EQ_LOW_HZ),
-      biquad(ctx, 'lowpass', EQ_HIGH_HZ),
-      biquad(ctx, 'lowpass', EQ_HIGH_HZ),
-      this.mid,
-      sum,
-    );
-    this.high = ctx.createGain();
-    chain(this.input, biquad(ctx, 'highpass', EQ_HIGH_HZ), biquad(ctx, 'highpass', EQ_HIGH_HZ), this.high, sum);
+    const iso = new Isolator(ctx);
+    this.input.connect(iso.input);
+    const { low, mid, high } = iso.bands;
+    this.low = low;
+    this.mid = mid;
+    this.high = high;
+    const sum = iso.output;
 
     this.lp = biquad(ctx, 'lowpass', 22000);
     this.hp = biquad(ctx, 'highpass', 10);
@@ -187,8 +213,9 @@ export class Channel {
     this.glide(this.lp.frequency, f.lp);
     this.glide(this.hp.frequency, f.hp);
     // A touch of resonance only while sweeping; flat (Butterworth) at rest.
-    this.glide(this.lp.Q, f.active && s.filter < 0 ? 1.6 : BUTTERWORTH_Q);
-    this.glide(this.hp.Q, f.active && s.filter > 0 ? 1.6 : BUTTERWORTH_Q);
+    // (In dB, like every lowpass/highpass Q here: +1.6 dB at the corner.)
+    this.glide(this.lp.Q, f.active && s.filter < 0 ? 1.6 : BUTTERWORTH_Q_DB);
+    this.glide(this.hp.Q, f.active && s.filter > 0 ? 1.6 : BUTTERWORTH_Q_DB);
     this.glide(this.fader.gain, faderGain(s.fader));
     this.glide(this.cueSend.gain, s.cue ? 1 : 0);
   }
