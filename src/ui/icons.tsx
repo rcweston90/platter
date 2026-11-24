@@ -43,3 +43,12 @@ export const ListIcon = () => (
     <path d="M4 6.5h16M4 12h16M4 17.5h10" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
   </svg>
 );
+
+/** Info: a ring with an "i", for the deck guide. */
+export const InfoIcon = () => (
+  <svg {...box}>
+    <circle cx="12" cy="12" r="9" fill="none" stroke="currentColor" strokeWidth="1.8" />
+    <path d="M12 11v6" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
+    <circle cx="12" cy="7.6" r="1.25" fill="currentColor" />
+  </svg>
+);
