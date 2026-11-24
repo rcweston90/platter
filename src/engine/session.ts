@@ -9,7 +9,8 @@ import { fetchArtwork, fetchAudiusAudio, type AudiusTrack } from './audius';
 import { fetchSoundCloudAudio, SoundCloudError, type ScTrack } from './soundcloud';
 import { AutoDj } from './autodj';
 import { backupToImported, makeBackup, matchTrack, parseBackup, parseRekordboxXml, type ImportedTrack } from './backup';
-import { Deck, PITCH_RANGES } from './deck';
+import { cueState, Deck, PITCH_RANGES } from './deck';
+import { normaliseCues } from './cues';
 import { DEMOS, demoRecords, renderDemo } from './demo';
 import { DjEngine, listOutputDevices, unlockDeviceNames, type CueRouting, type OutputDevice } from './engine';
 import { fileFromHandle } from './folder';
@@ -37,7 +38,7 @@ import { Preloader } from './preload';
 import { mapLimit } from './limit';
 import { analysisLanes } from '../library/client';
 import { createStore, type Store } from './store';
-import { emptyCues, type TrackRecord } from './types';
+import { emptyCues, HOT_BANK_SIZE, type TrackRecord } from './types';
 
 export interface MixerState {
   channels: [ChannelState, ChannelState];
@@ -193,6 +194,9 @@ export class DjSession {
       tracks = demoRecords();
       tracks.forEach((t) => void saveTrack(t));
     }
+    // Crates saved before hot cue banks keep four plain-number hot cues:
+    // read them into the current form (saved back on the next cue change).
+    tracks = tracks.map((t) => ({ ...t, cues: normaliseCues(t.cues) }));
     // Crates saved before key detection: fill demo keys, re-analyse files.
     tracks = tracks.map((t) => {
       if (t.key !== undefined) return t;
@@ -836,7 +840,7 @@ export class DjSession {
           ...(patch.bpm ? { bpm: patch.bpm } : {}),
           ...(patch.gridOffset !== undefined ? { gridOffset: patch.gridOffset } : {}),
           ...(patch.key ? { key: patch.key } : {}),
-          ...(patch.cues ? { cue: patch.cues.main, hotCues: [...patch.cues.hot] } : {}),
+          ...(patch.cues ? cueState(patch.cues) : {}),
         });
       }
       updated++;
@@ -867,7 +871,23 @@ export class DjSession {
       press(`${L}.loopDouble`, () => d.stepLoop(1));
       press(`${L}.jumpBack`, () => d.beatJump(-1));
       press(`${L}.jumpFwd`, () => d.beatJump(1));
-      [0, 1, 2, 3].forEach((k) => press(`${L}.hot${k + 1}`, () => d.hotCue(k)));
+      // Hot cue pads play the bank the deck shows; held, for Gate mode.
+      for (let k = 0; k < HOT_BANK_SIZE; k++) {
+        // The slot pressed, so a bank switch mid-hold lets go of the right one.
+        let held: number | null = null;
+        h[`${L}.hot${k + 1}`] = (v) => {
+          if (v) {
+            held = d.bankSlot(k);
+            d.hotCueDown(held);
+          } else if (held !== null) {
+            d.hotCueUp(held);
+            held = null;
+          }
+        };
+      }
+      press(`${L}.hotBank`, () => d.toggleHotBank());
+      press(`${L}.memPrev`, () => d.stepMemoryCue(-1));
+      press(`${L}.memNext`, () => d.stepMemoryCue(1));
       h[`${L}.roll`] = (v) => d.roll(v ? 0.25 : null);
       h[`${L}.censor`] = (v) => d.censor(!!v);
       press(`${L}.fx`, () => {
@@ -935,7 +955,13 @@ export class DjSession {
       case 'hot2':
       case 'hot3':
       case 'hot4':
-        return st.hotCues[Number(m[2].slice(3)) - 1] !== null;
+      case 'hot5':
+      case 'hot6':
+      case 'hot7':
+      case 'hot8':
+        return st.hotCues[st.hotBank * HOT_BANK_SIZE + Number(m[2].slice(3)) - 1] != null;
+      case 'hotBank':
+        return st.hotBank === 1;
       default:
         return null;
     }

@@ -8,10 +8,25 @@ export interface WavePeaks {
   high: Uint8Array;
 }
 
-/** Cue points saved with a track, in seconds. */
+/** A hot cue: a point to jump to, or for a hot loop, the loop it brings back. */
+export interface HotCue {
+  /** Seconds into the track; for a hot loop, where the loop starts. */
+  t: number;
+  /** Index into CUE_COLORS (engine/cues.ts). */
+  color: number;
+  /** Set for a hot loop: the loop's end (seconds) and its length in beats. */
+  loop?: { end: number; beats: number };
+}
+
+/** Cue points saved with a track, in seconds. Tracks and backups from before
+ *  cue banks hold four plain numbers in `hot` and no `memory`; read them
+ *  through normaliseCues (engine/cues.ts). */
 export interface TrackCues {
   main: number;
-  hot: (number | null)[];
+  /** HOT_CUES slots, bank by bank (A–H, then I–P); null where a pad is empty. */
+  hot: (HotCue | null)[];
+  /** Memory cues: up to MEMORY_CUES saved points, in seconds, in order. */
+  memory: number[];
 }
 
 /** A track in the crate, as stored in IndexedDB. */
@@ -53,8 +68,12 @@ export interface TrackRecord {
   error?: string;
 }
 
-export const HOT_CUES = 4;
+/** Pads in a hot cue bank, and banks per deck. */
+export const HOT_BANK_SIZE = 8;
+export const HOT_BANKS = 2;
+export const HOT_CUES = HOT_BANK_SIZE * HOT_BANKS;
+export const MEMORY_CUES = 10;
 
 export function emptyCues(): TrackCues {
-  return { main: 0, hot: Array.from({ length: HOT_CUES }, () => null) };
+  return { main: 0, hot: Array.from({ length: HOT_CUES }, () => null), memory: [] };
 }

@@ -2,7 +2,8 @@ import type { StretchNode } from 'signalsmith-stretch';
 import { workletUrl, type DjEngine } from './engine';
 import { nearestCompatibleShift, shiftKey } from './key';
 import { createStore, type Store } from './store';
-import { HOT_CUES, type TrackCues, type TrackRecord, type WavePeaks } from './types';
+import { defaultCueColor, normaliseCues, tidyMemory } from './cues';
+import { HOT_BANK_SIZE, HOT_BANKS, HOT_CUES, MEMORY_CUES, type HotCue, type TrackCues, type TrackRecord, type WavePeaks } from './types';
 
 export const PITCH_RANGES = [0.08, 0.16, 0.5] as const;
 export const LOOP_BEATS = [0.25, 0.5, 1, 2, 4, 8, 16, 32] as const;
@@ -67,7 +68,14 @@ export interface DeckState {
   /** Beats of the beat roll being held, or null. */
   roll: number | null;
   cue: number;
-  hotCues: (number | null)[];
+  /** HOT_CUES slots: bank A–H, then bank I–P. */
+  hotCues: (HotCue | null)[];
+  /** The bank the pads (and pad keys and MIDI pads) play: 0 = A–H, 1 = I–P. */
+  hotBank: number;
+  /** Gate: a hot cue plays only while held, then back to the cue point. */
+  hotGate: boolean;
+  /** Memory cues, in seconds, in order. */
+  memoryCues: number[];
   loop: { active: boolean; beats: number; start: number; end: number };
 }
 
@@ -93,6 +101,9 @@ function initialState(): DeckState {
     roll: null,
     cue: 0,
     hotCues: Array.from({ length: HOT_CUES }, () => null),
+    hotBank: 0,
+    hotGate: false,
+    memoryCues: [],
     loop: { active: false, beats: 4, start: 0, end: 0 },
   };
 }
@@ -102,6 +113,12 @@ const clamp = (v: number, lo: number, hi: number) => Math.min(hi, Math.max(lo, v
 export const wrapHalf = (v: number) => v - Math.round(v);
 
 export type SyncRole = 'leader' | 'follower' | 'free';
+
+/** A track's saved cues as deck state, whatever form they were saved in. */
+export function cueState(saved: unknown): Pick<DeckState, 'cue' | 'hotCues' | 'memoryCues'> {
+  const c = normaliseCues(saved);
+  return { cue: c.main, hotCues: c.hot, memoryCues: c.memory };
+}
 
 type WorkletMessage =
   | { type: 'pos'; t: number; pos: number; rate: number; playing: boolean; shadow: number; stems?: number[] | null }
@@ -140,6 +157,8 @@ export class Deck {
   private bend = 0;
   private previewing = false;
   private previewLatched = false;
+  /** The hot cue slot held in gate mode, or null. */
+  private gateSlot: number | null = null;
   private taps: number[] = [];
   /** Sync lock's speed trim, on top of bend. */
   private trim = 0;
@@ -296,9 +315,9 @@ export class Deck {
       bpm: rec.bpm,
       gridOffset: rec.gridOffset,
       key: rec.key ?? null,
-      cue: rec.cues.main,
-      hotCues: [...rec.cues.hot],
+      ...cueState(rec.cues),
     });
+    this.gateSlot = null;
   }
 
   /** False (and asks for the audio) when the deck is only armed. */
@@ -340,15 +359,15 @@ export class Deck {
       bpm: rec.bpm,
       gridOffset: rec.gridOffset,
       key: rec.key ?? null,
-      cue: rec.cues.main,
-      hotCues: [...rec.cues.hot],
+      ...cueState(rec.cues),
       loop: { ...this.store.get().loop, active: false },
       reverse: false,
       roll: null,
     });
+    this.gateSlot = null;
     this.post({ type: 'loop', in: -1, out: -1 });
     this.post({ type: 'slip', on: this.store.get().slip });
-    this.post({ type: 'seek', frame: rec.cues.main * this.sr });
+    this.post({ type: 'seek', frame: this.store.get().cue * this.sr });
     this.store.set({ syncOffset: 0 });
     const o = this.other;
     if (!this.store.get().sync && o?.store.get().sync && o.store.get().playing) {
@@ -543,31 +562,143 @@ export class Deck {
 
   /* ── Hot cues ─────────────────────────────────────────────────────────── */
 
-  hotCue(i: number) {
+  /** The slot (0 … HOT_CUES − 1) that pad `pad` (0 … 7) of the shown bank plays. */
+  bankSlot(pad: number): number {
+    return this.store.get().hotBank * HOT_BANK_SIZE + pad;
+  }
+
+  setHotBank(bank: number) {
+    this.store.set({ hotBank: clamp(Math.round(bank), 0, HOT_BANKS - 1) });
+  }
+
+  toggleHotBank() {
+    this.setHotBank((this.store.get().hotBank + 1) % HOT_BANKS);
+  }
+
+  setHotGate(on: boolean) {
+    if (!on && this.gateSlot !== null) this.hotCueUp(this.gateSlot);
+    this.store.set({ hotGate: on });
+  }
+
+  /** A hot cue pad went down. Empty: mark the spot (snapped with Quant on),
+   *  or, while a loop runs, keep that loop on the pad. Set: jump there, or
+   *  loop that loop again. With Gate on, the deck plays only while the pad
+   *  is held (see hotCueUp). */
+  hotCueDown(slot: number) {
     const s = this.store.get();
-    if (!this.ready()) return;
-    const at = s.hotCues[i];
-    if (at === null) {
+    if (slot < 0 || slot >= HOT_CUES || !this.ready()) return;
+    const cue = s.hotCues[slot];
+    if (!cue) {
       const hotCues = [...s.hotCues];
-      hotCues[i] = this.snap(this.position());
+      const color = defaultCueColor(slot);
+      hotCues[slot] = s.loop.active
+        ? { t: s.loop.start, color, loop: { end: s.loop.end, beats: s.loop.beats } }
+        : { t: this.snap(this.position()), color };
       this.store.set({ hotCues });
       this.persistCues();
+      return;
+    }
+    this.engine?.resume();
+    if (cue.loop) {
+      // Like toggleLoop, with the loop that was kept: to its start, then loop.
+      const { end, beats } = cue.loop;
+      this.seek(cue.t);
+      this.post({ type: 'loop', in: cue.t * this.sr, out: end * this.sr });
+      this.store.set({ loop: { active: true, beats, start: cue.t, end } });
     } else {
-      this.seek(at);
+      this.seek(cue.t);
+    }
+    if (s.hotGate && !this.previewing) {
+      this.gateSlot = slot;
+      if (!s.playing) {
+        this.post({ type: 'play', instant: true });
+        this.store.set({ playing: true });
+      }
     }
   }
 
-  clearHotCue(i: number) {
+  /** A hot cue pad was let go. With Gate on, the cue held stops and goes
+   *  back to the cue point, as letting go of Cue does. */
+  hotCueUp(slot: number) {
+    if (this.gateSlot !== slot) return;
+    this.gateSlot = null;
+    const s = this.store.get();
+    if (s.hotCues[slot]?.loop && s.loop.active) {
+      this.post({ type: 'loop', in: -1, out: -1 });
+      this.store.set({ loop: { ...s.loop, active: false } });
+    }
+    this.post({ type: 'pause', instant: true });
+    this.post({ type: 'seek', frame: s.cue * this.sr });
+    this.store.set({ playing: false });
+  }
+
+  clearHotCue(slot: number) {
+    if (this.gateSlot === slot) this.hotCueUp(slot);
     const hotCues = [...this.store.get().hotCues];
-    hotCues[i] = null;
+    if (!hotCues[slot]) return;
+    hotCues[slot] = null;
     this.store.set({ hotCues });
+    this.persistCues();
+  }
+
+  /** Recolour a cue; `color` is an index into CUE_COLORS. */
+  setHotCueColor(slot: number, color: number) {
+    const hotCues = [...this.store.get().hotCues];
+    const cue = hotCues[slot];
+    if (!cue || cue.color === color) return;
+    hotCues[slot] = { ...cue, color };
+    this.store.set({ hotCues });
+    this.persistCues();
+  }
+
+  /** Save a memory cue at the playhead (snapped with Quant on). False when
+   *  there's no room or one is already there. */
+  addMemoryCue(): boolean {
+    const s = this.store.get();
+    if (!s.track || s.memoryCues.length >= MEMORY_CUES) return false;
+    const at = this.snap(this.position());
+    if (s.memoryCues.some((m) => Math.abs(m - at) < 0.05)) return false;
+    this.store.set({ memoryCues: tidyMemory([...s.memoryCues, at]) });
+    this.persistCues();
+    return true;
+  }
+
+  /** The memory cue at the cue point, or −1. */
+  memoryAtCue(): number {
+    const { memoryCues, cue } = this.store.get();
+    return memoryCues.findIndex((m) => Math.abs(m - cue) < 0.05);
+  }
+
+  /** Call up the next or previous memory cue from the playhead: it becomes
+   *  the cue point and the track goes there, playing on if it was playing. */
+  stepMemoryCue(dir: -1 | 1) {
+    const s = this.store.get();
+    if (!s.memoryCues.length || !this.ready()) return;
+    const here = this.position();
+    const at =
+      dir > 0 ? s.memoryCues.find((m) => m > here + 0.05) : [...s.memoryCues].reverse().find((m) => m < here - 0.05);
+    if (at === undefined) return;
+    this.store.set({ cue: at });
+    this.seek(at);
+    this.persistCues();
+  }
+
+  /** Delete the memory cue at the cue point (call it up first). */
+  deleteMemoryCue() {
+    const i = this.memoryAtCue();
+    if (i < 0) return;
+    this.store.set({ memoryCues: this.store.get().memoryCues.filter((_, k) => k !== i) });
     this.persistCues();
   }
 
   private persistCues() {
     const s = this.store.get();
     if (!s.track) return;
-    const cues: TrackCues = { main: s.cue, hot: [...s.hotCues] };
+    const cues: TrackCues = {
+      main: s.cue,
+      hot: s.hotCues.map((c) => (c ? { ...c, ...(c.loop ? { loop: { ...c.loop } } : {}) } : null)),
+      memory: [...s.memoryCues],
+    };
     this.onPersist?.(s.track.id, { cues });
   }
 
