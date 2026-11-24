@@ -1,8 +1,9 @@
 
-import { useRef, useState, type KeyboardEvent, type PointerEvent } from 'react';
+import { useEffect, useRef, useState, type KeyboardEvent, type PointerEvent } from 'react';
 import { SPEEDS, type Deck } from '../engine/deck';
 import { useStore } from '../engine/store';
 import { useFrame, type FrameLoop } from './frame';
+import { ScrollNudge } from './scrollNudge';
 import s from '../platter.module.css';
 
 /** One revolution at 33⅓ rpm: 1.8 s of audio passes under the needle. At 45
@@ -25,6 +26,28 @@ export function Turntable({ deck, loop, still }: { deck: Deck; loop: FrameLoop; 
   const grab = useRef<{ cx: number; cy: number; last: number; total: number; id: number } | null>(null);
   const [held, setHeld] = useState(false);
   const [nudge, setNudge] = useState(0);
+  const plate = useRef<HTMLDivElement>(null);
+  const wheel = useRef<ScrollNudge | null>(null);
+
+  // Scroll over the record to nudge it (scrollNudge.ts). React's onWheel is
+  // passive and can't keep the page from scrolling, so this listens directly,
+  // and only on the platter.
+  useEffect(() => {
+    const el = plate.current;
+    if (!el) return;
+    const w = new ScrollNudge(deck, (amount) => setNudge(Math.sign(amount)));
+    wheel.current = w;
+    const onWheel = (e: WheelEvent) => {
+      if (e.ctrlKey || grab.current) return; // pinch-zoom, or a hand already on the record
+      if (w.handle(e)) e.preventDefault();
+    };
+    el.addEventListener('wheel', onWheel, { passive: false });
+    return () => {
+      el.removeEventListener('wheel', onWheel);
+      w.release();
+      wheel.current = null;
+    };
+  }, [deck]);
 
   useFrame(loop, () => {
     const track = deck.store.get().track;
@@ -46,6 +69,7 @@ export function Turntable({ deck, loop, still }: { deck: Deck; loop: FrameLoop; 
     const cx = r.left + r.width / 2;
     const cy = r.top + r.height / 2;
     e.currentTarget.setPointerCapture(e.pointerId);
+    wheel.current?.release();
     grab.current = { cx, cy, last: angleOf(e, cx, cy), total: 0, id: e.pointerId };
     deck.touch(true);
     setHeld(true);
@@ -104,10 +128,11 @@ export function Turntable({ deck, loop, still }: { deck: Deck; loop: FrameLoop; 
         ))}
       </div>
       <div
+        ref={plate}
         className={`${s.platter} ${held ? s.platterHeld : ''} ${st.track ? '' : s.platterEmpty}`}
         role="slider"
         tabIndex={0}
-        aria-label={`Deck ${deck.label} platter — drag the record to scratch; hold an arrow key to nudge`}
+        aria-label={`Deck ${deck.label} platter — drag the record to scratch; hold an arrow key or scroll to nudge`}
         aria-valuemin={-1}
         aria-valuemax={1}
         aria-valuenow={nudge}
