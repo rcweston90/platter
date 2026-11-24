@@ -37,6 +37,7 @@ import { modelCached } from './stems/model';
 import { Preloader } from './preload';
 import { mapLimit } from './limit';
 import { analysisLanes } from '../library/client';
+import { Listening } from './listen';
 import { createStore, type Store } from './store';
 import { emptyCues, HOT_BANK_SIZE, type TrackRecord } from './types';
 
@@ -158,6 +159,8 @@ export class DjSession {
   readonly autoDj: AutoDj;
   /** The mixer's Beat FX section (one unit, on deck A, deck B or the master). */
   readonly fx: BeatFx;
+  /** What the main output plays, and its own volume (listen.ts). */
+  readonly listen: Listening = new Listening(this);
   engine: DjEngine | null = null;
   private starting: Promise<DjEngine> | null = null;
   private analysing = 0;
@@ -189,7 +192,8 @@ export class DjSession {
     };
     this.beats = new BeatBoard(this.sampler, this.decks, inMaster);
     this.fx = new BeatFx(this.decks, inMaster, this.mixer);
-    this.sampler.previewToCue = () => this.mixer.get().cueRouting.kind !== 'off';
+    this.sampler.previewToCue = () =>
+      this.mixer.get().cueRouting.kind !== 'off' || this.listen.store.get().source === 'blend';
     this.midi = new MidiController(this.midiHandlers());
     this.autoDj = new AutoDj(this);
   }
@@ -217,6 +221,7 @@ export class DjSession {
     });
     this.crate.set({ tracks, loaded: true });
     await this.restoreSettings();
+    void this.listen.init();
     await this.fx.init();
     await this.armDecks();
     this.watchForSaves();
@@ -381,6 +386,7 @@ export class DjSession {
     void this.autoDj.setOn(false);
     this.beats.stop();
     this.fx.dispose();
+    this.listen.dispose();
     this.sampler.silence();
     if (this.saveTimer !== null) window.clearTimeout(this.saveTimer);
     this.decks.forEach((d) => d.destroy());
