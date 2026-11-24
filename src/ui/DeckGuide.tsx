@@ -1,6 +1,6 @@
 import { useEffect, useId, useLayoutEffect, useRef, useState, type CSSProperties, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
-import { BEND, LOOP_BEATS, PITCH_RANGES, ROLL_BEATS } from '../engine/deck';
+import { BEND, JUMP_BEATS, LOOP_BEATS, PITCH_RANGES, QUANTIZE_BEATS, ROLL_BEATS, loopLabel } from '../engine/deck';
 import { beatsLabel } from '../engine/fx';
 import { bankLabel, CUE_COLORS } from '../engine/cues';
 import { HOT_BANK_SIZE, HOT_CUES, MEMORY_CUES } from '../engine/types';
@@ -28,7 +28,6 @@ export interface GuideSection {
 
 const pct = (n: number) => `${Math.round(n * 100)}%`;
 const ranges = PITCH_RANGES.map((r) => `±${r * 100}`).join(' ');
-const loopLabel = (b: number) => (b < 1 ? `1/${Math.round(1 / b)}` : String(b));
 /** "a, b, c or d" */
 const either = (xs: string[]) => (xs.length < 2 ? xs.join('') : `${xs.slice(0, -1).join(', ')} or ${xs[xs.length - 1]}`);
 
@@ -98,7 +97,7 @@ export const DECK_GUIDE: GuideSection[] = [
       },
       {
         name: 'Quant',
-        text: 'Cue points, hot cues and loops land on the nearest beat, and rolls start on the beat just played.',
+        text: `Cue points, hot cues and loops land on the nearest step of the grid — a beat, or ${either(QUANTIZE_BEATS.filter((b) => b < 1).map(loopLabel))} of one, set with the Q key by the loops — and rolls start on the beat just played.`,
       },
       {
         name: 'Slip',
@@ -153,12 +152,28 @@ export const DECK_GUIDE: GuideSection[] = [
     items: [
       { name: 'Loop', text: 'Loops that many beats from here. Press again to leave the loop.' },
       {
-        name: '½  2×',
-        text: `Halve or double the loop, from ${loopLabel(LOOP_BEATS[0])} of a beat to ${loopLabel(LOOP_BEATS[LOOP_BEATS.length - 1])} beats, even while it’s looping.`,
+        name: 'In  Out',
+        text: 'A loop of your own length. In marks where it starts, Out ends it there and starts looping; both snap to the grid with Quant on. Hold In for a 4-beat loop from the in point.',
       },
       {
-        name: '◂◂  ▸▸',
-        text: 'Jump back or forward by the loop’s length. A running loop moves with the jump.',
+        name: 'Reloop',
+        text: 'While looping it reads Exit: leave the loop and play on. Press it again to jump back to the loop’s start and loop it again.',
+      },
+      {
+        name: '½  2×',
+        text: `Halve or double the loop, yours or a beat loop, from ${loopLabel(LOOP_BEATS[0])} of a beat to ${loopLabel(LOOP_BEATS[LOOP_BEATS.length - 1])} beats, even while it’s looping. It keeps its start.`,
+      },
+      {
+        name: 'Edge  <  >',
+        text: 'While looping, press In or Out (or Edge) to pick that end of the loop, then move it with < and > or the arrow keys: a grid step with Quant on, 10 ms with it off, 1 ms with Shift. You can also drag an end on the scrolling waveform. The pick lets go after a few seconds untouched, or with Esc.',
+      },
+      {
+        name: '◂◂  − Jump +  ▸▸',
+        text: `Jump back or forward by the jump size, ${loopLabel(JUMP_BEATS[0])} to ${loopLabel(JUMP_BEATS[JUMP_BEATS.length - 1])} beats, set with − and +. A running loop moves with the jump.`,
+      },
+      {
+        name: 'Q',
+        text: `The quantise step: ${either(QUANTIZE_BEATS.map(loopLabel))} beat. Press for the next. It only snaps while Quant is on.`,
       },
     ],
   },

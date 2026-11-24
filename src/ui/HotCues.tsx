@@ -1,7 +1,6 @@
 import { useEffect, useLayoutEffect, useRef, useState, type CSSProperties, type KeyboardEvent, type PointerEvent } from 'react';
 import { bankLabel, CUE_COLORS, cueColorVar, defaultCueColor, hotLetter } from '../engine/cues';
-import type { Deck } from '../engine/deck';
-import { beatsLabel } from '../engine/fx';
+import { loopLabel, type Deck } from '../engine/deck';
 import { useStore } from '../engine/store';
 import { HOT_BANK_SIZE, HOT_BANKS, MEMORY_CUES } from '../engine/types';
 import { ChevronIcon } from './icons';
@@ -219,7 +218,7 @@ export function HotCues({ deck }: { deck: Deck }) {
             const live = !!cue?.loop && st.loop.active && Math.abs(st.loop.start - cue.t) < 0.001 && Math.abs(st.loop.end - cue.loop.end) < 0.001;
             const label = !cue
               ? `Set hot cue ${letter}${st.loop.active ? ' to the running loop' : ''}`
-              : `${cue.loop ? `Hot loop ${letter}, ${beatsLabel(cue.loop.beats)} beats from` : `Hot cue ${letter} at`} ${formatTime(cue.t)}, ${CUE_COLORS[cue.color]}${editing ? ' — press to edit' : ''}`;
+              : `${cue.loop ? `Hot loop ${letter}, ${loopLabel(cue.loop.beats)} beats from` : `Hot cue ${letter} at`} ${formatTime(cue.t)}, ${CUE_COLORS[cue.color]}${editing ? ' — press to edit' : ''}`;
             return (
               <button
                 key={pad}
@@ -251,7 +250,7 @@ export function HotCues({ deck }: { deck: Deck }) {
                 <span className={s.hotTime}>
                   {cue?.loop && (
                     <span className={h.loopTag} aria-hidden="true">
-                      ⟲{beatsLabel(cue.loop.beats)}
+                      ⟲{loopLabel(cue.loop.beats)}
                     </span>
                   )}
                   {cue ? formatTime(cue.t) : ''}
@@ -346,7 +345,7 @@ function CueEditor({
         {cue.loop ? 'Hot loop' : 'Hot cue'} {letter}
         <span className={h.editorTime}>
           {formatTime(cue.t)}
-          {cue.loop ? ` · ${beatsLabel(cue.loop.beats)} beats` : ''}
+          {cue.loop ? ` · ${loopLabel(cue.loop.beats)} beats` : ''}
         </span>
       </p>
       <div className={h.swatches} role="radiogroup" aria-label="Colour">

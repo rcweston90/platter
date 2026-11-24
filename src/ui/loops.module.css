@@ -1,0 +1,114 @@
+/* A deck's loop section (LoopControls): three rows on one seven-column grid,
+   so the rows line up — loops, beat jump and quantise, edge adjust. Buttons
+   are the rig's own .mini and .toggle; this only lays them out. */
+
+.loops {
+  display: grid;
+  gap: 6px;
+}
+
+.row {
+  display: grid;
+  grid-template-columns: repeat(7, minmax(0, 1fr));
+  gap: 6px;
+  align-items: stretch;
+}
+
+.row > button,
+.stepper > button {
+  min-width: 0;
+  padding: 0 4px;
+  font-size: 13px;
+  white-space: nowrap;
+}
+
+/* The beat loop's own button: two columns, lit green while looping, as the
+   Loop button always was. */
+.row > .loopBtn {
+  grid-column: span 2;
+}
+
+.row > .loopBtn[aria-pressed='true'] {
+  border-color: var(--dj-play);
+  background: var(--dj-play);
+  color: var(--dj-ink);
+}
+
+/* − Jump 16 +: four columns, the size between its two keys. */
+.stepper {
+  display: grid;
+  grid-column: span 4;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 2fr) minmax(0, 1fr);
+  gap: 6px;
+}
+
+.value {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid var(--dj-line);
+  border-radius: 6px;
+  font-family: var(--font-mono);
+  font-size: 15px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  line-height: 1.1;
+}
+
+.caption {
+  font-family: var(--font-label);
+  font-size: 10px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--dj-dim);
+}
+
+/* Quantise off: the step still shows, dimmed, since it waits for Quant. */
+.row > button[data-off] {
+  color: var(--dj-dim);
+}
+
+/* Edge adjust: a quieter row, the picked edge in the deck's colour. */
+.adjust > button {
+  min-height: 36px;
+}
+
+.adjust > .edge {
+  grid-column: span 2;
+}
+
+.hint {
+  grid-column: span 3;
+  align-self: center;
+  overflow: hidden;
+  color: var(--dj-dim);
+  font-size: 12px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+@media (pointer: coarse) {
+  .adjust > button {
+    min-height: 44px;
+  }
+}
+
+/* On a phone the hint gives way: the three keys take the row. */
+@media (max-width: 639px) {
+  .row {
+    gap: 4px;
+  }
+
+  .stepper {
+    gap: 4px;
+  }
+
+  .adjust > .edge {
+    grid-column: span 5;
+  }
+
+  .hint {
+    display: none;
+  }
+}

@@ -50,6 +50,9 @@ function deckActions(d: 'A' | 'B'): MidiAction[] {
     b('loop', 'Loop on / off'),
     b('loopHalf', 'Loop ½'),
     b('loopDouble', 'Loop 2×'),
+    b('loopIn', 'Loop in (hold: 4-beat loop)'),
+    b('loopOut', 'Loop out'),
+    b('reloop', 'Reloop / exit'),
     b('jumpBack', 'Beat jump back'),
     b('jumpFwd', 'Beat jump forward'),
     // Ids hot1–hot8 are pads 1–8 of the bank the deck shows (hot1–hot4

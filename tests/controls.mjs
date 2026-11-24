@@ -209,6 +209,22 @@ const secs = async () => {
   const [mm, ss] = (await A.locator('[class*="time"] span').first().textContent()).split(':').map(Number);
   return mm * 60 + ss;
 };
+// Manual loop: In, then Out a moment later, starts looping; Exit leaves it;
+// Reloop brings it back.
+const loopIn = A.getByRole('button', { name: /Deck A loop in/ });
+await loopIn.click();
+await page.waitForTimeout(700);
+await A.getByRole('button', { name: /Deck A loop out/ }).click();
+check(await pressed(loopBtn), `Loop: In then Out starts a loop (${await loopBtn.textContent()})`);
+const exitBtn = A.getByRole('button', { name: /Deck A: exit the loop/ });
+await exitBtn.click();
+check(!(await pressed(loopBtn)), 'Loop: Exit leaves the manual loop');
+await A.getByRole('button', { name: /Deck A reloop/ }).click();
+check(await pressed(loopBtn), 'Loop: Reloop brings it back');
+await A.getByRole('button', { name: /Deck A: exit the loop/ }).click();
+// Beat jump has its own size (16 by default): bring it down to 4.
+await A.getByRole('button', { name: 'Smaller beat jump' }).click();
+await A.getByRole('button', { name: 'Smaller beat jump' }).click();
 const j0 = await secs();
 await A.getByRole('button', { name: /Jump forward 4 beats/ }).click();
 await page.waitForTimeout(100);
