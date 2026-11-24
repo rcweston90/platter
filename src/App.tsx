@@ -139,10 +139,6 @@ export default function App() {
     };
     const hot = (deck: typeof A, i: number, shift: boolean) => (shift ? deck.clearHotCue(i) : deck.hotCue(i));
     const x = () => session.mixer.get().crossfader;
-    const toggleFx = (i: 0 | 1) => {
-      const fx = session.mixer.get().channels[i].fx;
-      session.setChannel(i, { fx: { ...fx, on: !fx.on } });
-    };
 
     const down = (e: KeyboardEvent) => {
       if (!handles(e)) return;
@@ -173,8 +169,10 @@ export default function App() {
         Digit8: () => once && hot(B, 1, e.shiftKey),
         Digit9: () => once && hot(B, 2, e.shiftKey),
         Digit0: () => once && hot(B, 3, e.shiftKey),
-        KeyF: () => once && toggleFx(0),
-        KeyH: () => once && toggleFx(1),
+        // Beat FX on deck A, the master, deck B: F G H, left to right like the mixer.
+        KeyF: () => once && session.fx.toggleFor('A'),
+        KeyG: () => once && session.fx.toggleFor('M'),
+        KeyH: () => once && session.fx.toggleFor('B'),
         KeyC: () => once && A.censor(true),
         Comma: () => once && B.censor(true),
         KeyV: () => once && A.setSlip(!A.store.get().slip),
