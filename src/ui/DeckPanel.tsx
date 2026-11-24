@@ -7,6 +7,7 @@ import { useStore, useStoreSelect } from '../engine/store';
 import { setText, useDropTarget, useFrame, type FrameLoop } from './frame';
 import { DECK_GUIDE, InfoTip, PITCH_GUIDE } from './DeckGuide';
 import { FxStrip } from './FxStrip';
+import { HotCues } from './HotCues';
 import { LoopControls } from './LoopControls';
 import { StemsControl } from './StemsControl';
 import { Turntable } from './Turntable';
@@ -71,7 +72,6 @@ export function DeckPanel({
     setBending(dir);
     deck.setBend(dir);
   };
-  const longPress = useRef<number | null>(null);
   const phone = usePhone();
   // A double-tap on a touch screen resets the pitch, as a double-click does:
   // touch browsers don't reliably turn two taps into a dblclick.
@@ -139,29 +139,6 @@ export function DeckPanel({
     if (!cueHeld.current) return;
     cueHeld.current = false;
     deck.cueUp();
-  };
-
-  const hotDown = (i: number, e: PointerEvent<HTMLButtonElement>) => {
-    if (e.button !== 0) return;
-    if (e.shiftKey) {
-      deck.clearHotCue(i);
-      return;
-    }
-    // Long press clears on touch screens, where there's no Shift or right-click.
-    if (e.pointerType === 'touch' && st.hotCues[i] !== null) {
-      longPress.current = window.setTimeout(() => {
-        longPress.current = null;
-        deck.clearHotCue(i);
-      }, 600);
-      return;
-    }
-    deck.hotCue(i);
-  };
-  const hotUp = (i: number, e: PointerEvent<HTMLButtonElement>) => {
-    if (e.pointerType !== 'touch' || longPress.current === null) return;
-    window.clearTimeout(longPress.current);
-    longPress.current = null;
-    deck.hotCue(i);
   };
 
   return (
@@ -452,36 +429,7 @@ export function DeckPanel({
         ))}
       </div>
 
-      {padMode === 'hot' && (
-      <div className={s.hotCues} role="group" aria-label={`Deck ${deck.label} hot cues — Shift-click, right-click or long-press to clear`}>
-        {st.hotCues.map((t, i) => (
-          <button
-            key={i}
-            type="button"
-            className={s.hotCue}
-            data-hot={i + 1}
-            data-set={t !== null}
-            disabled={!st.track}
-            onPointerDown={(e) => hotDown(i, e)}
-            onPointerUp={(e) => hotUp(i, e)}
-            onKeyDown={(e) => {
-              if (e.key !== 'Enter' && e.key !== ' ') return;
-              e.preventDefault();
-              if (e.shiftKey) deck.clearHotCue(i);
-              else deck.hotCue(i);
-            }}
-            onContextMenu={(e) => {
-              e.preventDefault();
-              deck.clearHotCue(i);
-            }}
-            aria-label={t === null ? `Set hot cue ${i + 1}` : `Hot cue ${i + 1} at ${formatTime(t)}`}
-          >
-            <span className={s.hotNum}>{i + 1}</span>
-            <span className={s.hotTime}>{t === null ? '' : formatTime(t)}</span>
-          </button>
-        ))}
-      </div>
-      )}
+      {padMode === 'hot' && <HotCues deck={deck} />}
 
       {padMode === 'roll' && (
         <div className={s.hotCues} role="group" aria-label={`Deck ${deck.label} beat rolls — hold`}>

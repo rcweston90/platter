@@ -1,5 +1,6 @@
 
 import { useEffect, useRef, type KeyboardEvent, type PointerEvent } from 'react';
+import { hotLetter } from '../engine/cues';
 import { loopLabel, type Deck, type DeckState } from '../engine/deck';
 import type { WavePeaks } from '../engine/types';
 import { fitCanvas, readPalette, useFrame, type FrameLoop, type Palette } from './frame';
@@ -166,6 +167,14 @@ export function ScrollingWave({ deck, loop, zoom, label }: { deck: Deck; loop: F
       view.current = { t0, pps };
 
       drawLoop(g, st, P, xOf, w, h);
+      // Hot loops: a faint band of the cue's colour over the loop.
+      g.globalAlpha = 0.16;
+      st.hotCues.forEach((c) => {
+        if (!c?.loop) return;
+        g.fillStyle = P.hot[c.color] ?? P.hot[0];
+        g.fillRect(xOf(c.t), 0, (c.loop.end - c.t) * pps, h);
+      });
+      g.globalAlpha = 1;
       if (st.track.peaks) drawPeaks(g, st.track.peaks, P, t0, pps, w, h);
 
       if (st.bpm) {
@@ -196,8 +205,31 @@ export function ScrollingWave({ deck, loop, zoom, label }: { deck: Deck; loop: F
           g.fillText(text, x + 5, h - 4);
         }
       };
+      // Memory cues: a small notch at the foot, under everything else.
+      g.fillStyle = P.memory;
+      for (const m of st.memoryCues) {
+        const x = Math.round(xOf(m));
+        if (x < -6 || x > w + 6) continue;
+        g.beginPath();
+        g.moveTo(x - 4, h);
+        g.lineTo(x + 4, h);
+        g.lineTo(x, h - 6);
+        g.fill();
+      }
       marker(st.cue, P.cue);
-      st.hotCues.forEach((t, i) => t !== null && marker(t, P.hot[i], String(i + 1)));
+      st.hotCues.forEach((c, i) => {
+        if (!c) return;
+        const color = P.hot[c.color] ?? P.hot[0];
+        marker(c.t, color, hotLetter(i));
+        // A hot loop's end: a short bracket at the top.
+        if (c.loop) {
+          const x = Math.round(xOf(c.loop.end));
+          if (x < -6 || x > w + 6) return;
+          g.fillStyle = color;
+          g.fillRect(x - 1, 0, 2, 12);
+          g.fillRect(x - 6, 0, 6, 2);
+        }
+      });
     }
 
     // Slip's shadow: where the track will be when the scratch, roll or
@@ -327,12 +359,22 @@ export function Overview({ deck, loop }: { deck: Deck; loop: FrameLoop }) {
       g.fillStyle = P.ok;
       g.fillRect(st.loopInPoint * pps, 0, 2, h);
     }
+    g.fillStyle = P.memory;
+    for (const m of st.memoryCues) g.fillRect(Math.round(m * pps), 0, 2, 5);
     g.fillStyle = P.cue;
     g.fillRect(st.cue * pps, 0, 2, h);
-    st.hotCues.forEach((t, i) => {
-      if (t === null) return;
-      g.fillStyle = P.hot[i];
-      g.fillRect(t * pps, h - 6, 3, 6);
+    // Hot cues: a flag in the cue's colour with its letter; a hot loop also
+    // shows its span along the foot.
+    g.font = `700 9px ${P.mono}`;
+    g.textBaseline = 'alphabetic';
+    st.hotCues.forEach((c, i) => {
+      if (!c) return;
+      const hx = Math.round(c.t * pps);
+      g.fillStyle = P.hot[c.color] ?? P.hot[0];
+      if (c.loop) g.fillRect(hx, h - 3, Math.max(3, (c.loop.end - c.t) * pps), 3);
+      g.fillRect(hx, h - 12, 9, 12);
+      g.fillStyle = P.bg;
+      g.fillText(hotLetter(i), hx + 2, h - 3);
     });
     g.fillStyle = P.playhead;
     g.fillRect(Math.round(x) - 1, 0, 2, h);
