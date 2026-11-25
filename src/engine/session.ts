@@ -28,6 +28,7 @@ import {
   type RecordingRecord,
 } from './library';
 import { MidiController, type MidiHandlers } from './midi';
+import { MixMoves } from './moves';
 import { BeatBoard } from './beatboard';
 import {
   channelLevel,
@@ -189,6 +190,8 @@ export class DjSession {
   readonly autoDj: AutoDj;
   /** The mixer's Beat FX section (one unit, on deck A, deck B or the master). */
   readonly fx: BeatFx;
+  /** Move mixes: Rec moves, replay and sharing (engine/moves). */
+  readonly moves: MixMoves;
   /** What the main output plays, and its own volume (listen.ts). */
   readonly listen: Listening = new Listening(this);
   /** Your playlists (engine/playlists). */
@@ -230,6 +233,8 @@ export class DjSession {
       this.mixer.get().cueRouting.kind !== 'off' || this.listen.store.get().source === 'blend';
     this.midi = new MidiController(this.midiHandlers());
     this.autoDj = new AutoDj(this);
+    // Last: it hooks the decks', mixer's and Beat FX's controls.
+    this.moves = new MixMoves(this);
   }
 
   /* ── Lifecycle ────────────────────────────────────────────────────────── */
@@ -237,6 +242,8 @@ export class DjSession {
   /** Safe to call again after `dispose` — React's dev double-mount does. */
   async init() {
     this.disposed = false;
+    // First, so a shared #mix= link is offered without waiting for the rest.
+    void this.moves.init();
     let tracks = await loadCrate();
     if (this.disposed) return;
     if (!tracks.length) {
@@ -442,6 +449,7 @@ export class DjSession {
     void this.autoDj.setOn(false);
     this.beats.stop();
     this.fx.dispose();
+    this.moves.dispose();
     this.listen.dispose();
     this.sampler.silence();
     if (this.saveTimer !== null) window.clearTimeout(this.saveTimer);

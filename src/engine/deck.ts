@@ -1461,7 +1461,15 @@ export class Deck {
     // close to the seek as possible.
     const now = this.engine?.ctx.currentTime ?? src.rep.t;
     const frames = src.rep.pos + src.rep.rate * (now - src.rep.t) * src.sr;
-    this.post({ type: 'seek', frame: clamp(frames / src.sr, 0, me.track.duration) * this.sr });
+    let at = frames / src.sr;
+    // Near the loop's end, reading ahead can pass it; the worklet only wraps
+    // a playhead that crosses the end, so bring it back inside the loop.
+    const { start, end, active } = o.loop;
+    if (active && end > start && (at >= end || at < start)) {
+      const len = end - start;
+      at = start + ((((at - start) % len) + len) % len);
+    }
+    this.post({ type: 'seek', frame: clamp(at, 0, me.track.duration) * this.sr });
     if (o.playing) {
       this.engine?.resume();
       this.post({ type: 'play', instant: true });

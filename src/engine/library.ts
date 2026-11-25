@@ -5,7 +5,7 @@ import type { TrackRecord } from './types';
  * uploaded:
  *   tracks      the crate: files (or references), analysis, cue points
  *   samples     your own sounds in the sampler's library
- *   recordings  mixes you've recorded
+ *   recordings  mixes you've recorded: audio, and move mixes (engine/moves)
  *   kv          small things: settings, MIDI mappings, the last session
  * Every call degrades to "no persistence" if storage is blocked (private
  * windows, disabled site data): the session still works, it just forgets.
@@ -108,7 +108,8 @@ export interface RecordingRecord {
 
 export async function loadRecordings(): Promise<RecordingRecord[]> {
   const all = (await run<RecordingRecord[]>('recordings', 'readonly', (s) => s.getAll())) ?? [];
-  return all.sort((a, b) => b.createdAt - a.createdAt);
+  // Move mixes (engine/moves) share this store: they are moves, not audio.
+  return all.filter((r) => (r as { kind?: string }).kind !== 'moves').sort((a, b) => b.createdAt - a.createdAt);
 }
 
 export function saveRecording(rec: RecordingRecord) {
@@ -117,6 +118,16 @@ export function saveRecording(rec: RecordingRecord) {
 
 export function removeRecording(id: string) {
   return run('recordings', 'readwrite', (s) => s.delete(id));
+}
+
+/** Move mixes (engine/moves): kept beside the audio recordings, marked kind: 'moves'. */
+export async function loadMoveMixes<T extends { kind: 'moves'; createdAt: number }>(): Promise<T[]> {
+  const all = (await run<{ kind?: string }[]>('recordings', 'readonly', (s) => s.getAll())) ?? [];
+  return (all.filter((r) => r.kind === 'moves') as T[]).sort((a, b) => b.createdAt - a.createdAt);
+}
+
+export function saveMoveMix(rec: { id: string; kind: 'moves' }) {
+  return run('recordings', 'readwrite', (s) => s.put(rec));
 }
 
 /* ── Small values ───────────────────────────────────────────────────────── */
