@@ -87,8 +87,10 @@ check(await pressed(A.getByRole('button', { name: 'Deck A pause' })), 'Play: the
 
 /* ── Pitch range ────────────────────────────────────────────────────────── */
 
-const range = (r) => A.getByRole('group', { name: 'Deck A pitch range' }).getByRole('button', { name: `±${r}` });
+const range = (r) => A.getByRole('group', { name: 'Deck A pitch range' }).getByRole('button', { name: r === 'WIDE' ? 'WIDE' : `±${r}`, exact: true });
 check(await pressed(range(8)), 'Pitch range: ±8 is selected at start');
+const offered = await A.getByRole('group', { name: 'Deck A pitch range' }).getByRole('button').allTextContents();
+check(offered.join(' ') === '±6 ±8 ±10 ±16 WIDE', `Pitch range: ±6, ±8, ±10, ±16 and WIDE are offered (${offered.join(' ')})`);
 await fader.fill('1');
 check((await pitch(A)) === '+8.00%' && (await bpm(A)) === '133.9', `Pitch fader at the end of ±8 gives +8% (${await pitch(A)}, ${await bpm(A)} BPM)`);
 await page.waitForTimeout(400);
@@ -103,12 +105,25 @@ check((await A.getByText('+16', { exact: true }).count()) === 1, 'Pitch range: t
 await fader.fill('1');
 check((await pitch(A)) === '+16.00%', `Pitch range: full travel at ±16 is +16% (${await pitch(A)})`);
 
-await range(50).click();
+await range(6).click();
+check((await pitch(A)) === '+6.00%', `Pitch range: ±6 clamps +16% to +6% (${await pitch(A)})`);
+await range(10).click();
 await fader.fill('1');
-check((await pitch(A)) === '+50.00%' && (await bpm(A)) === '186.0', `Pitch range: full travel at ±50 is +50% (${await bpm(A)} BPM)`);
+check((await pitch(A)) === '+10.00%' && (await A.getByText('+10', { exact: true }).count()) === 1, `Pitch range: full travel at ±10 is +10% (${await pitch(A)})`);
+
+await range('WIDE').click();
+check((await A.getByText('+100', { exact: true }).count()) === 1, 'Pitch range: WIDE’s fader end reads +100');
+await fader.fill('0.5');
+check((await pitch(A)) === '+50.00%' && (await bpm(A)) === '186.0', `Pitch range: half travel at WIDE is +50% (${await bpm(A)} BPM)`);
 await page.waitForTimeout(400);
 const r50 = await rate('A');
 check(near(r50, 1.5, 0.07), `…and the record turns 50% fast (rate ${r50.toFixed(3)})`);
+await fader.fill('-1');
+check((await pitch(A)) === '−100.00%', `Pitch range: WIDE reaches −100%, a crawl (${await pitch(A)})`);
+await page.waitForTimeout(500);
+const rStill = await rate('A', 500);
+check(Math.abs(rStill) < 0.05 && errors.length === 0, `…the record all but stops, with no errors (rate ${rStill.toFixed(3)})`);
+await fader.fill('0.5');
 
 await range(8).click();
 check((await pitch(A)) === '+8.00%', `Pitch range: back to ±8 clamps +50% to +8% (${await pitch(A)})`);
@@ -165,6 +180,144 @@ for (const [dir, name] of [
   check(near(after, base, 0.025) && (await btn.getAttribute('data-held')) === 'false', `Nudge ${dir > 0 ? '▸' : '◂'}: letting go returns to rate ${after.toFixed(3)}`);
 }
 check((await bpm(A)) === '124.0', 'Nudge: the tempo setting is untouched afterwards');
+
+/* ── Deck switches: tempo reset, key shift, jog mode, instant doubles ───── */
+
+const reset = A.getByRole('button', { name: 'Deck A tempo reset' });
+check(await reset.isDisabled(), 'Tempo reset: dimmed while the pitch is at 0');
+await fader.fill('1');
+check(!(await reset.isDisabled()), 'Tempo reset: lit once the fader moves');
+await reset.click();
+check((await pitch(A)) === '±0.00%' && (await bpm(A)) === '124.0' && Number(await fader.inputValue()) === 0, `Tempo reset: back to 0 (${await pitch(A)}, ${await bpm(A)} BPM)`);
+check(await reset.isDisabled(), 'Tempo reset: dimmed again at 0');
+
+const keyUp = A.getByRole('button', { name: 'Key up a semitone' });
+const keyDown = A.getByRole('button', { name: 'Key down a semitone' });
+for (let k = 0; k < 13; k++) if (!(await keyUp.isDisabled())) await keyUp.click();
+check((await A.locator('[class*="keyShift"]').textContent()) === '+12' && (await keyUp.isDisabled()), `Key shift: ♯ goes up to +12 and stops (${await A.locator('[class*="keyShift"]').textContent()})`);
+await A.getByRole('button', { name: 'Reset key shift' }).click();
+for (let k = 0; k < 13; k++) if (!(await keyDown.isDisabled())) await keyDown.click();
+check((await A.locator('[class*="keyShift"]').textContent()) === '-12' && (await keyDown.isDisabled()), `Key shift: ♭ goes down to −12 and stops (${await A.locator('[class*="keyShift"]').textContent()})`);
+await A.getByRole('button', { name: 'Reset key shift' }).click();
+
+const jog = (deck, mode) => deck.getByRole('group', { name: /jog mode/ }).getByRole('button', { name: mode, exact: true });
+check((await pressed(jog(A, 'Vinyl'))) && !(await pressed(jog(A, 'CDJ'))), 'Jog mode: Vinyl is selected at start');
+const platterA = A.getByRole('slider', { name: /Deck A platter/ });
+await platterA.scrollIntoViewIfNeeded();
+const pbox = await platterA.boundingBox();
+const pcx = pbox.x + pbox.width / 2;
+const pcy = pbox.y + pbox.height / 2;
+/** The worklet's own playback rate, sampled every 20 ms for `ms`: its mean
+ *  and its fastest. Unlike the platter's drawn spin, this doesn't depend on
+ *  the page keeping up. */
+const sampleRate = (ms) =>
+  page.evaluate(
+    (ms) =>
+      new Promise((done) => {
+        const d = window.platter.decks[0];
+        const xs = [];
+        const id = setInterval(() => xs.push(d.rate()), 20);
+        setTimeout(() => {
+          clearInterval(id);
+          done({ mean: xs.reduce((a, b) => a + b, 0) / xs.length, max: Math.max(...xs) });
+        }, ms);
+      }),
+    ms,
+  );
+/** Rate while a hand rests on the platter `at` (a fraction of its radius) without turning. */
+const restRate = async (at) => {
+  await page.mouse.move(pcx + (pbox.width / 2) * at, pcy);
+  await page.mouse.down();
+  await page.waitForTimeout(400);
+  const r = await sampleRate(400);
+  await page.mouse.up();
+  await page.waitForTimeout(300);
+  return r.mean;
+};
+/** Fastest rate while a hand turns the platter forward at `at`, and whether
+ *  the platter says it's nudging faster meanwhile. */
+const turnRate = async (at) => {
+  const rad = (pbox.width / 2) * at;
+  await page.mouse.move(pcx + rad, pcy);
+  await page.mouse.down();
+  const measured = sampleRate(600);
+  let said = false;
+  for (let i = 1; i <= 40; i++) {
+    const a = (i / 20) * 2 * Math.PI;
+    await page.mouse.move(pcx + rad * Math.cos(a), pcy + rad * Math.sin(a), { steps: 2 });
+    if (i === 20) said = (await platterA.getAttribute('aria-valuetext')) === 'nudging faster';
+  }
+  const r = await measured;
+  await page.mouse.up();
+  await page.waitForTimeout(300);
+  return { max: r.max, said };
+};
+const vinylTop = await restRate(0.6);
+check(vinylTop < 0.1, `Jog mode: in Vinyl a hand on top holds the record (rate ${vinylTop.toFixed(3)})`);
+const vinylRim = await restRate(0.95);
+check(near(vinylRim, 1, 0.03), `Jog mode: a hand resting on the rim doesn't stop it (rate ${vinylRim.toFixed(3)})`);
+const rimTurn = await turnRate(0.95);
+check(rimTurn.max > 1.01 && rimTurn.said, `Jog mode: turning the rim forward bends faster (up to rate ${rimTurn.max.toFixed(3)}, ${rimTurn.said ? 'shown' : 'not shown'})`);
+await jog(A, 'CDJ').click();
+check((await pressed(jog(A, 'CDJ'))) && !(await pressed(jog(A, 'Vinyl'))), 'Jog mode: CDJ selects, Vinyl lets go');
+const cdjTop = await restRate(0.6);
+check(near(cdjTop, 1, 0.03), `Jog mode: in CDJ a hand on top doesn't hold the record (rate ${cdjTop.toFixed(3)})`);
+const cdjTurn = await turnRate(0.6);
+check(cdjTurn.max > 1.01 && cdjTurn.said, `Jog mode: in CDJ turning the top bends faster, like the rim (up to rate ${cdjTurn.max.toFixed(3)})`);
+const cdjAfter = await sampleRate(300);
+check(near(cdjAfter.mean, 1, 0.01) && (await bpm(A)) === '124.0', `Jog mode: letting go returns to the fader's tempo (rate ${cdjAfter.mean.toFixed(3)})`);
+await jog(A, 'Vinyl').click();
+// Deck B's switch is its own: CDJ on B leaves A on Vinyl (and B's is checked after a reload).
+await jog(B, 'CDJ').click();
+check((await pressed(jog(A, 'Vinyl'))) && (await pressed(jog(B, 'CDJ'))), 'Jog mode: each deck has its own switch');
+
+// Instant doubles: deck A plays Night Bus in a loop at +6%; load it on deck B.
+const doublesB = B.getByRole('button', { name: 'Deck B instant doubles' });
+check(await pressed(doublesB), 'Instant doubles: on at start');
+await range(16).click();
+await fader.fill('0.375');
+await A.getByRole('button', { name: /(Start|Exit) .*-beat loop/ }).click();
+await page.waitForTimeout(300);
+await page.evaluate(() => {
+  const p = window.platter;
+  const id = p.decks[0].store.get().track.id;
+  return p.loadToDeck(id, 1);
+});
+await page.waitForFunction(() => window.platter.decks[1].store.get().playing, null, { timeout: 15000 }).catch(() => undefined);
+await page.waitForTimeout(300);
+const dbl = await page.evaluate(() => {
+  const [a, b] = window.platter.decks;
+  const sa = a.store.get();
+  const sb = b.store.get();
+  return {
+    title: sb.track?.title,
+    playing: sb.playing,
+    gap: Math.abs(a.position() - b.position()),
+    pitch: [sa.pitch, sb.pitch],
+    range: [sa.range, sb.range],
+    loop: [sa.loop.active, sb.loop.active, Math.abs(sa.loop.start - sb.loop.start)],
+  };
+});
+check(dbl.title === 'Night Bus' && dbl.playing, `Instant doubles: deck B loads Night Bus and plays with A (${dbl.title}, playing ${dbl.playing})`);
+check(dbl.gap < 0.02, `Instant doubles: deck B starts where A is (${(dbl.gap * 1000).toFixed(1)} ms apart)`);
+check(dbl.pitch[0] === dbl.pitch[1] && dbl.range[0] === dbl.range[1] && (await bpm(B)) === (await bpm(A)), `Instant doubles: same tempo (${await bpm(A)} / ${await bpm(B)} BPM)`);
+check(dbl.loop[0] && dbl.loop[1] && dbl.loop[2] < 1e-6, 'Instant doubles: deck B loops the same loop');
+await page.waitForTimeout(1500);
+const drift = await page.evaluate(() => Math.abs(window.platter.decks[0].position() - window.platter.decks[1].position()));
+check(drift < 0.02, `Instant doubles: still together 1.5 s later (${(drift * 1000).toFixed(1)} ms apart)`);
+await A.getByRole('button', { name: /Exit .*-beat loop/ }).click();
+await B.getByRole('button', { name: 'Deck B pause' }).click();
+await B.getByRole('button', { name: /Exit .*-beat loop/ }).click().catch(() => undefined);
+await fader.dblclick();
+await range(8).click();
+// Off: the same load starts at the cue point, stopped.
+await doublesB.click();
+check(!(await pressed(doublesB)), 'Instant doubles: switches off');
+await page.evaluate(() => window.platter.loadToDeck(window.platter.decks[0].store.get().track.id, 1));
+await page.waitForFunction(() => window.platter.decks[1].hasAudio && !window.platter.decks[1].store.get().loading, null, { timeout: 15000 });
+await page.waitForTimeout(300);
+const plain = await page.evaluate(() => ({ playing: window.platter.decks[1].store.get().playing, pos: window.platter.decks[1].position(), cue: window.platter.decks[1].store.get().cue }));
+check(!plain.playing && Math.abs(plain.pos - plain.cue) < 0.05, `Instant doubles off: deck B waits at its cue point (${plain.pos.toFixed(2)} s, stopped)`);
 
 /* ── Toggles ────────────────────────────────────────────────────────────── */
 
@@ -288,6 +441,15 @@ for (let i = 0; i < n; i++) {
   await curves.nth(i).click();
   check(await pressed(curves.nth(i)), `Mixer: crossfader curve “${await curves.nth(i).textContent()}” selects`);
 }
+
+/* ── Deck switches come back after a reload ─────────────────────────────── */
+
+await page.waitForTimeout(800); // settings save a moment after a change
+await page.reload({ waitUntil: 'networkidle' });
+await B.getByRole('group', { name: /jog mode/ }).waitFor({ timeout: 15000 });
+await page.waitForFunction(() => window.platter.decks[1].store.get().jogMode === 'cdj', null, { timeout: 5000 }).catch(() => undefined);
+check((await pressed(jog(B, 'CDJ'))) && (await pressed(jog(A, 'Vinyl'))), 'Jog mode: each deck’s mode is kept after a reload');
+check(!(await pressed(B.getByRole('button', { name: 'Deck B instant doubles' }))) && (await pressed(A.getByRole('button', { name: 'Deck A instant doubles' }))), 'Instant doubles: each deck’s setting is kept after a reload');
 
 check(errors.length === 0, `no page errors${errors.length ? `: ${errors.join(' | ')}` : ''}`);
 await browser.close();

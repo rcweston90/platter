@@ -1,6 +1,6 @@
 import { useEffect, useId, useLayoutEffect, useRef, useState, type CSSProperties, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
-import { BEND, JUMP_BEATS, LOOP_BEATS, PITCH_RANGES, QUANTIZE_BEATS, ROLL_BEATS, loopLabel } from '../engine/deck';
+import { BEND, JUMP_BEATS, KEY_SHIFT_MAX, LOOP_BEATS, MIN_MOTOR, PITCH_RANGES, QUANTIZE_BEATS, ROLL_BEATS, WIDE_RANGE, loopLabel, rangeLabel } from '../engine/deck';
 import { beatsLabel, FX_GROUPS, FX_META, FX_TYPES } from '../engine/fx';
 import { bankLabel, CUE_COLORS } from '../engine/cues';
 import { HOT_BANK_SIZE, HOT_CUES, MEMORY_CUES } from '../engine/types';
@@ -27,7 +27,7 @@ export interface GuideSection {
 }
 
 const pct = (n: number) => `${Math.round(n * 100)}%`;
-const ranges = PITCH_RANGES.map((r) => `±${r * 100}`).join(' ');
+const ranges = PITCH_RANGES.map(rangeLabel).join(' ');
 /** "a, b, c or d" */
 const either = (xs: string[]) => (xs.length < 2 ? xs.join('') : `${xs.slice(0, -1).join(', ')} or ${xs[xs.length - 1]}`);
 
@@ -41,7 +41,11 @@ export const PITCH_GUIDE: GuideSection = {
     },
     {
       name: ranges,
-      text: `How far the fader reaches: ${either(PITCH_RANGES.map(pct))} either way. Narrow for fine control, wide for big changes. Switching keeps your tempo and moves the fader to match, unless the tempo is past the new range; then it’s pulled in to the edge. With Sync on, the deck widens its own range when it has to.`,
+      text: `How far the fader reaches: ${either(PITCH_RANGES.map(pct))} either way; WIDE is ±${pct(WIDE_RANGE)}, from a crawl (its −100% end turns at ${pct(MIN_MOTOR)}) to double speed. Narrow for fine control, wide for big changes. Switching keeps your tempo and moves the fader to match, unless the tempo is past the new range; then it’s pulled in to the edge. With Sync on, the deck widens its own range when it has to.`,
+    },
+    {
+      name: 'Reset',
+      text: 'Tempo reset: puts the pitch fader back to 0, the track’s own tempo, as double-clicking the fader does. It’s dimmed while the fader is already at 0.',
     },
     {
       name: '<  >  under the range',
@@ -70,7 +74,15 @@ export const DECK_GUIDE: GuideSection[] = [
     items: [
       {
         name: 'Record',
-        text: 'Drag it to scratch. With it selected, hold an arrow key to nudge, like the < > buttons by the fader.',
+        text: 'Drag it to scratch (in Vinyl mode). With it selected, hold an arrow key to nudge, like the < > buttons by the fader.',
+      },
+      {
+        name: 'Rim',
+        text: `The platter’s edge, outside the record, where the strobe dots are. Turn it while the track plays to bend the tempo: the faster you turn, the more it bends, up to ${pct(BEND * 2)}. Stop turning and it’s back at the fader’s tempo. On a stopped deck it moves the record, to find a spot.`,
+      },
+      {
+        name: 'Vinyl  CDJ',
+        text: 'Jog mode, for the top of the record. Vinyl: touching it holds the record, so you can scratch it. CDJ: touching it only bends the tempo, like the rim, and never stops the track. Either way, a stopped deck moves under your hand, and each deck remembers its own mode. A controller’s touch-sensitive jog follows the same switch.',
       },
       {
         name: 'Waveform strip',
@@ -209,7 +221,7 @@ export const DECK_GUIDE: GuideSection[] = [
         name: 'Key (8A)',
         text: 'The key you hear, in Camelot notation. Green: it mixes with the other deck. Red: it clashes.',
       },
-      { name: '♭  ♯', text: 'Moves the key down or up a semitone, up to 6 each way, without changing the tempo.' },
+      { name: '♭  ♯', text: `Moves the key down or up a semitone, up to ${KEY_SHIFT_MAX} each way (an octave), without changing the tempo.` },
       { name: 'Match', text: 'Moves to the nearest key that mixes with the other deck.' },
       { name: '0', text: 'Takes the key shift off.' },
     ],
@@ -228,6 +240,16 @@ export const DECK_GUIDE: GuideSection[] = [
         text: 'Move the beat grid 10 ms earlier or later, so its lines sit on the beats. This moves the grid, not the music.',
       },
       { name: '⏏', text: 'Unloads the track. Pause first.' },
+    ],
+  },
+  {
+    id: 'load',
+    title: 'Loading',
+    items: [
+      {
+        name: 'Doubles',
+        text: 'Instant doubles. While it’s lit, loading the track the other deck already has makes this deck join it: the same place in the track, the same tempo, key lock, key shift and loop, and playing if the other deck is playing, so the two run together. Off, a load starts at the track’s cue point as usual. On to begin with; each deck remembers its own.',
+      },
     ],
   },
 ];

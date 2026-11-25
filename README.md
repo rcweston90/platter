@@ -16,7 +16,11 @@ GitHub Actions).
 
 **Decks**
 - Grab the record to scratch. The platter's rotation *is* the playhead, so it
-  slows, stops and runs backwards under your hand.
+  slows, stops and runs backwards under your hand. Turn the rim to bend the
+  tempo. A per-deck **Vinyl / CDJ** jog switch: in CDJ mode the top of the
+  record bends like the rim instead of holding the track.
+- **Instant doubles** (per deck, on by default): load the track the other deck
+  has and it joins it at the same place, tempo, loop and play state.
 - CDJ-style CUE: while playing, back to the cue point and stop; while stopped,
   set the cue point and hold to preview.
 - Performance pads in three modes: **hot cues** (two banks of eight, A–H
@@ -32,8 +36,9 @@ GitHub Actions).
   adjust by button, arrow key or a drag on the waveform. Beat jump has its own
   size (1/2 to 64 beats) and carries a running loop with it. QUANT snaps to
   1/8, 1/4, 1/2 or 1 beat.
-- Pitch fader with ±8 / ±16 / ±50% ranges and hold-to-bend nudge buttons, and a
-  33 / 45 platter speed switch (45 plays 1.35× fast, on top of the fader).
+- Pitch fader with ±6 / ±8 / ±10 / ±16 / WIDE (±100%) ranges, a tempo reset
+  button, hold-to-bend nudge buttons, and a 33 / 45 platter speed switch
+  (45 plays 1.35× fast, on top of the fader).
 - **Sync lock**: press SYNC and that deck follows the other (tagged
   *Sync ▸ A* on its waveform; the other is tagged *Leader*). It takes the
   leader's tempo, at double or half time when one track is twice the other,
@@ -91,7 +96,7 @@ GitHub Actions).
   notation (8A = A minor). The key you hear follows the pitch fader unless key
   lock holds it.
 - The crate colours keys that mix with what's playing.
-- Key shift ♭/♯ by semitones, and **Match** shifts to the nearest key that
+- Key shift ♭/♯ by semitones, up to an octave each way, and **Match** shifts to the nearest key that
   mixes with the other deck.
 
 **Mixer**
@@ -225,7 +230,8 @@ GitHub Actions).
 
 **Controllers and keyboard**
 - **MIDI learn** for every deck, mixer and sampler control: press Learn, move
-  a knob or button. Jog wheels scratch while touched and nudge otherwise;
+  a knob or button. Jog wheels scratch while touched and nudge otherwise (in
+  CDJ jog mode a touched jog nudges too);
   mapped buttons light up to match the rig.
 - A full keyboard layout (below).
 
