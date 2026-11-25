@@ -19,6 +19,7 @@ import { focusCrateSearch } from './ui/crate/TrackBrowser';
 import { openBrowse } from './ui/browse';
 import { cameBackFromSoundCloud } from './engine/soundcloud';
 import { ScrollingWave } from './ui/Waveforms';
+import { PhaseMeter } from './ui/PhaseMeter';
 import { PitchLane } from './ui/PitchLane';
 import { PitchIcon } from './ui/icons';
 import { LIB_BAR, closeLibrary, libraryFlyout, openLibrary, toggleLibrary, useDocked } from './ui/library/dock';
@@ -27,6 +28,7 @@ import { Studio } from './slicer/studio';
 import { SlicerView } from './ui/slicer/SlicerView';
 import { PhoneDock, PhoneTabs, usePhone, type PhoneFocus } from './ui/Phone';
 import { BoothGuide } from './guide/BoothGuide';
+import { useScreenAwake } from './ui/wakeLock';
 import s from './platter.module.css';
 
 /**
@@ -75,6 +77,7 @@ export default function App() {
   const pinned = useRef<HTMLDivElement>(null);
   const docked = useDocked();
   const phone = usePhone();
+  useScreenAwake(session);
   const [focus, setFocus] = useState<PhoneFocus>('A');
   const [guideOpen, setGuideOpen] = useState(false);
   // The library flyout sits on the phone's play dock (see .phoneDock).
@@ -318,7 +321,9 @@ export default function App() {
       <SyncStrip decks={session.decks} loop={loop} zoom={zoom} />
       <div className={s.waveRow} data-deck="B">
         <div className={s.waveBox}>
-          <WaveTag deck={deckB} />
+          <WaveTag deck={deckB}>
+            <PhaseMeter decks={session.decks} loop={loop} />
+          </WaveTag>
           <ScrollingWave deck={deckB} loop={loop} zoom={zoom} label="Deck B waveform around the playhead" />
         </div>
         {pitchLanes && <PitchLane deck={deckB} hits={session.hits[1]} loop={loop} zoom={zoom} />}

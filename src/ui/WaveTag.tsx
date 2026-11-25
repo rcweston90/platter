@@ -1,3 +1,4 @@
+import type { ReactNode } from 'react';
 import type { Deck } from '../engine/deck';
 import { useStore } from '../engine/store';
 import s from '../platter.module.css';
@@ -7,7 +8,7 @@ import s from '../platter.module.css';
  * tempo you hear. "Leader" is the deck the other follows; "Sync" marks the
  * follower, with the deck it follows.
  */
-export function WaveTag({ deck }: { deck: Deck }) {
+export function WaveTag({ deck, children }: { deck: Deck; children?: ReactNode }) {
   const st = useStore(deck.store);
   const other = useStore((deck.other ?? deck).store);
   const role = st.sync ? 'follower' : other.sync ? 'leader' : 'free';
@@ -32,6 +33,7 @@ export function WaveTag({ deck }: { deck: Deck }) {
         </span>
       )}
       {bpm && st.track ? <span className={s.waveBpm}>{bpm.toFixed(1)}</span> : null}
+      {children}
     </span>
   );
 }

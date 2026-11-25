@@ -2,6 +2,7 @@ import { defaultCueColor, nearestCueColor, normaliseCues, tidyMemory } from './c
 import { LOOP_BEATS } from './deck';
 import { camelot, parseKeyName } from './key';
 import { HOT_BANK_SIZE, HOT_CUES, type HotCue, type TrackCues, type TrackRecord } from './types';
+import type { BackupPlaylist } from './playlists';
 
 /**
  * Getting your work in and out of Platter.
@@ -17,6 +18,10 @@ import { HOT_BANK_SIZE, HOT_CUES, type HotCue, type TrackCues, type TrackRecord 
  * Backups are version 2 since hot cue banks: each hot cue is an object
  * ({ t, color, loop? }) and there are memory cues. Version 1 backups (four
  * hot cues as plain numbers) still import: normaliseCues reads both.
+ *
+ * Playlists ride along as an optional field (still version 2): each lists
+ * its tracks by the backup's own track ids. Backups without it import as
+ * before, and older Platters ignore it.
  */
 
 export interface BackupTrack {
@@ -43,9 +48,11 @@ export interface Backup {
   tracks: BackupTrack[];
   settings: unknown;
   midi: unknown;
+  /** Absent from backups made before playlists. */
+  playlists?: BackupPlaylist[];
 }
 
-export function makeBackup(tracks: TrackRecord[], settings: unknown, midi: unknown): Backup {
+export function makeBackup(tracks: TrackRecord[], settings: unknown, midi: unknown, playlists?: BackupPlaylist[]): Backup {
   return {
     app: 'platter',
     version: 2,
@@ -66,6 +73,7 @@ export function makeBackup(tracks: TrackRecord[], settings: unknown, midi: unkno
     })),
     settings,
     midi,
+    ...(playlists?.length ? { playlists } : {}),
   };
 }
 

@@ -8,6 +8,7 @@ import { openCrate } from './crate/CrateDock';
 import { crateBrowser, crateSlot } from './crate/model';
 import { focusCrateSearch } from './crate/TrackBrowser';
 import { libraryFlyout, openLibrary } from './library/dock';
+import { ListenPanel, outputsPanel } from './ListenPanel';
 import { MidiPanel } from './MidiPanel';
 import { usePhone } from './Phone';
 import { saveFile } from './save';
@@ -86,6 +87,7 @@ export function TopBar({
 
   const outputs = (
     <>
+      <ListenPanel session={session} />
       {canMaster && (
         <div className={s.field}>
           <label htmlFor={masterId}>Master out</label>
@@ -233,7 +235,7 @@ export function TopBar({
           <>
             <details className={s.popover}>
               <summary className={s.action}>Outputs</summary>
-              <div className={s.popPanel}>
+              <div className={`${s.popPanel} ${outputsPanel}`}>
                 {outputs}
               </div>
             </details>

@@ -26,6 +26,40 @@ const browser = await chromium.launch({
   args: ['--autoplay-policy=no-user-gesture-required'],
 });
 const page = await browser.newPage({ viewport: { width: 1440, height: 900 } });
+// A stand-in Screen Wake Lock that counts what the app asks of it (headless
+// Chrome's own may refuse), and lets the test drop it as a hidden tab would.
+await page.addInitScript(() => {
+  const w = { requests: 0, releases: 0, active: null };
+  window.__wake = w;
+  Object.defineProperty(navigator, 'wakeLock', {
+    configurable: true,
+    value: {
+      async request() {
+        w.requests++;
+        const fns = [];
+        const s = {
+          released: false,
+          type: 'screen',
+          addEventListener: (_t, fn) => fns.push(fn),
+          async release() {
+            if (s.released) return;
+            s.released = true;
+            w.releases++;
+            if (w.active === s) w.active = null;
+            fns.forEach((fn) => fn());
+          },
+          drop() {
+            s.released = true;
+            if (w.active === s) w.active = null;
+            fns.forEach((fn) => fn());
+          },
+        };
+        w.active = s;
+        return s;
+      },
+    },
+  });
+});
 const errors = [];
 page.on('pageerror', (e) => errors.push(e.message));
 
@@ -87,8 +121,10 @@ check(await pressed(A.getByRole('button', { name: 'Deck A pause' })), 'Play: the
 
 /* ── Pitch range ────────────────────────────────────────────────────────── */
 
-const range = (r) => A.getByRole('group', { name: 'Deck A pitch range' }).getByRole('button', { name: `±${r}` });
+const range = (r) => A.getByRole('group', { name: 'Deck A pitch range' }).getByRole('button', { name: r === 'WIDE' ? 'WIDE' : `±${r}`, exact: true });
 check(await pressed(range(8)), 'Pitch range: ±8 is selected at start');
+const offered = await A.getByRole('group', { name: 'Deck A pitch range' }).getByRole('button').allTextContents();
+check(offered.join(' ') === '±6 ±8 ±10 ±16 WIDE', `Pitch range: ±6, ±8, ±10, ±16 and WIDE are offered (${offered.join(' ')})`);
 await fader.fill('1');
 check((await pitch(A)) === '+8.00%' && (await bpm(A)) === '133.9', `Pitch fader at the end of ±8 gives +8% (${await pitch(A)}, ${await bpm(A)} BPM)`);
 await page.waitForTimeout(400);
@@ -103,12 +139,25 @@ check((await A.getByText('+16', { exact: true }).count()) === 1, 'Pitch range: t
 await fader.fill('1');
 check((await pitch(A)) === '+16.00%', `Pitch range: full travel at ±16 is +16% (${await pitch(A)})`);
 
-await range(50).click();
+await range(6).click();
+check((await pitch(A)) === '+6.00%', `Pitch range: ±6 clamps +16% to +6% (${await pitch(A)})`);
+await range(10).click();
 await fader.fill('1');
-check((await pitch(A)) === '+50.00%' && (await bpm(A)) === '186.0', `Pitch range: full travel at ±50 is +50% (${await bpm(A)} BPM)`);
+check((await pitch(A)) === '+10.00%' && (await A.getByText('+10', { exact: true }).count()) === 1, `Pitch range: full travel at ±10 is +10% (${await pitch(A)})`);
+
+await range('WIDE').click();
+check((await A.getByText('+100', { exact: true }).count()) === 1, 'Pitch range: WIDE’s fader end reads +100');
+await fader.fill('0.5');
+check((await pitch(A)) === '+50.00%' && (await bpm(A)) === '186.0', `Pitch range: half travel at WIDE is +50% (${await bpm(A)} BPM)`);
 await page.waitForTimeout(400);
 const r50 = await rate('A');
 check(near(r50, 1.5, 0.07), `…and the record turns 50% fast (rate ${r50.toFixed(3)})`);
+await fader.fill('-1');
+check((await pitch(A)) === '−100.00%', `Pitch range: WIDE reaches −100%, a crawl (${await pitch(A)})`);
+await page.waitForTimeout(500);
+const rStill = await rate('A', 500);
+check(Math.abs(rStill) < 0.05 && errors.length === 0, `…the record all but stops, with no errors (rate ${rStill.toFixed(3)})`);
+await fader.fill('0.5');
 
 await range(8).click();
 check((await pitch(A)) === '+8.00%', `Pitch range: back to ±8 clamps +50% to +8% (${await pitch(A)})`);
@@ -165,6 +214,183 @@ for (const [dir, name] of [
   check(near(after, base, 0.025) && (await btn.getAttribute('data-held')) === 'false', `Nudge ${dir > 0 ? '▸' : '◂'}: letting go returns to rate ${after.toFixed(3)}`);
 }
 check((await bpm(A)) === '124.0', 'Nudge: the tempo setting is untouched afterwards');
+
+/* ── Deck switches: tempo reset, key shift, jog mode, instant doubles ───── */
+
+const reset = A.getByRole('button', { name: 'Deck A tempo reset' });
+check(await reset.isDisabled(), 'Tempo reset: dimmed while the pitch is at 0');
+await fader.fill('1');
+check(!(await reset.isDisabled()), 'Tempo reset: lit once the fader moves');
+await reset.click();
+check((await pitch(A)) === '±0.00%' && (await bpm(A)) === '124.0' && Number(await fader.inputValue()) === 0, `Tempo reset: back to 0 (${await pitch(A)}, ${await bpm(A)} BPM)`);
+check(await reset.isDisabled(), 'Tempo reset: dimmed again at 0');
+
+const keyUp = A.getByRole('button', { name: 'Key up a semitone' });
+const keyDown = A.getByRole('button', { name: 'Key down a semitone' });
+for (let k = 0; k < 13; k++) if (!(await keyUp.isDisabled())) await keyUp.click();
+check((await A.locator('[class*="keyShift"]').textContent()) === '+12' && (await keyUp.isDisabled()), `Key shift: ♯ goes up to +12 and stops (${await A.locator('[class*="keyShift"]').textContent()})`);
+await A.getByRole('button', { name: 'Reset key shift' }).click();
+for (let k = 0; k < 13; k++) if (!(await keyDown.isDisabled())) await keyDown.click();
+check((await A.locator('[class*="keyShift"]').textContent()) === '-12' && (await keyDown.isDisabled()), `Key shift: ♭ goes down to −12 and stops (${await A.locator('[class*="keyShift"]').textContent()})`);
+await A.getByRole('button', { name: 'Reset key shift' }).click();
+
+const platterA = A.getByRole('slider', { name: /Deck A platter/ });
+const jog = (deck, mode) => deck.getByRole('group', { name: /jog mode/ }).getByRole('button', { name: mode, exact: true });
+check((await pressed(jog(A, 'Vinyl'))) && !(await pressed(jog(A, 'CDJ'))), 'Jog mode: Vinyl is selected at start');
+await platterA.scrollIntoViewIfNeeded();
+const pbox = await platterA.boundingBox();
+const pcx = pbox.x + pbox.width / 2;
+const pcy = pbox.y + pbox.height / 2;
+/** The worklet's own playback rate, sampled every 20 ms for `ms`: its mean
+ *  and its fastest. Unlike the platter's drawn spin, this doesn't depend on
+ *  the page keeping up. */
+const sampleRate = (ms) =>
+  page.evaluate(
+    (ms) =>
+      new Promise((done) => {
+        const d = window.platter.decks[0];
+        const xs = [];
+        const id = setInterval(() => xs.push(d.rate()), 20);
+        setTimeout(() => {
+          clearInterval(id);
+          done({ mean: xs.reduce((a, b) => a + b, 0) / xs.length, max: Math.max(...xs) });
+        }, ms);
+      }),
+    ms,
+  );
+/** Rate while a hand rests on the platter `at` (a fraction of its radius) without turning. */
+const restRate = async (at) => {
+  await page.mouse.move(pcx + (pbox.width / 2) * at, pcy);
+  await page.mouse.down();
+  await page.waitForTimeout(400);
+  const r = await sampleRate(400);
+  await page.mouse.up();
+  await page.waitForTimeout(300);
+  return r.mean;
+};
+/** Fastest rate while a hand turns the platter forward at `at`, and whether
+ *  the platter says it's nudging faster meanwhile. */
+const turnRate = async (at) => {
+  const rad = (pbox.width / 2) * at;
+  await page.mouse.move(pcx + rad, pcy);
+  await page.mouse.down();
+  const measured = sampleRate(600);
+  let said = false;
+  for (let i = 1; i <= 40; i++) {
+    const a = (i / 20) * 2 * Math.PI;
+    await page.mouse.move(pcx + rad * Math.cos(a), pcy + rad * Math.sin(a), { steps: 2 });
+    if (i === 20) said = (await platterA.getAttribute('aria-valuetext')) === 'nudging faster';
+  }
+  const r = await measured;
+  await page.mouse.up();
+  await page.waitForTimeout(300);
+  return { max: r.max, said };
+};
+const vinylTop = await restRate(0.6);
+check(vinylTop < 0.1, `Jog mode: in Vinyl a hand on top holds the record (rate ${vinylTop.toFixed(3)})`);
+const vinylRim = await restRate(0.95);
+check(near(vinylRim, 1, 0.03), `Jog mode: a hand resting on the rim doesn't stop it (rate ${vinylRim.toFixed(3)})`);
+const rimTurn = await turnRate(0.95);
+check(rimTurn.max > 1.01 && rimTurn.said, `Jog mode: turning the rim forward bends faster (up to rate ${rimTurn.max.toFixed(3)}, ${rimTurn.said ? 'shown' : 'not shown'})`);
+await jog(A, 'CDJ').click();
+check((await pressed(jog(A, 'CDJ'))) && !(await pressed(jog(A, 'Vinyl'))), 'Jog mode: CDJ selects, Vinyl lets go');
+const cdjTop = await restRate(0.6);
+check(near(cdjTop, 1, 0.03), `Jog mode: in CDJ a hand on top doesn't hold the record (rate ${cdjTop.toFixed(3)})`);
+const cdjTurn = await turnRate(0.6);
+check(cdjTurn.max > 1.01 && cdjTurn.said, `Jog mode: in CDJ turning the top bends faster, like the rim (up to rate ${cdjTurn.max.toFixed(3)})`);
+const cdjAfter = await sampleRate(300);
+check(near(cdjAfter.mean, 1, 0.01) && (await bpm(A)) === '124.0', `Jog mode: letting go returns to the fader's tempo (rate ${cdjAfter.mean.toFixed(3)})`);
+await jog(A, 'Vinyl').click();
+// Deck B's switch is its own: CDJ on B leaves A on Vinyl (and B's is checked after a reload).
+await jog(B, 'CDJ').click();
+check((await pressed(jog(A, 'Vinyl'))) && (await pressed(jog(B, 'CDJ'))), 'Jog mode: each deck has its own switch');
+
+// Instant doubles: deck A plays Night Bus in a loop at +6%; load it on deck B.
+const doublesB = B.getByRole('button', { name: 'Deck B instant doubles' });
+check(await pressed(doublesB), 'Instant doubles: on at start');
+await range(16).click();
+await fader.fill('0.375');
+await A.getByRole('button', { name: /(Start|Exit) .*-beat loop/ }).click();
+await page.waitForTimeout(300);
+await page.evaluate(() => {
+  const p = window.platter;
+  const id = p.decks[0].store.get().track.id;
+  return p.loadToDeck(id, 1);
+});
+await page.waitForFunction(() => window.platter.decks[1].store.get().playing, null, { timeout: 15000 }).catch(() => undefined);
+await page.waitForTimeout(300);
+const dbl = await page.evaluate(() => {
+  const [a, b] = window.platter.decks;
+  const sa = a.store.get();
+  const sb = b.store.get();
+  return {
+    title: sb.track?.title,
+    playing: sb.playing,
+    gap: Math.abs(a.position() - b.position()),
+    pitch: [sa.pitch, sb.pitch],
+    range: [sa.range, sb.range],
+    loop: [sa.loop.active, sb.loop.active, Math.abs(sa.loop.start - sb.loop.start)],
+  };
+});
+check(dbl.title === 'Night Bus' && dbl.playing, `Instant doubles: deck B loads Night Bus and plays with A (${dbl.title}, playing ${dbl.playing})`);
+check(dbl.gap < 0.02, `Instant doubles: deck B starts where A is (${(dbl.gap * 1000).toFixed(1)} ms apart)`);
+check(dbl.pitch[0] === dbl.pitch[1] && dbl.range[0] === dbl.range[1] && (await bpm(B)) === (await bpm(A)), `Instant doubles: same tempo (${await bpm(A)} / ${await bpm(B)} BPM)`);
+check(dbl.loop[0] && dbl.loop[1] && dbl.loop[2] < 1e-6, 'Instant doubles: deck B loops the same loop');
+await page.waitForTimeout(1500);
+const drift = await page.evaluate(() => Math.abs(window.platter.decks[0].position() - window.platter.decks[1].position()));
+check(drift < 0.02, `Instant doubles: still together 1.5 s later (${(drift * 1000).toFixed(1)} ms apart)`);
+await A.getByRole('button', { name: /Exit .*-beat loop/ }).click();
+await B.getByRole('button', { name: 'Deck B pause' }).click();
+await B.getByRole('button', { name: /Exit .*-beat loop/ }).click().catch(() => undefined);
+await fader.dblclick();
+await range(8).click();
+// Off: the same load starts at the cue point, stopped.
+await doublesB.click();
+check(!(await pressed(doublesB)), 'Instant doubles: switches off');
+await page.evaluate(() => window.platter.loadToDeck(window.platter.decks[0].store.get().track.id, 1));
+await page.waitForFunction(() => window.platter.decks[1].hasAudio && !window.platter.decks[1].store.get().loading, null, { timeout: 15000 });
+await page.waitForTimeout(300);
+const plain = await page.evaluate(() => ({ playing: window.platter.decks[1].store.get().playing, pos: window.platter.decks[1].position(), cue: window.platter.decks[1].store.get().cue }));
+check(!plain.playing && Math.abs(plain.pos - plain.cue) < 0.05, `Instant doubles off: deck B waits at its cue point (${plain.pos.toFixed(2)} s, stopped)`);
+
+/* ── Scroll to nudge ────────────────────────────────────────────────────── */
+
+/** Puts the pointer on deck A's record, clear of the pinned waveforms. */
+const overPlatter = async () => {
+  await platterA.evaluate((el) => el.scrollIntoView({ block: 'center' }));
+  await page.waitForTimeout(150);
+  const box = await platterA.boundingBox();
+  const x = box.x + box.width / 2;
+  const y = box.y + box.height * 0.7;
+  const hit = await page.evaluate(([x, y]) => !!document.elementFromPoint(x, y)?.closest('[aria-label*="platter"]'), [x, y]);
+  if (!hit) throw new Error('deck A’s record is covered');
+  await page.mouse.move(x, y);
+};
+{
+  await overPlatter();
+  await page.waitForTimeout(400);
+  const base = await rate('A', 600);
+  const scrollY0 = await page.evaluate(() => window.scrollY);
+  let wheeling = true;
+  const spin = (async () => {
+    while (wheeling) {
+      await page.mouse.wheel(0, 100);
+      await page.waitForTimeout(50);
+    }
+  })();
+  await page.waitForTimeout(300);
+  const held = await rate('A', 600);
+  const showsHeld = await platterA.getAttribute('aria-valuenow');
+  wheeling = false;
+  await spin;
+  const scrolled = (await page.evaluate(() => window.scrollY)) !== scrollY0;
+  await page.waitForTimeout(400);
+  const after = await rate('A', 600);
+  check(held - base > 0.015 && showsHeld === '1', `Scroll nudge: scrolling down over the record bends it faster (rate ${base.toFixed(3)} → ${held.toFixed(3)}, nudge ${showsHeld})`);
+  check(near(after, base, 0.04) && (await platterA.getAttribute('aria-valuenow')) === '0', `Scroll nudge: it lets go when the scrolling stops (rate ${after.toFixed(3)})`);
+  check(!scrolled, 'Scroll nudge: the page doesn’t scroll under it');
+  check((await bpm(A)) === '124.0', 'Scroll nudge: the tempo setting is untouched afterwards');
+}
 
 /* ── Toggles ────────────────────────────────────────────────────────────── */
 
@@ -256,6 +482,20 @@ for (const [label, name] of [
   check(box.width === box.height, `${label}: a true circle (${box.width} × ${box.height})`);
 }
 
+/* ── Shift-scroll to scrub (paused) ─────────────────────────────────────── */
+
+{
+  await overPlatter();
+  const s0 = await secs();
+  await page.keyboard.down('Shift');
+  for (let i = 0; i < 20; i++) await page.mouse.wheel(0, 100);
+  await page.keyboard.up('Shift');
+  await page.waitForTimeout(300);
+  const s1 = await secs();
+  check(s1 - s0 >= 3 && s1 - s0 <= 5, `Shift-scroll: paused, it scrubs the record ahead (${s0}s → ${s1}s, 20 notches ≈ 4 s)`);
+  check(await A.getByRole('button', { name: 'Deck A play' }).isVisible(), 'Shift-scroll: the deck stays paused');
+}
+
 /* ── Mixer ──────────────────────────────────────────────────────────────── */
 
 await A.getByRole('button', { name: 'Deck A play' }).click();
@@ -344,6 +584,364 @@ const ringed = await waitFor(async () => (await ring.count()) === 1 && (await ri
 check(ringed, `Guide: a chip rings its control on screen${ringed ? '' : ` (rings: ${await page.evaluate(() => [...document.querySelectorAll('[data-ring]')].map((r) => `${r.dataset.ring} ${r.style.visibility}`).join(', ') || 'none')})`}`);
 await guide.getByRole('button', { name: 'Close the booth guide' }).click();
 check((await guide.count()) === 0, 'Guide: the close button closes the panel');
+
+/* ── Mixer switches ─────────────────────────────────────────────────────── */
+
+const group = (name) => mixer.getByRole('group', { name });
+const seg = (name, button) => group(name).getByRole('button', { name: button, exact: true });
+
+// EQ type: Iso's full-left is a kill, EQ's is −26 dB.
+const low = mixer.getByRole('slider', { name: 'Channel A low EQ' });
+await low.focus();
+await page.keyboard.press('Home');
+check((await low.getAttribute('aria-valuetext')) === 'kill', 'Mixer: in Iso, low EQ full left is a kill');
+await seg('EQ type', 'EQ').click();
+check(await pressed(seg('EQ type', 'EQ')), 'Mixer: EQ type switches to EQ');
+check((await low.getAttribute('aria-valuetext')) === '−26.0 dB' || (await low.getAttribute('aria-valuetext')) === '-26.0 dB', `Mixer: in EQ, low EQ full left is −26 dB (${await low.getAttribute('aria-valuetext')})`);
+await low.dblclick();
+
+// Channel-fader curve: half travel reads −12 dB linear, −18 dB slow, full level fast.
+await vol.fill('0.5');
+const faderAt = async (curve) => {
+  await seg('Channel fader curve', curve).click();
+  return vol.getAttribute('aria-valuetext');
+};
+const lin = await faderAt('Lin');
+const slow = await faderAt('Slow');
+const fast = await faderAt('Fast');
+check(lin === '−12.0 dB' && slow === '−18.1 dB' && fast === '+0.0 dB', `Mixer: channel-fader curves at half travel (lin ${lin}, slow ${slow}, fast ${fast})`);
+const engineGain = (i) => page.evaluate((i) => new Promise((r) => setTimeout(() => r(window.platter.engine.channels[i].xfade.gain.value), 150)), i);
+await seg('Channel fader curve', 'Lin').click();
+await vol.fill('1');
+
+// Crossfader assign: THRU ignores the crossfader; A follows its A side.
+const assignA = group('Channel A crossfader assign');
+check(await pressed(assignA.getByRole('button', { name: 'A', exact: true })), 'Mixer: channel A starts assigned to A');
+check(await pressed(group('Channel B crossfader assign').getByRole('button', { name: 'B', exact: true })), 'Mixer: channel B starts assigned to B');
+await xf.fill('1');
+const cutA = await engineGain(0);
+await assignA.getByRole('button', { name: 'Thru' }).click();
+const thruA = await engineGain(0);
+check(cutA < 0.01 && thruA > 0.99, `Mixer: with the crossfader at B, channel A is out on A (${cutA.toFixed(3)}) and full on THRU (${thruA.toFixed(3)})`);
+await assignA.getByRole('button', { name: 'B', exact: true }).click();
+check((await engineGain(0)) > 0.99, 'Mixer: channel A assigned to B follows the B side');
+await assignA.getByRole('button', { name: 'A', exact: true }).click();
+await xf.dblclick();
+
+// Centre-lock filter: a small drag off centre stays off; a bigger one sweeps.
+const filt = mixer.getByRole('slider', { name: 'Channel A filter' });
+const dragFilter = async (dy) => {
+  // Mid-screen, clear of the pinned waveforms above and the library bar below.
+  await filt.evaluate((el) => el.scrollIntoView({ block: 'center' }));
+  const fb = await filt.boundingBox();
+  await page.mouse.move(fb.x + fb.width / 2, fb.y + fb.height / 2);
+  await page.mouse.down();
+  await page.mouse.move(fb.x + fb.width / 2, fb.y + fb.height / 2 - dy, { steps: 4 });
+  await page.mouse.up();
+  return [Number(await filt.getAttribute('aria-valuenow')), await filt.getAttribute('aria-valuetext')];
+};
+const [small, smallText] = await dragFilter(6);
+check(small === 0 && smallText === 'off', `Mixer: filter locks off near centre (${small}, ${smallText})`);
+await filt.dblclick();
+const [big, bigText] = await dragFilter(40);
+check(big > 0.3 && /high-pass/.test(bigText), `Mixer: filter sweeps past the lock (${big}, ${bigText})`);
+await filt.dblclick();
+
+// The switches are kept: set some, reload, and they're back.
+await seg('Channel fader curve', 'Slow').click();
+await group('Channel B crossfader assign').getByRole('button', { name: 'Thru' }).click();
+await page.waitForTimeout(800);
+await page.reload({ waitUntil: 'networkidle' });
+await page.getByRole('region', { name: 'Mixer' }).waitFor();
+await page.waitForFunction(() => window.platter?.mixer.get().faderCurve === 'slow', null, { timeout: 10000 }).catch(() => undefined);
+check(
+  (await pressed(seg('EQ type', 'EQ'))) &&
+    (await pressed(seg('Channel fader curve', 'Slow'))) &&
+    (await pressed(group('Channel B crossfader assign').getByRole('button', { name: 'Thru' }))) &&
+    (await pressed(seg('Crossfader curve', 'Cut'))),
+  'Mixer: EQ type, fader curve, crossfader curve and assign survive a reload',
+);
+await seg('EQ type', 'Iso').click();
+await seg('Channel fader curve', 'Lin').click();
+await group('Channel B crossfader assign').getByRole('button', { name: 'B', exact: true }).click();
+await seg('Crossfader curve', 'Smooth').click();
+
+/* ── Mixer DSP: the EQ, rendered offline ────────────────────────────────── */
+
+// An impulse through the isolator alone and through a channel's EQ in each
+// mode, in an OfflineAudioContext; each spectrum read by a plain DFT.
+const dsp = await page.evaluate(async () => {
+  const { ChannelEq, Isolator } = await import('/src/engine/mixer.ts');
+  const sr = 48000;
+  const N = 16384;
+  const render = async (build) => {
+    const ctx = new OfflineAudioContext(1, N, sr);
+    const buf = ctx.createBuffer(1, N, sr);
+    buf.getChannelData(0)[0] = 1;
+    const src = ctx.createBufferSource();
+    src.buffer = buf;
+    const node = build(ctx);
+    src.connect(node.input);
+    node.output.connect(ctx.destination);
+    src.start();
+    const out = (await ctx.startRendering()).getChannelData(0);
+    return (f) => {
+      const w = (2 * Math.PI * f) / sr;
+      let re = 0;
+      let im = 0;
+      for (let n = 0; n < N; n++) {
+        re += out[n] * Math.cos(w * n);
+        im -= out[n] * Math.sin(w * n);
+      }
+      return 10 * Math.log10(re * re + im * im + 1e-30);
+    };
+  };
+  const spread = (db) => {
+    let min = Infinity;
+    let max = -Infinity;
+    for (let k = 0; k < 120; k++) {
+      const v = db(20 * 1000 ** (k / 119));
+      min = Math.min(min, v);
+      max = Math.max(max, v);
+    }
+    return { min, max };
+  };
+  const eq = (mode, low, mid, high) => (ctx) => {
+    const e = new ChannelEq(ctx);
+    e.set(mode, low, mid, high, 0);
+    return e;
+  };
+  const iso = spread(await render((ctx) => new Isolator(ctx)));
+  const isoFlat = spread(await render(eq('iso', 0.5, 0.5, 0.5)));
+  const eqFlat = spread(await render(eq('eq', 0.5, 0.5, 0.5)));
+  const isoKill = await render(eq('iso', 0, 0.5, 0.5));
+  const eqCut = await render(eq('eq', 0, 0.5, 0.5));
+  return { iso, isoFlat, eqFlat, isoKill40: isoKill(40), eqCut30: eqCut(30), eqCut2k: eqCut(2000) };
+});
+const dbRange = ({ min, max }) => `${min.toFixed(2)} … ${max >= 0 ? '+' : ''}${max.toFixed(2)} dB`;
+const flat = ({ min, max }) => max < 0.5 && min > -0.5;
+check(flat(dsp.iso), `Mixer: isolator bands at centre sum flat (${dbRange(dsp.iso)})`);
+check(flat(dsp.isoFlat) && flat(dsp.eqFlat), `Mixer: channel EQ flat at centre in Iso (${dbRange(dsp.isoFlat)}) and EQ (${dbRange(dsp.eqFlat)})`);
+check(dsp.isoKill40 < -50, `Mixer: Iso low fully down kills the lows (${dsp.isoKill40.toFixed(1)} dB at 40 Hz)`);
+check(
+  dsp.eqCut30 < -22 && dsp.eqCut30 > -28 && Math.abs(dsp.eqCut2k) < 1,
+  `Mixer: EQ low fully down is a shelf, not a kill (${dsp.eqCut30.toFixed(1)} dB at 30 Hz, ${dsp.eqCut2k.toFixed(1)} dB at 2 kHz)`,
+);
+
+/* ── Deck switches come back after a reload ─────────────────────────────── */
+
+await page.waitForTimeout(800); // settings save a moment after a change
+await page.reload({ waitUntil: 'networkidle' });
+await B.getByRole('group', { name: /jog mode/ }).waitFor({ timeout: 15000 });
+await page.waitForFunction(() => window.platter.decks[1].store.get().jogMode === 'cdj', null, { timeout: 5000 }).catch(() => undefined);
+check((await pressed(jog(B, 'CDJ'))) && (await pressed(jog(A, 'Vinyl'))), 'Jog mode: each deck’s mode is kept after a reload');
+check(!(await pressed(B.getByRole('button', { name: 'Deck B instant doubles' }))) && (await pressed(A.getByRole('button', { name: 'Deck A instant doubles' }))), 'Instant doubles: each deck’s setting is kept after a reload');
+
+/* ── Waveform smarts: phrases, phase meter, beat countdown, grid edit ───── */
+
+// Phrases: Night Bus is built intro 8, build 8, drop 16, break 8, drop 16, outro 8.
+await page.waitForFunction(() => window.platter.decks[0].store.get().phrases?.length > 0, null, { timeout: 5000 });
+const phraseList = await page.evaluate(() => window.platter.decks[0].store.get().phrases.map((p) => `${p.kind}${p.bars}`).join(' '));
+check(phraseList === 'intro8 build8 drop16 break8 drop16 outro8', `Phrases: Night Bus reads as its arrangement (${phraseList})`);
+
+// Phase meter: shown while both decks play, gone when one stops.
+const phaseMeter = page.locator('[aria-label^="Phase"][role="img"]');
+if (!(await A.getByRole('button', { name: 'Deck A pause' }).count())) await A.getByRole('button', { name: 'Deck A play' }).click();
+await B.getByRole('button', { name: 'Deck B play' }).click();
+await page.waitForFunction(() => document.querySelector('[aria-label="Deck B pause"]'), null, { timeout: 15000 });
+await page.waitForTimeout(400);
+const phaseText = await phaseMeter.textContent();
+check((await phaseMeter.isVisible()) && /^[+−]0\.\d\d$/.test(phaseText), `Phase meter: shows B's offset in beats while both play (${phaseText})`);
+await B.getByRole('button', { name: 'Deck B pause' }).click();
+await A.getByRole('button', { name: 'Deck A pause' }).click();
+await page.waitForTimeout(200);
+check(!(await phaseMeter.isVisible()), 'Phase meter: hidden once a deck stops');
+
+// Beat countdown: the arithmetic, then on the deck.
+const cdUnit = await page.evaluate(async () => {
+  const { countdownBeats, countdownTarget } = await import('/src/engine/countdown.ts');
+  const b = 0.5;
+  const hot = [null, { t: 10, color: 0 }, { t: 4, color: 1 }];
+  const loop = { active: false, start: 0, end: 0 };
+  return {
+    texts: [34, 32, 31.5, 4.1, 0.5, 0].map((n) => countdownBeats(n * b, b).text).join(' '),
+    nextHot: countdownTarget({ hotCues: hot, memoryCues: [6], loop }, 3, b),
+    nextMem: countdownTarget({ hotCues: hot, memoryCues: [6], loop }, 4, b),
+    passed: countdownTarget({ hotCues: hot, memoryCues: [6], loop }, 10, b),
+    loop: countdownTarget({ hotCues: hot, memoryCues: [], loop: { active: true, start: 1, end: 3 } }, 2, b),
+  };
+});
+check(cdUnit.texts === '8.2 8.0 8.0 1.1 0.1 0.0', `Countdown: beats to bars.beats, counted up (${cdUnit.texts})`);
+check(cdUnit.nextHot?.kind === 'hot' && cdUnit.nextHot.slot === 2 && cdUnit.nextMem?.kind === 'memory' && cdUnit.nextMem.t === 6, 'Countdown: aims at the nearest hot or memory cue ahead');
+check(cdUnit.passed === null && cdUnit.loop?.kind === 'loop' && cdUnit.loop.t === 3, 'Countdown: nothing once every cue is behind; a running loop counts to its end');
+
+const beatA = await page.evaluate(() => 60 / window.platter.decks[0].store.get().bpm);
+const countdownA = A.locator('[aria-label^="Deck A countdown"]');
+await page.evaluate((b) => window.platter.decks[0].seek(34 * b), beatA);
+await page.waitForTimeout(300);
+await A.getByRole('button', { name: 'Set hot cue C' }).click();
+await page.evaluate(() => window.platter.decks[0].seek(0));
+await page.waitForTimeout(300);
+check((await countdownA.textContent()) === 'C8.2', `Countdown: 34 beats before hot cue C reads C 8.2 (${await countdownA.textContent()})`);
+await page.evaluate(() => window.platter.decks[0].setLoopBeats(4));
+await A.getByRole('button', { name: /^Start 4-beat loop/ }).click();
+await page.waitForTimeout(300);
+check((await countdownA.textContent()) === 'LOOP1.0', `Countdown: in a 4-beat loop it counts to the loop's end (${await countdownA.textContent()})`);
+await A.getByRole('button', { name: /Deck A: exit the loop/ }).click();
+await A.getByRole('button', { name: /^Hot cue C at / }).click({ modifiers: ['Shift'] });
+
+// Grid edit: nudges, the downbeat, ÷2 ×2 — and all of it saved with the track.
+await A.getByRole('button', { name: 'Deck A grid edit' }).click();
+const gridRow = A.getByRole('group', { name: 'Deck A grid edit' });
+check(await gridRow.isVisible(), 'Grid: the Grid button opens the edit row');
+const g0 = await page.evaluate(() => window.platter.decks[0].store.get().gridOffset);
+await gridRow.getByRole('button', { name: 'Deck A: move the beat grid 10 ms later' }).click();
+await gridRow.getByRole('button', { name: 'Deck A: move the beat grid 1 ms earlier' }).click();
+const g1 = await page.evaluate(() => window.platter.decks[0].store.get().gridOffset);
+check(near(g1 - g0, 0.009, 1e-6), `Grid: +10 ms then −1 ms moves the grid 9 ms (${((g1 - g0) * 1000).toFixed(2)} ms)`);
+await page.evaluate(() => window.platter.decks[0].seek(3.5));
+await page.waitForTimeout(300);
+await gridRow.getByRole('button', { name: 'Deck A: make the playhead the downbeat' }).click();
+const g2 = await page.evaluate(() => window.platter.decks[0].store.get().gridOffset);
+check(near(g2, 3.5, 0.005), `Grid: 1 here puts a downbeat at the playhead (${g2.toFixed(4)} s)`);
+await gridRow.getByRole('button', { name: 'Deck A: halve the detected tempo' }).click();
+check((await bpm(A)) === '62.0', `Grid: ÷2 halves the tempo (${await bpm(A)})`);
+await gridRow.getByRole('button', { name: 'Deck A: double the detected tempo' }).click();
+check((await bpm(A)) === '124.0', `Grid: ×2 doubles it back (${await bpm(A)})`);
+// Phrases are read again on the new grid, and saved with it.
+await page.waitForFunction((g) => window.platter.crate.get().tracks.find((t) => t.id === 'demo-night-bus')?.phrases?.gridOffset === g, g2, { timeout: 3000 }).catch(() => {});
+const savedGrid = await page.evaluate(() => {
+  const t = window.platter.crate.get().tracks.find((t) => t.id === 'demo-night-bus');
+  return { gridOffset: t.gridOffset, bpm: t.bpm, edited: t.gridEdited, phrasesAt: t.phrases?.gridOffset };
+});
+check(savedGrid.gridOffset === g2 && savedGrid.bpm === 124 && savedGrid.edited === true && savedGrid.phrasesAt === g2, `Grid: the edit is saved with the track, phrases too (${JSON.stringify(savedGrid)})`);
+await page.waitForTimeout(500);
+await page.reload({ waitUntil: 'networkidle' });
+await A.getByText('Night Bus').waitFor({ timeout: 15000 });
+await page.waitForFunction(() => window.platter.decks[0].store.get().track?.id === 'demo-night-bus', null, { timeout: 15000 });
+const reloaded = await page.evaluate(() => {
+  const st = window.platter.decks[0].store.get();
+  return { gridOffset: st.gridOffset, bpm: st.bpm, phrases: st.phrases?.length ?? 0 };
+});
+check(reloaded.gridOffset === g2 && reloaded.bpm === 124 && reloaded.phrases > 0, `Grid: after a reload deck A keeps the edited grid, with its phrases (${JSON.stringify(reloaded)})`);
+
+{
+  // The wake-lock checks need deck A playing.
+  const pause = A.getByRole('button', { name: 'Deck A pause' });
+  if (!(await pause.isVisible())) {
+    await A.getByRole('button', { name: 'Deck A play' }).click();
+    await pause.waitFor({ timeout: 15000 });
+  }
+}
+
+/* ── Screen wake lock ───────────────────────────────────────────────────── */
+
+{
+  const wake = () => page.evaluate(() => ({ requests: window.__wake.requests, releases: window.__wake.releases, held: !!window.__wake.active, state: document.documentElement.dataset.screenAwake }));
+  // Deck A is playing (from the mixer checks).
+  await page.waitForTimeout(200);
+  let w = await wake();
+  check(w.held && w.state === 'held', `Wake lock: held while deck A plays (${JSON.stringify(w)})`);
+  await A.getByRole('button', { name: 'Deck A pause' }).click();
+  await page.waitForTimeout(200);
+  w = await wake();
+  check(!w.held && w.state === 'off', `Wake lock: let go when nothing plays (${JSON.stringify(w)})`);
+  await A.getByRole('button', { name: 'Deck A play' }).click();
+  await page.waitForTimeout(200);
+  const r0 = (await wake()).requests;
+  // The tab hides: the browser drops the lock, then comes back.
+  await page.evaluate(() => {
+    Object.defineProperty(document, 'visibilityState', { configurable: true, get: () => 'hidden' });
+    window.__wake.active?.drop();
+    document.dispatchEvent(new Event('visibilitychange'));
+  });
+  await page.waitForTimeout(100);
+  w = await wake();
+  check(!w.held && w.requests === r0, `Wake lock: gone while the tab is hidden, not asked for again (${JSON.stringify(w)})`);
+  await page.evaluate(() => {
+    Object.defineProperty(document, 'visibilityState', { configurable: true, get: () => 'visible' });
+    document.dispatchEvent(new Event('visibilitychange'));
+  });
+  await page.waitForTimeout(200);
+  w = await wake();
+  check(w.held && w.requests === r0 + 1 && w.state === 'held', `Wake lock: taken again when the tab is back (${JSON.stringify(w)})`);
+}
+
+/* ── Listen to ──────────────────────────────────────────────────────────── */
+
+{
+  // What the main output carries, read from the engine's output node: deck A
+  // plays with its channel fader down, so the master is silent but deck A's
+  // cue is not.
+  const outLevel = () =>
+    page.evaluate(
+      () =>
+        new Promise((done) => {
+          const e = window.platter.engine;
+          const an = e.ctx.createAnalyser();
+          an.fftSize = 2048;
+          e.out.connect(an);
+          setTimeout(() => {
+            const buf = new Float32Array(an.fftSize);
+            an.getFloatTimeDomainData(buf);
+            e.out.disconnect(an);
+            done(Math.sqrt(buf.reduce((a, v) => a + v * v, 0) / buf.length));
+          }, 300);
+        }),
+    );
+  const masterLevel = () =>
+    page.evaluate(() => {
+      const an = window.platter.engine.masterMeters[0];
+      const buf = new Float32Array(an.fftSize);
+      an.getFloatTimeDomainData(buf);
+      return Math.sqrt(buf.reduce((a, v) => a + v * v, 0) / buf.length);
+    });
+  await mixer.getByRole('slider', { name: 'Channel A volume' }).fill('0');
+  await page.getByText('Outputs', { exact: true }).click();
+  const listen = page.getByRole('group', { name: 'Listen to' });
+  check(await pressed(listen.getByRole('button', { name: 'Master', exact: true })), 'Listen to: Master at start');
+  const onMaster = await outLevel();
+  await listen.getByRole('button', { name: 'Deck A cue' }).click();
+  await page.waitForTimeout(150);
+  const onCueA = await outLevel();
+  check(onMaster < 0.002 && onCueA > 0.01, `Listen to: Deck A cue plays deck A with its fader down (out ${onMaster.toFixed(4)} → ${onCueA.toFixed(4)})`);
+  check((await masterLevel()) < 0.002, 'Listen to: the master stays silent meanwhile');
+  await listen.getByRole('button', { name: 'Deck B cue' }).click();
+  await page.waitForTimeout(150);
+  check((await outLevel()) < 0.002, 'Listen to: Deck B cue doesn’t hear deck A');
+  await listen.getByRole('button', { name: 'Deck A cue' }).click();
+  const vol = page.getByRole('slider', { name: 'Listening volume' });
+  await vol.fill('0');
+  await page.waitForTimeout(150);
+  check((await outLevel()) < 0.0005 && (await vol.getAttribute('aria-valuetext')) === 'off', 'Listening volume: down to off silences the output');
+  // Volume still off: the master carries on (its meter, and so the recorder,
+  // which taps the same point).
+  await mixer.getByRole('slider', { name: 'Channel A volume' }).fill('1');
+  await listen.getByRole('button', { name: 'Master', exact: true }).click();
+  await page.waitForTimeout(150);
+  let peak = 0;
+  for (let i = 0; i < 20; i++) {
+    peak = Math.max(peak, await masterLevel());
+    await page.waitForTimeout(25);
+  }
+  const silentOut = await outLevel();
+  check(peak > 0.05 && silentOut < 0.0005, `Listening volume: off here leaves the master playing (meter ${peak.toFixed(3)}, out ${silentOut.toFixed(4)})`);
+  await listen.getByRole('button', { name: 'Deck A cue' }).click();
+  await vol.fill('0.2');
+  const hp = page.getByLabel('Headphones (cue)');
+  await hp.selectOption('split');
+  await page.waitForTimeout(100);
+  check(await listen.getByRole('button', { name: 'Deck B cue' }).isDisabled(), 'Listen to: with Split headphones only Master can be picked');
+  await hp.selectOption('off');
+  await page.waitForTimeout(700); // saved a moment after the change
+  await page.reload({ waitUntil: 'networkidle' });
+  await page.getByText('Outputs', { exact: true }).click();
+  check(await pressed(page.getByRole('group', { name: 'Listen to' }).getByRole('button', { name: 'Deck A cue' })), 'Listen to: the choice is remembered after a reload');
+  check((await page.getByRole('slider', { name: 'Listening volume' }).inputValue()) === '0.2', 'Listening volume: remembered after a reload');
+  await page.getByRole('group', { name: 'Listen to' }).getByRole('button', { name: 'Master', exact: true }).click();
+  await page.getByRole('slider', { name: 'Listening volume' }).fill('0.8');
+  await page.waitForTimeout(700);
+}
 
 check(errors.length === 0, `no page errors${errors.length ? `: ${errors.join(' | ')}` : ''}`);
 await browser.close();

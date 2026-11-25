@@ -526,6 +526,18 @@
   color: var(--dj-dim);
 }
 
+/* Played this session (engine/history): a tick, and the title steps back. */
+.playedTick {
+  flex: none;
+  color: var(--dj-play);
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.row[data-played] .title {
+  color: color-mix(in srgb, var(--dj-text) 62%, var(--dj-dim));
+}
+
 /* Columns. The title takes what's left. */
 .colTrack {
   width: auto;
@@ -565,7 +577,7 @@
 }
 
 .colActions {
-  width: 160px;
+  width: 200px;
 }
 
 .table th.colNum,
@@ -822,6 +834,15 @@ a.badge:hover {
 
 .load[data-deck]:hover:not(:disabled) {
   color: var(--dj-ink);
+}
+
+.load:not([data-deck])[data-in] {
+  color: var(--dj-play);
+}
+
+.load:not([data-deck]) svg {
+  display: block;
+  margin: auto;
 }
 
 .load:not([data-deck])[aria-pressed='true'] {
@@ -1287,11 +1308,11 @@ a.badge:hover {
   }
 
   .pageCrate .colActions {
-    width: 104px;
+    width: 142px;
   }
 
-  /* +Q and × wait for the wider views; A and B stay. */
-  .pageCrate .actions button:nth-child(n + 3) {
+  /* +Q and × wait for the wider views; A, B and the playlist button stay. */
+  .pageCrate .actions button:nth-child(n + 3):not([aria-haspopup]) {
     display: none;
   }
 
@@ -1463,11 +1484,11 @@ a.badge:hover {
   }
 
   .table:not([data-mode='mini']) .colActions {
-    width: 84px;
+    width: 122px;
   }
 
-  /* +Q and × wait for a wider list; A and B stay. */
-  .table:not([data-mode='mini']) .actions button:nth-child(n + 3) {
+  /* +Q and × wait for a wider list; A, B and the playlist button stay. */
+  .table:not([data-mode='mini']) .actions button:nth-child(n + 3):not([aria-haspopup]) {
     display: none;
   }
 }

@@ -2,8 +2,10 @@
 import { useEffect, useRef, type KeyboardEvent, type PointerEvent } from 'react';
 import { hotLetter } from '../engine/cues';
 import { loopLabel, type Deck, type DeckState } from '../engine/deck';
+import { PHRASE_LABEL, type Phrase } from '../engine/phrases';
 import type { WavePeaks } from '../engine/types';
 import { fitCanvas, readPalette, useFrame, type FrameLoop, type Palette } from './frame';
+import { gridEdit } from './gridEdit';
 import s from '../platter.module.css';
 
 /* Bands nest: lows (usually the biggest) at the back, highs at the front, so
@@ -68,6 +70,63 @@ function drawPeaks(g: CanvasRenderingContext2D, p: WavePeaks, pal: Palette, t0: 
   drawBand(g, p.mid, p.rate, t0, pps, w, mid, half, BAND_GAIN.mid);
   g.fillStyle = pal.high;
   drawBand(g, p.high, p.rate, t0, pps, w, mid, half, BAND_GAIN.high);
+}
+
+/* ── Phrases ─────────────────────────────────────────────────────────────── */
+
+/** How strongly a phrase tints the waveform behind it. */
+const PHRASE_TINT = 0.11;
+/** Height of the phrase band along the foot. */
+const PHRASE_BAND = 3;
+
+/**
+ * The phrases over [t0, t0 + w/pps): a faint tint of each phrase's colour
+ * behind the waveform and a solid band along the foot. With `labels`, each
+ * phrase's name and length sit on the band, held on screen while any of the
+ * phrase is, so the one playing is always named.
+ */
+function drawPhrases(g: CanvasRenderingContext2D, list: readonly Phrase[], P: Palette, xOf: (t: number) => number, w: number, h: number, labels: boolean) {
+  for (const p of list) {
+    const x0 = Math.round(xOf(p.start));
+    const x1 = Math.round(xOf(p.end));
+    if (x1 < 0 || x0 > w) continue;
+    const color = P.phrase[p.kind];
+    g.fillStyle = color;
+    g.globalAlpha = PHRASE_TINT;
+    g.fillRect(x0, 0, x1 - x0, h);
+    g.globalAlpha = 1;
+    // A pixel's gap between neighbours, so two of a kind read as two.
+    g.fillRect(x0, h - PHRASE_BAND, Math.max(1, x1 - x0 - 1), PHRASE_BAND);
+  }
+  if (!labels) return;
+  for (const p of list) {
+    const x0 = Math.round(xOf(p.start));
+    const x1 = Math.round(xOf(p.end));
+    if (x1 < 0 || x0 > w) continue;
+    const name = PHRASE_LABEL[p.kind].toUpperCase();
+    const bars = String(p.bars);
+    g.font = `700 10px ${P.label}`;
+    const nw = g.measureText(name).width;
+    g.font = `500 9px ${P.mono}`;
+    const bw = g.measureText(bars).width;
+    const tw = nw + 4 + bw + 8;
+    // Just after the phrase's start (clear of a hot cue's letter there, as
+    // cues often sit on a drop), or at the left edge while it runs on past it.
+    const x = Math.min(x0 >= 0 ? x0 + 16 : 2, x1 - tw - 2);
+    if (x < x0 || x1 - x0 < tw + 18) continue;
+    const y = h - PHRASE_BAND - 14;
+    g.fillStyle = P.bg;
+    g.globalAlpha = 0.78;
+    g.fillRect(x, y, tw, 13);
+    g.globalAlpha = 1;
+    g.fillStyle = P.phrase[p.kind];
+    g.fillRect(x, y, 2, 13);
+    g.font = `700 10px ${P.label}`;
+    g.fillText(name, x + 5, y + 10);
+    g.fillStyle = P.text;
+    g.font = `500 9px ${P.mono}`;
+    g.fillText(bars, x + 5 + nw + 4, y + 10);
+  }
 }
 
 /* ── The scrolling, zoomed waveform ──────────────────────────────────────── */
@@ -166,6 +225,7 @@ export function ScrollingWave({ deck, loop, zoom, label }: { deck: Deck; loop: F
       const xOf = (t: number) => (t - t0) * pps;
       view.current = { t0, pps };
 
+      if (st.phrases) drawPhrases(g, st.phrases, P, xOf, w, h, true);
       drawLoop(g, st, P, xOf, w, h);
       // Hot loops: a faint band of the cue's colour over the loop.
       g.globalAlpha = 0.16;
@@ -181,9 +241,20 @@ export function ScrollingWave({ deck, loop, zoom, label }: { deck: Deck; loop: F
         const beat = 60 / st.bpm;
         const first = Math.ceil((t0 - st.gridOffset) / beat);
         const last = Math.floor((t0 + w / pps - st.gridOffset) / beat);
+        // Grid edit: every beat full height and numbered in its bar, the
+        // ones in the cue colour, so a misplaced grid shows at a glance.
+        const editing = gridEdit.get().on[deck.index];
+        if (editing) g.font = `600 10px ${P.mono}`;
         for (let k = first; k <= last; k++) {
           const x = Math.round(xOf(st.gridOffset + k * beat)) + 0.5;
-          const bar = ((k % 4) + 4) % 4 === 0;
+          const n = ((k % 4) + 4) % 4;
+          const bar = n === 0;
+          if (editing) {
+            g.fillStyle = bar ? P.cue : P.bar;
+            g.fillRect(x - (bar ? 0.5 : 0), 0, bar ? 2 : 1, h);
+            g.fillText(String(n + 1), x + 3, 20);
+            continue;
+          }
           g.fillStyle = bar ? P.bar : P.grid;
           g.fillRect(x, 0, 1, bar ? h : 6);
           if (!bar) g.fillRect(x, h - 6, 1, 6);
@@ -298,8 +369,9 @@ export function ScrollingWave({ deck, loop, zoom, label }: { deck: Deck; loop: F
 export function Overview({ deck, loop }: { deck: Deck; loop: FrameLoop }) {
   const canvas = useRef<HTMLCanvasElement>(null);
   const pal = usePalette(canvas);
-  const cache = useRef<{ key: WavePeaks | null; w: number; h: number; img: HTMLCanvasElement | null }>({
+  const cache = useRef<{ key: WavePeaks | null; phrases: Phrase[] | null; w: number; h: number; img: HTMLCanvasElement | null }>({
     key: null,
+    phrases: null,
     w: 0,
     h: 0,
     img: null,
@@ -328,15 +400,16 @@ export function Overview({ deck, loop }: { deck: Deck; loop: FrameLoop }) {
     // The overview only changes with the track or the canvas size: draw it
     // once offscreen and blit it each frame.
     const ch = cache.current;
-    if (track.peaks && (ch.key !== track.peaks || ch.w !== c.width || ch.h !== c.height)) {
+    if (track.peaks && (ch.key !== track.peaks || ch.phrases !== st.phrases || ch.w !== c.width || ch.h !== c.height)) {
       const img = ch.img ?? document.createElement('canvas');
       img.width = c.width;
       img.height = c.height;
       const ig = img.getContext('2d')!;
       ig.setTransform(dpr, 0, 0, dpr, 0, 0);
       ig.clearRect(0, 0, w, h);
+      if (st.phrases) drawPhrases(ig, st.phrases, P, (t) => t * pps, w, h, false);
       drawPeaks(ig, track.peaks, P, 0, pps, w, h);
-      cache.current = { key: track.peaks, w: c.width, h: c.height, img };
+      cache.current = { key: track.peaks, phrases: st.phrases, w: c.width, h: c.height, img };
     }
     if (track.peaks && cache.current.img) {
       g.setTransform(1, 0, 0, 1, 0, 0);

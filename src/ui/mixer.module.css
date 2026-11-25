@@ -1,0 +1,128 @@
+/* The mixer's switches (Mixer.tsx): crossfader assign under each channel,
+   and the set-and-forget row under the crossfader (EQ type, channel-fader
+   curve, crossfader curve). The strip itself lives in platter.module.css;
+   only what is new lives here. */
+
+/* Joined buttons, one pressed: smaller than .mini, since these are set once
+   and left, and must not crowd the strip. --seg is a pressed button's colour. */
+.seg {
+  display: inline-flex;
+  overflow: hidden;
+  border: 1px solid var(--dj-line-2);
+  border-radius: 6px;
+  background: var(--dj-panel-2);
+}
+
+.seg > button {
+  min-width: 28px;
+  min-height: 30px;
+  padding: 0 5px;
+  border: 0;
+  background: transparent;
+  color: var(--dj-dim);
+  font-family: var(--font-label);
+  font-size: 13px;
+  font-weight: 600;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+  cursor: pointer;
+  transition: background-color 120ms, color 120ms;
+}
+
+.seg > button + button {
+  border-left: 1px solid var(--dj-line-2);
+}
+
+.seg > button:hover {
+  color: var(--dj-text);
+}
+
+.seg > button[aria-pressed='true'] {
+  background: var(--seg, var(--dj-text));
+  color: var(--dj-ink);
+}
+
+.seg > button:focus-visible {
+  outline: 2px solid var(--dj-focus);
+  outline-offset: -2px;
+}
+
+/* Crossfader assign: under the channel fader, just above the crossfader. */
+.assign {
+  margin-top: 4px;
+}
+
+/* The mixer guide sits at the top of the master meters' column, between the
+   two channel badges. The meters stay level with the channel meters, above
+   the assign switches: --assign-h is a switch's height and the gap above it. */
+.centre {
+  --assign-h: 42px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding-bottom: var(--assign-h);
+}
+
+.info {
+  margin-top: -4px;
+}
+
+/* The row of set-and-forget switches, each with a caption under it. */
+.switches {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  gap: 8px 4px;
+}
+
+.switch {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 3px;
+}
+
+.caption {
+  color: var(--dj-dim);
+  font-family: var(--font-label);
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+/* Phone (matches PHONE_QUERY): finger-sized, and the crossfader row above is
+   hidden there (it's in the dock), so the switches bring their own rule. */
+@media (max-width: 639px) {
+  [data-phone] .seg {
+    display: flex;
+    width: 100%;
+  }
+
+  [data-phone] .seg > button {
+    flex: 1 1 auto;
+    min-width: 40px;
+    min-height: 40px;
+  }
+
+  /* Two to a row, each switch stretched to fill it. */
+  [data-phone] .switch {
+    flex: 1 1 auto;
+  }
+
+  [data-phone] .switches {
+    padding-top: 12px;
+    border-top: 1px solid var(--dj-line);
+  }
+
+  [data-phone] .assign {
+    margin-top: 0;
+  }
+
+  [data-phone] .centre {
+    --assign-h: 50px;
+  }
+}

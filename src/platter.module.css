@@ -631,6 +631,162 @@
   gap: 4px;
 }
 
+/* ── Beat countdown: bars.beats to the next cue or the loop's end ──────── */
+
+.countdown {
+  --cd: var(--dj-dim);
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  min-width: 76px;
+  font-variant-numeric: tabular-nums;
+}
+
+.countdown[data-kind='loop'] {
+  --cd: var(--dj-play);
+}
+
+.countdown[data-kind='memory'] {
+  --cd: var(--dj-memory);
+}
+
+.countdownTag {
+  min-width: 18px;
+  padding: 0 4px;
+  border-radius: 3px;
+  background: var(--cd);
+  color: var(--dj-ink);
+  font: 700 11px/16px var(--font-label);
+  letter-spacing: 0.05em;
+  text-align: center;
+}
+
+.countdownTag:empty {
+  display: none;
+}
+
+.countdownNum {
+  color: var(--dj-text);
+  font-family: var(--font-mono);
+  font-size: 15px;
+}
+
+.countdown[data-kind='none'] .countdownNum {
+  color: var(--dj-dim);
+}
+
+/* ── Grid edit: nudge the grid, set the one, halve or double ───────────── */
+
+.gridEdit {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 8px;
+  padding: 6px 8px;
+  border: 1px solid color-mix(in srgb, var(--dj-cue) 45%, transparent);
+  border-radius: 6px;
+  background: color-mix(in srgb, var(--dj-cue) 6%, var(--dj-panel));
+}
+
+.gridEditLabel {
+  color: var(--dj-cue);
+  font: 700 12px/1 var(--font-label);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.gridEditSet {
+  display: inline-flex;
+  gap: 3px;
+}
+
+.gridEdit .mini {
+  min-width: 40px;
+  min-height: 36px;
+  padding: 0 8px;
+  font-size: 14px;
+}
+
+.gridEditRead {
+  margin-left: auto;
+  color: var(--dj-text);
+  font-family: var(--font-mono);
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+/* ── Phase meter: B's beat against A's, on B's waveform tag ─────────────── */
+
+.phaseMeter {
+  --phase: 0;
+  --tone: var(--dj-cue);
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 0 6px;
+  border-radius: 3px;
+  background: rgb(10 11 13 / 0.82);
+  line-height: 18px;
+}
+
+.phaseMeter[hidden] {
+  display: none;
+}
+
+.phaseMeter[data-tone='ok'] {
+  --tone: var(--dj-play);
+}
+
+.phaseTrack {
+  position: relative;
+  width: 64px;
+  height: 6px;
+  border-radius: 3px;
+  background: var(--dj-panel-3);
+}
+
+/* The centre: beats together. */
+.phaseTrack::before {
+  content: '';
+  position: absolute;
+  top: -2px;
+  bottom: -2px;
+  left: calc(50% - 0.5px);
+  width: 1px;
+  background: var(--dj-dim);
+}
+
+/* From the centre to the marker; --phase runs −0.5…0.5 beats. */
+.phaseFill {
+  position: absolute;
+  top: 1px;
+  bottom: 1px;
+  left: min(50%, calc(50% + var(--phase) * 100%));
+  width: calc(max(var(--phase), var(--phase) * -1) * 100%);
+  border-radius: 2px;
+  background: var(--tone);
+  opacity: 0.45;
+}
+
+.phaseMark {
+  position: absolute;
+  top: -2px;
+  bottom: -2px;
+  left: calc(50% + var(--phase) * 100% - 1.5px);
+  width: 3px;
+  border-radius: 1px;
+  background: var(--tone);
+}
+
+.phaseValue {
+  min-width: 34px;
+  color: var(--tone);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+}
+
 .overview {
   display: block;
   width: 100%;
@@ -698,12 +854,42 @@
   color: var(--dj-text);
 }
 
+/* Jog mode (Vinyl / CDJ): the same kind of selector keys, in the corner
+   opposite 33 / 45. */
+.jogGroup {
+  position: absolute;
+  z-index: 1;
+  top: 3%;
+  left: 4%;
+  display: flex;
+  gap: 4px;
+}
+
+.jogBtn {
+  width: auto;
+  padding: 0 7px;
+  font-size: 12px;
+  text-transform: uppercase;
+}
+
+.jogBtn[aria-pressed='true'] {
+  border-color: var(--deck, var(--dj-play));
+  background: var(--deck, var(--dj-play));
+  color: var(--dj-ink);
+}
+
 /* A phone-sized plinth has less corner beside the record: smaller keys. */
 @container (max-width: 280px) {
   .speedBtn {
     width: 30px;
     height: 26px;
     font-size: 12px;
+  }
+
+  .jogBtn {
+    width: auto;
+    padding: 0 5px;
+    font-size: 11px;
   }
 }
 
@@ -983,10 +1169,27 @@
 }
 
 .rangeGroup .mini,
-.bendGroup .mini {
+.bendGroup .mini,
+.tempoReset {
   width: 56px;
   min-width: 0;
   padding: 0 4px;
+}
+
+/* Five ranges (±6 … WIDE) stack as short keys, so the column stays about as
+   tall as the record beside it. */
+.rangeGroup {
+  gap: 3px;
+}
+
+.rangeGroup .mini {
+  min-height: 28px;
+  font-size: 13px;
+}
+
+.tempoReset {
+  min-height: 32px;
+  font-size: 13px;
 }
 
 /* Selected range and speed read at a glance: filled in the deck's colour,
@@ -1278,12 +1481,6 @@
   font-size: 13px;
   font-weight: 700;
   color: var(--dj-dim);
-}
-
-.curves {
-  display: flex;
-  justify-content: center;
-  gap: 6px;
 }
 
 /* ── Knob ───────────────────────────────────────────────────────────────── */
@@ -1695,6 +1892,11 @@
 .fxOn[aria-pressed='true'] {
   border-color: var(--dj-cue);
   background: var(--dj-cue);
+}
+
+.loadNote {
+  color: var(--dj-dim);
+  font-size: 13px;
 }
 
 .keyLabel {
@@ -2732,8 +2934,13 @@
     display: grid;
     order: 20;
     grid-column: 1 / -1;
-    grid-template-columns: repeat(6, minmax(0, 1fr));
+    grid-template-columns: repeat(3, minmax(0, 1fr));
     gap: 6px;
+  }
+
+  .root[data-phone] .deckMeta > .countdown {
+    order: 20;
+    grid-column: 1 / -1;
   }
 
   .root[data-phone] .bpmTools .mini {
@@ -2773,7 +2980,7 @@
      range and bend keys sit in one row under them. */
   .root[data-phone] .deckBody {
     grid-template-columns: minmax(0, 1fr) 52px;
-    grid-template-rows: auto minmax(0, 1fr) auto auto;
+    grid-template-rows: auto minmax(0, 1fr) auto auto auto;
     gap: 6px 10px;
     align-items: stretch;
   }
@@ -2815,17 +3022,32 @@
     flex-direction: row;
   }
 
+  /* Five ranges take the row; reset and the bend keys share the next. */
   .root[data-phone] .rangeGroup {
+    grid-column: 1 / -1;
+    justify-self: stretch;
+  }
+
+  .root[data-phone] .rangeGroup .mini {
+    flex: 1;
+    width: auto;
+    min-height: 44px;
+  }
+
+  .root[data-phone] .tempoReset {
+    grid-row: 5;
     grid-column: 1;
     justify-self: start;
+    width: 72px;
+    min-height: 44px;
   }
 
   .root[data-phone] .bendGroup {
+    grid-row: 5;
     grid-column: 1 / -1;
     justify-self: end;
   }
 
-  .root[data-phone] .rangeGroup .mini,
   .root[data-phone] .bendGroup .mini {
     width: 52px;
   }
@@ -2875,7 +3097,8 @@
       'hi trim'
       'mid filter'
       'low cue'
-      'fader fader';
+      'fader fader'
+      'assign assign';
     gap: 8px 10px;
     align-items: center;
     justify-items: center;
@@ -2914,6 +3137,10 @@
     margin-top: 4px;
   }
 
+  .root[data-phone] .channel > :nth-child(9) {
+    grid-area: assign;
+  }
+
   .root[data-phone] .mixer .xfaderRow {
     display: none;
   }
@@ -2921,11 +3148,6 @@
   .root[data-phone] .fader,
   .root[data-phone] .meter {
     height: 180px;
-  }
-
-  .root[data-phone] .curves {
-    padding-top: 12px;
-    border-top: 1px solid var(--dj-line);
   }
 
   /* 33 / 45: the plinth's container query shrinks them for a narrow plinth;
@@ -3219,15 +3441,15 @@
 }
 
 /* On a phone the pitch column is laid out in the deck body's grid: the ⓘ sits
-   in the row of range and nudge keys, between the two groups. */
-/* On a phone it sits in the gap between the range buttons (3 × 52px + 2 × 4px
-   = 164px) and the nudge pair (2 × 52px + 4px = 108px). A percentage margin
-   on a grid item is a share of its area, so 50% + (164 − 108) / 2, less half
+   in the row of Reset and the nudge keys, between the two. */
+/* On a phone it sits in the gap between Reset (72px) and the nudge pair
+   (2 × 52px + 4px = 108px), the row under the range keys. A percentage margin
+   on a grid item is a share of its area, so 50% + (72 − 108) / 2, less half
    the 32px button, centres it in that gap at any width. */
 .root[data-phone] .pitchInfo {
-  grid-row: 4;
+  grid-row: 5;
   grid-column: 1 / -1;
   justify-self: start;
   align-self: center;
-  margin: 0 0 0 calc(50% + 12px);
+  margin: 0 0 0 calc(50% - 34px);
 }
