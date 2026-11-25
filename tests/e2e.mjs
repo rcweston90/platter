@@ -2,7 +2,8 @@
  * End-to-end check in Chromium: the rig opens cued up, plays, syncs,
  * scratches, key-locks, imports a file, records a mix; then key matching,
  * beat FX, rolls, the sampler's sound library and kits, the beat board, MIDI
- * learn, Auto-DJ, backup and Rekordbox import, recordings, stems (with a tiny
+ * learn, Auto-DJ, backup and Rekordbox import, playlists and play history,
+ * recordings, stems (with a tiny
  * stand-in for the separation model), beat pitch lanes, Audius and SoundCloud (with their APIs
  * mocked).
  *
@@ -600,6 +601,175 @@ await loadB.click();
 const wanted = loadName.replace(/^Load (.*) on deck B$/, '$1');
 await page.locator('section[aria-label="Deck B"]').getByText(wanted, { exact: true }).waitFor({ timeout: 15000 });
 check(true, `Load on B puts “${wanted}” on deck B`);
+
+// ── Playlists and play history (last, as it reloads both decks) ──
+// The 60-second rule, on a history with its own clock: only time actually
+// playing counts, a play is logged once, a new track starts the count again,
+// and two hours of silence start a new session.
+const rule = await page.evaluate(() => {
+  const H = window.platter.history.constructor;
+  let t = 1_000_000;
+  const h = new H({ now: () => t, persist: false, timers: false });
+  const a = { id: 'a', title: 'Alpha', artist: 'One', bpm: 124, key: '8A' };
+  const b = { id: 'b', title: 'Beta', artist: 'Two', bpm: 126, key: '9A' };
+  const c = { id: 'c', title: 'Gamma', artist: '', bpm: null, key: null };
+  const out = {};
+  h.update(0, a, true);
+  t += 59_000;
+  h.tick();
+  out.at59 = h.store.get().entries.length;
+  h.update(0, a, false); // paused at 59 s
+  t += 10 * 60_000; // ten minutes paused
+  h.tick();
+  out.paused = h.store.get().entries.length;
+  h.update(0, a, true);
+  t += 999;
+  h.tick();
+  out.at59_999 = h.store.get().entries.length;
+  t += 1;
+  h.tick();
+  out.at60 = h.store.get().entries.map((e) => `${e.trackId}:${e.deck}:${e.startedAt}`).join();
+  t += 120_000;
+  h.tick();
+  out.once = h.store.get().entries.length;
+  // Another track on deck A starts from nothing; deck B counts on its own.
+  h.update(0, b, true);
+  h.update(1, c, true);
+  t += 30_000;
+  h.tick();
+  out.newTrack = h.store.get().entries.length;
+  t += 30_000;
+  h.tick();
+  out.both = h.store.get().entries.slice(1).map((e) => `${e.trackId}:${e.deck}`).sort().join();
+  out.played = [...h.store.get().played].sort().join();
+  const first = h.store.get().session;
+  // An hour of silence keeps the session; two hours start a new one.
+  h.update(0, b, false);
+  h.update(1, c, false);
+  t += 60 * 60_000;
+  h.update(1, a, true);
+  t += 60_000;
+  h.tick();
+  out.sameSession = h.store.get().session === first;
+  h.update(1, a, false);
+  t += 2 * 60 * 60_000;
+  h.update(0, c, true);
+  t += 60_000;
+  h.tick();
+  out.newSession = h.store.get().session !== first;
+  out.sessions = h.sessions().map((x) => x.entries.length).join();
+  out.playedNow = [...h.store.get().played].join();
+  return out;
+});
+check(rule.at59 === 0 && rule.at59_999 === 0, 'history: a track isn’t logged before 60 seconds of playing');
+check(rule.paused === 0, 'history: time paused doesn’t count towards the 60 seconds');
+check(rule.at60 === 'a:A:1000000', `history: at 60 seconds of playing it is logged once, with its deck and start (${rule.at60})`);
+check(rule.once === 1, 'history: a play is logged only once');
+check(rule.newTrack === 1 && rule.both === 'b:A,c:B', `history: a new track starts the count again, and each deck counts on its own (${rule.both})`);
+check(rule.played === 'a,b,c', 'history: played this session lists every logged track');
+check(rule.sameSession && rule.newSession && rule.sessions === '1,4' && rule.playedNow === 'c', `history: two hours with nothing playing start a new session (${rule.sessions})`);
+
+// Playlists, through the crate and the Playlists tab.
+await page.evaluate(() => {
+  for (const pl of window.platter.playlists.store.get().lists) window.platter.playlists.remove(pl.id);
+  for (const d of window.platter.decks) if (d.store.get().playing) d.togglePlay();
+});
+await page.getByRole('tab', { name: 'Crate' }).click();
+await page.getByRole('button', { name: 'Add Night Bus to a playlist' }).click();
+await page.getByLabel('New playlist name').fill('Opening set');
+await page.getByRole('dialog', { name: 'Add Night Bus to a playlist' }).getByRole('button', { name: 'Create' }).click();
+await page.keyboard.press('Escape');
+for (const title of ['Paper Lanterns', 'Kick Loop']) {
+  await page.getByRole('button', { name: `Add ${title} to a playlist`, exact: true }).click();
+  await page.getByRole('dialog').getByRole('button', { name: /Opening set/ }).click();
+  await page.keyboard.press('Escape');
+}
+const order = () => page.evaluate(() => {
+  const p = window.platter;
+  const byId = new Map(p.crate.get().tracks.map((t) => [t.id, t.title]));
+  return p.playlists.store.get().lists.find((l) => l.name === 'Opening set')?.trackIds.map((id) => byId.get(id)).join(' / ');
+});
+check((await order()) === 'Night Bus / Paper Lanterns / Kick Loop', 'a playlist is made from a crate row and tracks are added in order');
+await page.getByRole('tab', { name: 'Playlists' }).click();
+const plTracks = page.getByRole('list', { name: 'Tracks in Opening set' });
+await plTracks.waitFor({ timeout: 5000 });
+check((await plTracks.getByRole('listitem').count()) === 3, 'the Playlists tab lists the playlist’s tracks');
+await page.getByRole('button', { name: 'Move Night Bus down' }).click();
+check((await order()) === 'Paper Lanterns / Night Bus / Kick Loop', 'a track moves down its playlist');
+await plTracks.getByRole('listitem').nth(2).focus();
+await page.keyboard.press('Alt+ArrowUp');
+check((await order()) === 'Paper Lanterns / Kick Loop / Night Bus', 'Alt+↑ moves the focused track up');
+await plTracks.getByRole('listitem').nth(2).dragTo(plTracks.getByRole('listitem').nth(0), { targetPosition: { x: 40, y: 4 } });
+check((await order()) === 'Night Bus / Paper Lanterns / Kick Loop', 'a track can be dragged to a new place');
+await page.getByRole('button', { name: 'Take Kick Loop out of Opening set' }).click();
+check((await order()) === 'Night Bus / Paper Lanterns', 'a track can be taken out of a playlist');
+await page.getByRole('button', { name: 'Rename' }).click();
+await page.getByLabel('Playlist name').fill('Peak time');
+await page.getByLabel('Playlist name').press('Enter');
+check(await page.getByRole('heading', { name: 'Peak time' }).isVisible(), 'a playlist can be renamed');
+// Something else on B first, so Paper Lanterns arrives as a fresh load.
+await page.evaluate(() => window.platter.loadToDeck(window.platter.crate.get().tracks.find((t) => t.title === 'Night Bus').id, 1));
+await page.locator('section[aria-label="Deck B"]').getByText('Night Bus', { exact: true }).waitFor({ timeout: 15000 });
+await page.getByRole('button', { name: 'Load Paper Lanterns on deck B' }).click();
+await page.locator('section[aria-label="Deck B"]').getByText('Paper Lanterns', { exact: true }).waitFor({ timeout: 15000 });
+check(true, 'a track loads onto a deck from a playlist');
+const plBackup = await page.evaluate(async () => {
+  const p = window.platter;
+  const second = p.playlists.create('Second', [p.crate.get().tracks[0].id]);
+  p.playlists.moveList(second.id, 0);
+  const names = p.playlists.store.get().lists.map((l) => l.name).join();
+  const data = JSON.parse(await p.exportBackup().blob.text());
+  const saved = data.playlists?.find((l) => l.name === 'Peak time');
+  const titles = saved?.tracks.map((id) => data.tracks.find((t) => t.id === id)?.title).join(' / ');
+  for (const pl of p.playlists.store.get().lists) p.playlists.remove(pl.id);
+  await p.importFile(new File([JSON.stringify(data)], 'b.json'));
+  const back = p.playlists.store.get().lists.find((l) => l.name === 'Peak time');
+  const byId = new Map(p.crate.get().tracks.map((t) => [t.id, t.title]));
+  // A backup from before playlists still imports.
+  delete data.playlists;
+  await p.importFile(new File([JSON.stringify(data)], 'old.json'));
+  p.playlists.remove(p.playlists.store.get().lists.find((l) => l.name === 'Second').id);
+  return { names, titles, version: data.version, back: back?.trackIds.map((id) => byId.get(id)).join(' / '), lists: p.playlists.store.get().lists.length, note: p.crate.get().note };
+});
+check(plBackup.names === 'Second,Peak time', 'playlists can be reordered');
+check(plBackup.version === 2 && plBackup.titles === 'Night Bus / Paper Lanterns', 'a backup keeps playlists, in order (still version 2)');
+check(plBackup.back === 'Night Bus / Paper Lanterns' && plBackup.lists === 1, `importing a backup brings its playlists back (${plBackup.note})`);
+
+// Play history in the app, with the threshold cut to 1.5 s for the test.
+await page.evaluate(() => {
+  const p = window.platter;
+  // Tracks heard earlier in this test cross the lowered line at once; log
+  // them now, then start from an empty history.
+  p.history.threshold = 1500;
+  p.history.tick();
+  p.history.clear();
+  if (!p.decks[1].store.get().playing) p.decks[1].togglePlay();
+});
+await page.waitForFunction(() => window.platter.history.store.get().entries.some((e) => e.title === 'Paper Lanterns' && e.deck === 'B'), null, { timeout: 10000 });
+check(true, 'a track playing on a deck past the threshold joins the history');
+check((await page.locator('[aria-label="Tracks in Peak time"] li[data-played]').count()) === 1, 'the playlist ticks the track played this session');
+await page.getByRole('button', { name: /^This session/ }).click();
+const played = page.getByRole('list', { name: 'Played tracks' });
+check(/Paper Lanterns/.test((await played.textContent()) ?? '') && (await played.locator('[title="Played on deck B"]').count()) === 1, 'the History view shows the track with its deck');
+const [tracklist] = await Promise.all([page.waitForEvent('download'), page.getByRole('button', { name: 'Export tracklist' }).click()]);
+const tracklistTxt = readFileSync(await tracklist.path(), 'utf8');
+check(
+  /^Platter tracklist/.test(tracklistTxt) && /\n1\. 00:00 {2}.*Paper Lanterns\n/.test(tracklistTxt) && /\.txt$/.test(tracklist.suggestedFilename()),
+  `a session exports as a plain-text tracklist (${tracklist.suggestedFilename()})`,
+);
+await page.getByRole('tab', { name: 'Crate' }).click();
+check((await page.locator('tr[data-played]').count()) === 1 && (await page.locator('tr[data-played]').textContent())?.includes('Paper Lanterns'), 'the crate marks the track played this session');
+await page.getByRole('tab', { name: 'Playlists' }).click();
+await page.getByRole('button', { name: /^This session/ }).click();
+const plPanel = page.getByRole('tabpanel', { name: 'Playlists' });
+await plPanel.getByRole('button', { name: 'Clear all' }).click();
+await plPanel.getByRole('button', { name: 'Clear', exact: true }).click();
+check((await page.evaluate(() => window.platter.history.store.get().entries.length)) === 0, 'history can be cleared');
+await page.evaluate(() => {
+  const p = window.platter;
+  p.history.threshold = 60_000;
+  if (p.decks[1].store.get().playing) p.decks[1].togglePlay();
+});
 
 check(errors.length === 0, `no page errors${errors.length ? `: ${errors.join(' | ')}` : ''}`);
 await browser.close();

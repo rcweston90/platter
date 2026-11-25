@@ -51,6 +51,8 @@ import { Preloader } from './preload';
 import { mapLimit } from './limit';
 import { analysisLanes } from '../library/client';
 import { createStore, type Store } from './store';
+import { PlayHistory } from './history';
+import { Playlists } from './playlists';
 import { emptyCues, HOT_BANK_SIZE, type TrackRecord } from './types';
 
 export interface MixerState {
@@ -183,6 +185,10 @@ export class DjSession {
   readonly autoDj: AutoDj;
   /** The mixer's Beat FX section (one unit, on deck A, deck B or the master). */
   readonly fx: BeatFx;
+  /** Your playlists (engine/playlists). */
+  readonly playlists = new Playlists();
+  /** What's been played, by session (engine/history). */
+  readonly history = new PlayHistory();
   engine: DjEngine | null = null;
   private starting: Promise<DjEngine> | null = null;
   private analysing = 0;
@@ -241,6 +247,9 @@ export class DjSession {
       return { ...t, key: null, status: t.status === 'ready' ? 'analysing' : t.status };
     });
     this.crate.set({ tracks, loaded: true });
+    this.unsubs.push(this.playlists.follow(this.crate), this.history.attach(this.decks));
+    void this.playlists.init();
+    void this.history.init();
     await this.restoreSettings();
     await this.fx.init();
     await this.armDecks();
@@ -867,7 +876,7 @@ export class DjSession {
   /* ── Backup and import ────────────────────────────────────────────────── */
 
   exportBackup(): { name: string; blob: Blob } {
-    const data = makeBackup(this.crate.get().tracks, this.settings(), this.midi.bindings());
+    const data = makeBackup(this.crate.get().tracks, this.settings(), this.midi.bindings(), this.playlists.toBackup());
     const d = new Date().toISOString().slice(0, 10);
     return { name: `platter-backup-${d}.json`, blob: new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' }) };
   }
@@ -877,6 +886,7 @@ export class DjSession {
     const text = await file.text();
     let entries: (ImportedTrack & { id?: string })[];
     let source: string;
+    let playlists: unknown = undefined;
     try {
       if (/^\s*</.test(text)) {
         entries = parseRekordboxXml(text);
@@ -886,15 +896,18 @@ export class DjSession {
         entries = backupToImported(backup);
         source = 'Backup';
         this.midi.importBindings(backup.midi);
+        playlists = backup.playlists;
       }
     } catch (err) {
       this.crate.set({ note: err instanceof Error ? err.message : 'That file couldn’t be read.' });
       return;
     }
     let updated = 0;
+    const idMap = new Map<string, string>();
     for (const e of entries) {
       const t = matchTrack(this.crate.get().tracks, e);
       if (!t) continue;
+      if (e.id) idMap.set(e.id, t.id);
       const patch: Partial<TrackRecord> = {};
       if (e.bpm) patch.bpm = e.bpm;
       if (e.gridOffset !== null) patch.gridOffset = e.gridOffset;
@@ -914,8 +927,9 @@ export class DjSession {
       updated++;
     }
     const missing = entries.length - updated;
+    const lists = this.playlists.importBackup(playlists, idMap);
     this.crate.set({
-      note: `${source}: updated ${updated} track${updated === 1 ? '' : 's'}${missing ? `; ${missing} aren’t in this crate — add their files, then import again` : ''}.`,
+      note: `${source}: updated ${updated} track${updated === 1 ? '' : 's'}${lists ? ` and ${lists} playlist${lists === 1 ? '' : 's'}` : ''}${missing ? `; ${missing} aren’t in this crate — add their files, then import again` : ''}.`,
     });
   }
 
