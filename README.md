@@ -50,6 +50,14 @@ GitHub Actions).
   start together, with **Line up bars** to put the 1s together. The
   waveforms scroll in heard time, so at the same tempo a beat is the same
   width on both.
+- **Waveform smarts**: phrases (intro, verse, build, drop, breakdown,
+  outro) read from the waveform on 8-bar lines of the beat grid, shown as a
+  coloured band and tint on both waveforms with short labels; a **beat
+  countdown** on each deck (bars.beats to the next hot or memory cue, or to
+  the loop's end); a **phase meter** on deck B's waveform while both play;
+  and **grid edit** (the Grid button): nudge the grid 1 or 10 ms, set the
+  downbeat at the playhead, halve or double the tempo — saved with the
+  track, and kept when it's analysed again.
 - **Beat pitch** lanes above deck A's waveform and below deck B's: each hit
   as a bar, higher hits higher, so you can hear and see which beats in a
   loop sit above or below the others. Notes read as note names (C#3);
@@ -339,6 +347,8 @@ src/engine/
   engine.ts     AudioContext, master bus and limiter, headphone routing, recorder
   session.ts    the rig: decks, mixer, crate, sampler, MIDI, Auto-DJ, saves
   analysis.ts   decoding, three-band waveform peaks, tempo, tags
+  phrases.ts    phrase detection (intro, build, drop …) from peaks and grid
+  countdown.ts  the beat countdown to the next cue or the loop's end
   key.ts        key detection and Camelot arithmetic
   sampler.ts    the 64 pads: playing, choke groups, kits, your own sounds
   beatboard.ts  the step sequencer and its lock to the decks' beat grid

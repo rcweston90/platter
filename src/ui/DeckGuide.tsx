@@ -76,6 +76,18 @@ export const DECK_GUIDE: GuideSection[] = [
         name: 'Waveform strip',
         text: 'The whole track. Click or tap it to drop the needle there.',
       },
+      {
+        name: 'Phrase colours',
+        text: 'Both waveforms are tinted by phrase, with a band along the foot: intro blue, verse teal, build amber, drop red, breakdown violet, outro grey. The scrolling one names each phrase and its length in bars. They’re read from the waveform on 8-bar lines of the beat grid, so fix the grid first if they look off; a guess, not a rule.',
+      },
+      {
+        name: 'Countdown',
+        text: 'Beside the time: bars.beats to the next hot cue (with its letter) or memory cue (MEM) ahead — 8.2 is 8 bars and 2 beats — or, in a loop, to the loop’s end (LOOP).',
+      },
+      {
+        name: 'Phase meter',
+        text: 'On deck B’s waveform while both decks play: how far B’s beat is from A’s, in beats. The marker sits in the middle, green, when they land together; right of it B is early, left of it late.',
+      },
     ],
   },
   {
@@ -218,15 +230,23 @@ export const DECK_GUIDE: GuideSection[] = [
     id: 'grid',
     title: 'Tempo set-up',
     items: [
-      { name: '÷2  ×2', text: 'Halve or double the detected tempo, when the analysis picked the wrong one.' },
       {
         name: 'Tap',
         text: 'Tap on the beat four or more times to set the tempo yourself. The beat grid lines up with your last tap; a pause of a couple of seconds starts over.',
       },
       {
-        name: '<  >  beside Tap',
-        text: 'Move the beat grid 10 ms earlier or later, so its lines sit on the beats. This moves the grid, not the music.',
+        name: 'Grid',
+        text: 'Opens grid edit. The scrolling waveform then numbers every beat 1–4 in its bar, the 1s in yellow. Every change is saved with the track, kept if it’s analysed again, and the phrases are read again on the new grid.',
       },
+      {
+        name: '−10  −1  +1  +10',
+        text: 'Move the beat grid that many milliseconds earlier or later, so its lines sit on the beats. This moves the grid, not the music.',
+      },
+      {
+        name: '1 here',
+        text: 'Pause on a bar’s first beat and press it: the grid puts a downbeat at the playhead, same tempo. Bars, phrases and the countdown count from it.',
+      },
+      { name: '÷2  ×2', text: 'Halve or double the detected tempo, when the analysis picked the wrong one.' },
       { name: '⏏', text: 'Unloads the track. Pause first.' },
     ],
   },

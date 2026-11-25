@@ -160,6 +160,8 @@ await page.waitForTimeout(800);
 err = await lockError(1000);
 check(err.max < 8, `deck A now holds deck B's beat (worst ${err.max.toFixed(1)} ms)`);
 
+// ÷2 and ×2 live in the grid edit row.
+await A.getByRole('button', { name: 'Deck A grid edit' }).click();
 await A.getByRole('button', { name: 'Deck A: halve the detected tempo' }).click();
 await page.waitForTimeout(1000);
 // The record doesn't change speed: deck A now reads as 62 BPM and locks at half time.
