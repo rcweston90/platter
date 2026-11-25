@@ -698,12 +698,42 @@
   color: var(--dj-text);
 }
 
+/* Jog mode (Vinyl / CDJ): the same kind of selector keys, in the corner
+   opposite 33 / 45. */
+.jogGroup {
+  position: absolute;
+  z-index: 1;
+  top: 3%;
+  left: 4%;
+  display: flex;
+  gap: 4px;
+}
+
+.jogBtn {
+  width: auto;
+  padding: 0 7px;
+  font-size: 12px;
+  text-transform: uppercase;
+}
+
+.jogBtn[aria-pressed='true'] {
+  border-color: var(--deck, var(--dj-play));
+  background: var(--deck, var(--dj-play));
+  color: var(--dj-ink);
+}
+
 /* A phone-sized plinth has less corner beside the record: smaller keys. */
 @container (max-width: 280px) {
   .speedBtn {
     width: 30px;
     height: 26px;
     font-size: 12px;
+  }
+
+  .jogBtn {
+    width: auto;
+    padding: 0 5px;
+    font-size: 11px;
   }
 }
 
@@ -983,10 +1013,27 @@
 }
 
 .rangeGroup .mini,
-.bendGroup .mini {
+.bendGroup .mini,
+.tempoReset {
   width: 56px;
   min-width: 0;
   padding: 0 4px;
+}
+
+/* Five ranges (±6 … WIDE) stack as short keys, so the column stays about as
+   tall as the record beside it. */
+.rangeGroup {
+  gap: 3px;
+}
+
+.rangeGroup .mini {
+  min-height: 28px;
+  font-size: 13px;
+}
+
+.tempoReset {
+  min-height: 32px;
+  font-size: 13px;
 }
 
 /* Selected range and speed read at a glance: filled in the deck's colour,
@@ -1695,6 +1742,11 @@
 .fxOn[aria-pressed='true'] {
   border-color: var(--dj-cue);
   background: var(--dj-cue);
+}
+
+.loadNote {
+  color: var(--dj-dim);
+  font-size: 13px;
 }
 
 .keyLabel {
@@ -2773,7 +2825,7 @@
      range and bend keys sit in one row under them. */
   .root[data-phone] .deckBody {
     grid-template-columns: minmax(0, 1fr) 52px;
-    grid-template-rows: auto minmax(0, 1fr) auto auto;
+    grid-template-rows: auto minmax(0, 1fr) auto auto auto;
     gap: 6px 10px;
     align-items: stretch;
   }
@@ -2815,17 +2867,32 @@
     flex-direction: row;
   }
 
+  /* Five ranges take the row; reset and the bend keys share the next. */
   .root[data-phone] .rangeGroup {
+    grid-column: 1 / -1;
+    justify-self: stretch;
+  }
+
+  .root[data-phone] .rangeGroup .mini {
+    flex: 1;
+    width: auto;
+    min-height: 44px;
+  }
+
+  .root[data-phone] .tempoReset {
+    grid-row: 5;
     grid-column: 1;
     justify-self: start;
+    width: 72px;
+    min-height: 44px;
   }
 
   .root[data-phone] .bendGroup {
+    grid-row: 5;
     grid-column: 1 / -1;
     justify-self: end;
   }
 
-  .root[data-phone] .rangeGroup .mini,
   .root[data-phone] .bendGroup .mini {
     width: 52px;
   }
@@ -3219,15 +3286,15 @@
 }
 
 /* On a phone the pitch column is laid out in the deck body's grid: the ⓘ sits
-   in the row of range and nudge keys, between the two groups. */
-/* On a phone it sits in the gap between the range buttons (3 × 52px + 2 × 4px
-   = 164px) and the nudge pair (2 × 52px + 4px = 108px). A percentage margin
-   on a grid item is a share of its area, so 50% + (164 − 108) / 2, less half
+   in the row of Reset and the nudge keys, between the two. */
+/* On a phone it sits in the gap between Reset (72px) and the nudge pair
+   (2 × 52px + 4px = 108px), the row under the range keys. A percentage margin
+   on a grid item is a share of its area, so 50% + (72 − 108) / 2, less half
    the 32px button, centres it in that gap at any width. */
 .root[data-phone] .pitchInfo {
-  grid-row: 4;
+  grid-row: 5;
   grid-column: 1 / -1;
   justify-self: start;
   align-self: center;
-  margin: 0 0 0 calc(50% + 12px);
+  margin: 0 0 0 calc(50% - 34px);
 }
