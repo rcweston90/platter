@@ -324,6 +324,259 @@
   height: 18px;
 }
 
+.pitchToggle[data-on] {
+  color: var(--dj-play);
+}
+
+/* Until the stems are in: the mix lane, with a note on the stems' way. */
+.laneWrap {
+  position: relative;
+}
+
+.lanePill {
+  position: absolute;
+  top: 3px;
+  right: 4px;
+  padding: 1px 7px;
+  border-radius: 8px;
+  background: rgb(10 11 13 / 0.82);
+  font-family: var(--font-mono);
+  font-size: 10px;
+  line-height: 14px;
+  color: var(--dj-dim);
+  pointer-events: none;
+}
+
+/* ── Beat pitch by stem: a lane per part, or parts paired, or all in one ─── */
+
+.stemLanes {
+  --lane-h: 34px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.stemLanes[data-mode='pair'] {
+  --lane-h: 52px;
+}
+.stemLanes[data-mode='one'] {
+  --lane-h: 88px;
+}
+
+.stemLane {
+  display: flex;
+  gap: 4px;
+  height: var(--lane-h);
+  min-width: 0;
+}
+
+.stemCanvas {
+  display: block;
+  flex: 1 1 0;
+  min-width: 0;
+  height: 100%;
+  border-radius: 4px;
+}
+
+.laneGutter {
+  display: flex;
+  flex: none;
+  flex-direction: column;
+  gap: 2px;
+  width: 84px;
+}
+
+/* A part's chip: its name, what it's playing, its colour down the side.
+   Tap mutes, hold solos. */
+.laneChip {
+  --stem: var(--dj-dim);
+  display: flex;
+  flex: 1 1 0;
+  align-items: center;
+  gap: 4px;
+  min-height: 0;
+  padding: 0 5px 0 6px;
+  border: 1px solid var(--dj-line);
+  border-left: 3px solid var(--stem);
+  border-radius: 4px;
+  background: var(--dj-panel-2);
+  font-family: var(--font-label);
+  font-size: 12px;
+  font-weight: 600;
+  line-height: 1;
+  color: var(--dj-text);
+  text-align: left;
+  cursor: pointer;
+  overflow: hidden;
+  touch-action: manipulation;
+}
+.laneChip:hover {
+  background: var(--dj-panel-3);
+}
+.laneChip:focus-visible {
+  outline: 2px solid var(--dj-focus);
+  outline-offset: 1px;
+}
+.laneChip[aria-pressed='false'] {
+  border-left-color: color-mix(in srgb, var(--stem) 30%, transparent);
+  color: var(--dj-dim);
+  text-decoration: line-through;
+}
+.laneChipSolo {
+  border-style: dashed;
+  border-left-style: solid;
+}
+.laneChip[data-stem='vocals'],
+.lanePart[data-stem='vocals'] {
+  --stem: var(--dj-stem-vocals);
+}
+.laneChip[data-stem='drums'],
+.lanePart[data-stem='drums'] {
+  --stem: var(--dj-stem-drums);
+}
+.laneChip[data-stem='bass'],
+.lanePart[data-stem='bass'] {
+  --stem: var(--dj-stem-bass);
+}
+.laneChip[data-stem='other'],
+.lanePart[data-stem='other'] {
+  --stem: var(--dj-stem-other);
+}
+
+.chipShort {
+  display: none;
+}
+
+.chipRead {
+  margin-left: auto;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  color: var(--stem);
+  white-space: nowrap;
+}
+.laneChip[aria-pressed='false'] .chipRead {
+  visibility: hidden;
+}
+
+/* A part with nothing in it: one thin row that says so. */
+.laneEmpty {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  height: 16px;
+}
+.laneEmpty .laneChip {
+  flex: none;
+  width: 84px;
+  height: 16px;
+  font-size: 11px;
+}
+.laneEmptyText {
+  font-size: 11px;
+  color: var(--dj-dim);
+}
+
+/* The panel from the beat pitch button. */
+.laneMenuWrap {
+  position: relative;
+}
+
+.laneMenu {
+  position: absolute;
+  z-index: 30;
+  top: 0;
+  right: calc(100% + 6px);
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  width: 260px;
+  padding: 10px;
+  border: 1px solid var(--dj-line-2);
+  border-radius: 8px;
+  background: var(--dj-panel);
+  box-shadow: 0 8px 24px rgb(0 0 0 / 0.45);
+}
+
+.laneMenuHead {
+  margin: 0;
+  font-family: var(--font-label);
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--dj-dim);
+}
+
+.laneModes {
+  display: grid;
+  grid-template-columns: repeat(5, 1fr);
+  gap: 2px;
+  padding: 2px;
+  border-radius: 6px;
+  background: var(--dj-bg);
+}
+
+.laneMode,
+.lanePart {
+  min-height: 30px;
+  padding: 0 4px;
+  border: 1px solid transparent;
+  border-radius: 5px;
+  background: none;
+  font-family: var(--font-label);
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--dj-dim);
+  cursor: pointer;
+}
+.laneMode[aria-checked='true'] {
+  border-color: var(--dj-line-2);
+  background: var(--dj-panel-3);
+  color: var(--dj-text);
+}
+.laneMode:focus-visible,
+.lanePart:focus-visible {
+  outline: 2px solid var(--dj-focus);
+  outline-offset: 1px;
+}
+
+.laneMenuHint {
+  margin: 0;
+  font-size: 12px;
+  line-height: 1.35;
+  color: var(--dj-dim);
+}
+
+.laneParts {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 4px;
+}
+.lanePart {
+  border-color: var(--dj-line);
+  border-bottom: 3px solid var(--stem);
+  background: var(--dj-panel-2);
+  color: var(--dj-text);
+}
+.lanePart[aria-pressed='false'] {
+  border-bottom-color: var(--dj-line);
+  color: var(--dj-dim);
+}
+.lanePart:disabled,
+.laneFollow:has(input:disabled) {
+  opacity: 0.45;
+  cursor: default;
+}
+
+.laneFollow {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 13px;
+  color: var(--dj-text);
+}
+
 /* ── Sync strip: the beat ruler between the waveforms ─────────────────────── */
 
 .syncStrip {
@@ -2640,6 +2893,16 @@
   .root[data-docked] .pitchLane {
     height: clamp(36px, 7vh, 64px);
   }
+
+  .root[data-docked] .stemLanes {
+    --lane-h: clamp(22px, 3.6vh, 34px);
+  }
+  .root[data-docked] .stemLanes[data-mode='pair'] {
+    --lane-h: clamp(32px, 5.4vh, 52px);
+  }
+  .root[data-docked] .stemLanes[data-mode='one'] {
+    --lane-h: clamp(52px, 9vh, 88px);
+  }
 }
 
 /* Panels inside the library sit on its surface rather than in boxes of their own. */
@@ -2774,6 +3037,50 @@
 
   .phoneTop .pitchLane {
     height: 30px;
+  }
+
+  .phoneTop .stemLanes {
+    --lane-h: 17px;
+    gap: 1px;
+  }
+  .phoneTop .stemLanes[data-mode='pair'] {
+    --lane-h: 28px;
+  }
+  .phoneTop .stemLanes[data-mode='one'] {
+    --lane-h: 46px;
+  }
+  .phoneTop .laneGutter,
+  .phoneTop .laneEmpty .laneChip {
+    width: 22px;
+  }
+  .phoneTop .laneChip {
+    justify-content: center;
+    padding: 0;
+    border-left-width: 1px;
+    background: color-mix(in srgb, var(--stem) 22%, var(--dj-panel-2));
+    font-size: 10px;
+  }
+  .phoneTop .laneChip[aria-pressed='false'] {
+    background: var(--dj-panel-2);
+  }
+  .phoneTop .chipName,
+  .phoneTop .chipRead {
+    display: none;
+  }
+  .phoneTop .chipShort {
+    display: inline;
+  }
+  .phoneTop .laneEmpty {
+    height: 12px;
+  }
+  .phoneTop .laneEmpty .laneChip {
+    height: 12px;
+  }
+  .phoneTop .laneEmptyText {
+    font-size: 9px;
+  }
+  .phoneTop .laneMenu {
+    width: min(260px, calc(100vw - 64px));
   }
 
   .phoneTop .pitchToggle {

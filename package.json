@@ -32,6 +32,7 @@
     "test:presplit": "node tests/stemfile.mjs && node tests/presplit.mjs",
     "test:slicer-dsp": "node tests/slicer-dsp.mjs",
     "test:beat-pitch": "node tests/beat-pitch.mjs",
+    "test:stem-pitch": "node tests/stem-pitch.mjs",
     "test:slicer": "node tests/slicer.mjs",
     "test:perf": "node tests/perf.mjs",
     "perf:trace": "node tests/perf-trace.mjs"

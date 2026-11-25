@@ -83,6 +83,7 @@ export function StemsControl({ stems, label }: { stems: DeckStems; label: string
               key={stem}
               type="button"
               className={`${s.mini} ${t.stem} ${st.solo === stem ? t.solo : ''}`}
+              data-stem={stem}
               aria-pressed={stems.heard(stem)}
               title={`${STEM_LABELS[stem]}: tap to mute, hold or Shift-click to solo`}
               onPointerDown={down(stem)}

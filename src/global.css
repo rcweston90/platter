@@ -50,6 +50,13 @@
   --dj-hot-12: #9aa5b8;
   /* Memory cue markers on the waveforms. */
   --dj-memory: #f2eee6;
+  /* Stems, wherever a part is named or drawn (the stems row, the stem pitch
+     lanes): bone drums, violet bass, pink vocals, teal for the rest. Each
+     keeps clear of the deck colours and reads on the wave background. */
+  --dj-stem-drums: #e8e3d6;
+  --dj-stem-bass: #9d8cff;
+  --dj-stem-vocals: #ff6fae;
+  --dj-stem-other: #4fd6b0;
   /* Phrase bands on the waveforms (engine/phrases.ts): cool at the ends,
      warm as the track lifts, violet where the low end drops out. */
   --dj-phrase-intro: #5e8fd6;

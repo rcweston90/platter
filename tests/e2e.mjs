@@ -98,13 +98,20 @@ check(meter < 95, `master meter shows signal (${meter.toFixed(0)}% covered)`);
 await page.waitForFunction(() => window.platter.hits.every((h) => h.store.get().status === 'ready'), null, { timeout: 20000 });
 const hitCounts = await page.evaluate(() => window.platter.hits.map((h) => h.store.get().hits.length));
 check(hitCounts.every((n) => n > 50), `beat pitch reads both demos' hits (${hitCounts.join(', ')})`);
-const lanes = page.getByRole('img', { name: /beat pitch: each hit/ });
-check((await lanes.count()) === 2, 'a beat pitch lane shows for each deck');
+// Each deck shows the mix lane, or its lanes by stem once auto-split has
+// brought the stems in.
+const lanes = page.getByRole('img', { name: /^Deck [AB] beat pitch/ });
+const decksWithLanes = async () => (await Promise.all(['A', 'B'].map((d) => page.getByRole('img', { name: new RegExp(`^Deck ${d} beat pitch`) }).count()))).filter((n) => n > 0).length;
+check((await decksWithLanes()) === 2, `a beat pitch lane shows for each deck (${await lanes.count()} lanes)`);
 const pitchToggle = page.getByRole('button', { name: /^Beat pitch/ });
+const laneMenu = page.getByRole('dialog', { name: 'Beat pitch lanes' });
 await pitchToggle.click();
-check((await lanes.count()) === 0 && (await pitchToggle.getAttribute('aria-pressed')) === 'false', 'the beat pitch button hides the lanes');
-await pitchToggle.click();
-check((await lanes.count()) === 2, 'and shows them again');
+await laneMenu.getByRole('radio', { name: 'Off' }).click();
+check((await lanes.count()) === 0 && (await pitchToggle.getAttribute('data-on')) === null, 'the beat pitch menu turns the lanes off');
+await laneMenu.getByRole('radio', { name: 'Split' }).click();
+check((await decksWithLanes()) === 2, 'and back on for both decks');
+await page.keyboard.press('Escape');
+check((await laneMenu.count()) === 0, 'Escape closes the beat pitch menu');
 
 // Scratch deck A back one full turn (1.8 s of audio).
 const platter = page.getByRole('slider', { name: /Deck A platter/ });
@@ -395,6 +402,11 @@ const bMeter = await page.$eval('[aria-label="Channel B level meter"] [class*="m
 check(bMeter < 95, `deck B still sounds with drums soloed (${bMeter.toFixed(0)}% covered, ${bState.title}${bState.playing ? '' : ', started'})`);
 // The row says the split worked, and each part's own meter shows what it plays.
 check(await stemsB.getByRole('status').filter({ hasText: 'Stems ready' }).isVisible(), 'deck B says "Stems ready" once split');
+// The split stems are read part by part, and deck B's pitch lanes split by part, each with its chip.
+await page.waitForFunction(() => window.platter.hits[1].store.get().stemStatus === 'ready', null, { timeout: 30000 });
+const stemLanesB = page.getByRole('group', { name: 'Deck B beat pitch by stem' });
+check(await stemLanesB.isVisible(), 'deck B’s pitch lanes split by stem once the stems are in');
+check((await stemLanesB.getByRole('button', { name: /^Deck B (vocals|drums|bass|other):/ }).count()) === 4, 'each part has its chip by the lanes');
 const stemBars = async () => {
   const best = { Vocals: 0, Drums: 0, Bass: 0, Other: 0 };
   for (let i = 0; i < 6; i++) {

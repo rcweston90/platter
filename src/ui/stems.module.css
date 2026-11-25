@@ -56,3 +56,30 @@
   transform: scaleX(0);
   transform-origin: left;
 }
+
+/* Each part's colour, the same as its beat pitch lane. */
+.stem::before {
+  content: '';
+  display: inline-block;
+  width: 7px;
+  height: 7px;
+  margin-right: 5px;
+  border-radius: 50%;
+  background: var(--stem, var(--dj-dim));
+  vertical-align: 1px;
+}
+.stem[aria-pressed='false']::before {
+  opacity: 0.35;
+}
+.stem[data-stem='vocals'] {
+  --stem: var(--dj-stem-vocals);
+}
+.stem[data-stem='drums'] {
+  --stem: var(--dj-stem-drums);
+}
+.stem[data-stem='bass'] {
+  --stem: var(--dj-stem-bass);
+}
+.stem[data-stem='other'] {
+  --stem: var(--dj-stem-other);
+}
