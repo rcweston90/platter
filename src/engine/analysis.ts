@@ -1,5 +1,6 @@
 import { detectKey } from './key';
 import { peakScanner } from './peaks';
+import { phraseCache } from './phrases';
 import { emptyCues, type TrackRecord, type WavePeaks } from './types';
 export { PEAK_RATE } from './peaks';
 import { analyzeWithPeaks } from '../library/client';
@@ -149,13 +150,15 @@ export async function analyseTrack(rec: TrackRecord, audio: Blob, decksFirst: ()
   ]);
   const deep = both?.analysis ?? null;
   const peaks = both?.peaks ?? (await computePeaksAsync(buf, true));
-  const grid = pickGrid(tempo, deep);
+  // A grid the DJ set by hand stays; the analysis only fills in the rest.
+  const grid = rec.gridEdited && rec.bpm ? { bpm: rec.bpm, offset: rec.gridOffset } : pickGrid(tempo, deep);
   const patch: Partial<TrackRecord> = {
     duration: buf.duration,
     peaks,
     key: rec.key ?? deep?.key ?? detectKey(buf),
     bpm: grid?.bpm ?? null,
     gridOffset: grid?.offset ?? 0,
+    phrases: grid ? phraseCache(peaks, grid.bpm, grid.offset, buf.duration) : undefined,
     status: 'ready',
   };
   patch.library = { ...rec.library, tags, analysis: deep, fingerprint, fileSize: audio.size, format: rec.library?.format ?? formatOf(rec.fileName) };
