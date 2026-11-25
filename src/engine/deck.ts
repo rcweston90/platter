@@ -5,7 +5,25 @@ import { createStore, type Store } from './store';
 import { defaultCueColor, normaliseCues, tidyMemory } from './cues';
 import { HOT_BANK_SIZE, HOT_BANKS, HOT_CUES, MEMORY_CUES, type HotCue, type TrackCues, type TrackRecord, type WavePeaks } from './types';
 
-export const PITCH_RANGES = [0.08, 0.16, 0.5] as const;
+/** Pitch fader ranges, as fractions: ±6, ±8, ±10, ±16 and WIDE (±100: from
+ *  a crawl, MIN_MOTOR, to double speed). */
+export const PITCH_RANGES = [0.06, 0.08, 0.1, 0.16, 1] as const;
+/** The widest range, labelled WIDE rather than ±100. */
+export const WIDE_RANGE = PITCH_RANGES[PITCH_RANGES.length - 1];
+/** The slowest the motor turns: WIDE's −100% crawls rather than stopping
+ *  dead, so everything drawn in heard time (waveforms, lanes) stays finite. */
+export const MIN_MOTOR = 0.01;
+/** The range a deck starts on: a turntable's ±8. */
+export const DEFAULT_RANGE = 0.08;
+/** A range as the buttons read: ±6 … WIDE. */
+export const rangeLabel = (r: number) => (r === WIDE_RANGE ? 'WIDE' : `±${Math.round(r * 100)}`);
+/** How far key shift goes, in semitones, each way: a whole octave. */
+export const KEY_SHIFT_MAX = 12;
+/** What the top of the platter does under a hand. VINYL: hold and scratch
+ *  the record. CDJ: only the rim's pitch bend (a stopped deck still moves
+ *  under the hand, to find a spot). The platter's rim always bends. */
+export const JOG_MODES = ['vinyl', 'cdj'] as const;
+export type JogMode = (typeof JOG_MODES)[number];
 export const LOOP_BEATS = [0.25, 0.5, 1, 2, 4, 8, 16, 32] as const;
 export const ROLL_BEATS = [0.125, 0.25, 0.5, 1] as const;
 /** Beat jump sizes — separate from the loop's size. */
@@ -109,6 +127,11 @@ export interface DeckState {
   jumpBeats: number;
   /** Beats quantise snaps to (one of QUANTIZE_BEATS). */
   quantizeBeats: number;
+  /** What a hand on top of the platter does: scratch (vinyl) or bend (cdj). */
+  jogMode: JogMode;
+  /** Instant doubles: loading the track the other deck has joins it — same
+   *  place, tempo, loop and play state. */
+  doubles: boolean;
 }
 
 function initialState(): DeckState {
@@ -118,7 +141,7 @@ function initialState(): DeckState {
     error: null,
     playing: false,
     pitch: 0,
-    range: PITCH_RANGES[0],
+    range: DEFAULT_RANGE,
     speed: 33,
     keyLock: false,
     sync: false,
@@ -142,10 +165,15 @@ function initialState(): DeckState {
     loopEdge: null,
     jumpBeats: 16,
     quantizeBeats: 1,
+    jogMode: 'vinyl',
+    doubles: true,
   };
 }
 
 const clamp = (v: number, lo: number, hi: number) => Math.min(hi, Math.max(lo, v));
+/** Semitones a rate moves the key by. WIDE's fader reaches a standstill;
+ *  the floor keeps that finite. */
+const semis = (rate: number) => 12 * Math.log2(Math.max(rate, 1 / 64));
 /** Into −½…½ — a phase difference, the short way round. */
 export const wrapHalf = (v: number) => v - Math.round(v);
 
@@ -300,7 +328,7 @@ export class Deck {
   effectiveKey(): string | null {
     const { key, keyLock, keyShift } = this.store.get();
     if (!key) return null;
-    const fromPitch = keyLock ? 0 : 12 * Math.log2(this.motor());
+    const fromPitch = keyLock ? 0 : semis(this.motor());
     return shiftKey(key, Math.round(fromPitch) + keyShift);
   }
 
@@ -325,7 +353,7 @@ export class Deck {
    *  at this rate so both decks are drawn in heard time. */
   motor(): number {
     const { pitch, speed } = this.store.get();
-    return (1 + pitch) * SPEED_RATIO[speed];
+    return Math.max(MIN_MOTOR, 1 + pitch) * SPEED_RATIO[speed];
   }
 
   private snap(t: number): number {
@@ -1040,10 +1068,12 @@ export class Deck {
     this.setPitch(0);
   }
 
-  /** −1, 0 or 1: the nudge buttons (or a hand on the platter's edge). */
+  /** −1, 0 or 1: the nudge buttons (or a hand on the platter's edge). The
+   *  platter's rim passes in-between and bigger values, up to ±2, for a
+   *  faster turn of the hand. */
   setBend(dir: number) {
     const was = this.bend;
-    this.bend = dir * BEND;
+    this.bend = clamp(dir, -2, 2) * BEND;
     this.post({ type: 'bend', value: this.bend + this.trim });
     this.applyKeyLock();
     // Nudging either deck of a synced pair moves where the beats sit
@@ -1057,7 +1087,7 @@ export class Deck {
 
   /** Move the key up or down in semitones, independent of tempo. */
   async setKeyShift(semitones: number) {
-    this.store.set({ keyShift: clamp(Math.round(semitones), -6, 6) });
+    this.store.set({ keyShift: clamp(Math.round(semitones), -KEY_SHIFT_MAX, KEY_SHIFT_MAX) });
     await this.ensureStretch();
     this.applyKeyLock();
   }
@@ -1067,7 +1097,7 @@ export class Deck {
     const target = this.other?.effectiveKey();
     const { key, keyLock } = this.store.get();
     if (!key || !target) return;
-    const fromPitch = keyLock ? 0 : Math.round(12 * Math.log2(this.motor()));
+    const fromPitch = keyLock ? 0 : Math.round(semis(this.motor()));
     const base = shiftKey(key, fromPitch);
     void this.setKeyShift(nearestCompatibleShift(base, target));
   }
@@ -1121,7 +1151,7 @@ export class Deck {
     const shifting = s.keyLock || s.keyShift !== 0;
     const wantWet = shifting && !!this.stretch && !this.touched;
     if (this.stretch && shifting) {
-      const lock = s.keyLock ? -12 * Math.log2(this.motor() + this.bend + this.trim) : 0;
+      const lock = s.keyLock ? -semis(this.motor() + this.bend + this.trim) : 0;
       void this.stretch.schedule({ active: true, semitones: lock + s.keyShift });
     }
     if (wantWet === this.wetOn) return;
@@ -1345,6 +1375,53 @@ export class Deck {
   }
 
   /* ── The platter ──────────────────────────────────────────────────────── */
+
+  setJogMode(mode: JogMode) {
+    if ((JOG_MODES as readonly string[]).includes(mode)) this.store.set({ jogMode: mode });
+  }
+
+  /** Whether a hand on top of the platter (or a touched controller jog)
+   *  holds the record. CDJ mode only bends while playing; stopped, the
+   *  record still moves under the hand so you can find a spot. */
+  jogScratches(): boolean {
+    const { jogMode, playing } = this.store.get();
+    return jogMode === 'vinyl' || !playing;
+  }
+
+  setDoubles(on: boolean) {
+    this.store.set({ doubles: on });
+  }
+
+  /** Instant doubles: this deck has just loaded the track `src` has. Take its
+   *  place, tempo, key, loop and direction, and play if it plays, so the two
+   *  run together. False (nothing done) when doubles are off or it isn't the
+   *  same track with its audio in. */
+  double(src: Deck): boolean {
+    const me = this.store.get();
+    const o = src.store.get();
+    if (!me.doubles || !this.loaded || !src.loaded || !me.track || o.track?.id !== me.track.id) return false;
+    this.store.set({ bpm: o.bpm, gridOffset: o.gridOffset, speed: o.speed, keyLock: o.keyLock, keyShift: o.keyShift });
+    // A synced deck follows the leader anyway; otherwise take the tempo as is.
+    if (!me.sync) this.applyPitch(o.pitch, o.range);
+    if (o.keyLock || o.keyShift) void this.ensureStretch().then(() => this.applyKeyLock());
+    if (o.reverse !== me.reverse) this.setReverse(o.reverse);
+    if (o.loop.end > o.loop.start) {
+      if (o.loop.active) this.applyLoop(o.loop.start, o.loop.end);
+      else this.store.set({ loop: { ...o.loop } });
+    }
+    // Where the other playhead is in the worklets now — not where it's heard,
+    // which trails by the output latency both decks share. Read last, as
+    // close to the seek as possible.
+    const now = this.engine?.ctx.currentTime ?? src.rep.t;
+    const frames = src.rep.pos + src.rep.rate * (now - src.rep.t) * src.sr;
+    this.post({ type: 'seek', frame: clamp(frames / src.sr, 0, me.track.duration) * this.sr });
+    if (o.playing) {
+      this.engine?.resume();
+      this.post({ type: 'play', instant: true });
+      this.store.set({ playing: true, error: null });
+    }
+    return true;
+  }
 
   touch(on: boolean) {
     if (on ? !this.ready() : !this.loaded) return;
