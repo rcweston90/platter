@@ -21,6 +21,8 @@ GitHub Actions).
   record bends like the rim instead of holding the track.
 - **Instant doubles** (per deck, on by default): load the track the other deck
   has and it joins it at the same place, tempo, loop and play state.
+- Scroll over a playing record (wheel or trackpad) to nudge it; hold Shift
+  and scroll over a paused one to inch the playhead.
 - CDJ-style CUE: while playing, back to the cue point and stop; while stopped,
   set the cue point and hold to preview.
 - Performance pads in three modes: **hot cues** (two banks of eight, A–H
@@ -121,6 +123,11 @@ GitHub Actions).
   assign per channel. Channel faders have Slow, Linear and Fast-cut curves.
 - Headphone cue (PFL) with a cue/master blend: split one output (master left,
   cue right, for a splitter cable) or send the cue to a second audio device.
+- **Listen to** (Outputs, or More on a phone): on a single output, hear the
+  master, deck A's cue, deck B's cue or the cue/master blend, at a listening
+  volume that leaves the master, the meters and recordings alone. The same
+  menu shows the sample rate, latency and, where the browser reports them,
+  dropouts. The screen stays awake while a deck plays.
 - **Sampler**: 64 pads in four banks of 16, and a library of 860+ sounds
   (kicks, snares, claps, hats, cymbals, toms, percussion, bass, chord stabs,
   keys, FX, vox, loops and textures) with categories, search, favourites and

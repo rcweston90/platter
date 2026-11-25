@@ -1,8 +1,9 @@
 
-import { useRef, useState, type KeyboardEvent, type PointerEvent } from 'react';
+import { useEffect, useRef, useState, type KeyboardEvent, type PointerEvent } from 'react';
 import { JOG_MODES, SPEEDS, type Deck, type JogMode } from '../engine/deck';
 import { useStore } from '../engine/store';
 import { useFrame, type FrameLoop } from './frame';
+import { ScrollNudge } from './scrollNudge';
 import s from '../platter.module.css';
 
 /** One revolution at 33⅓ rpm: 1.8 s of audio passes under the needle. At 45
@@ -50,6 +51,28 @@ export function Turntable({ deck, loop, still }: { deck: Deck; loop: FrameLoop; 
   } | null>(null);
   const [held, setHeld] = useState(false);
   const [nudge, setNudge] = useState(0);
+  const plate = useRef<HTMLDivElement>(null);
+  const wheel = useRef<ScrollNudge | null>(null);
+
+  // Scroll over the record to nudge it (scrollNudge.ts). React's onWheel is
+  // passive and can't keep the page from scrolling, so this listens directly,
+  // and only on the platter.
+  useEffect(() => {
+    const el = plate.current;
+    if (!el) return;
+    const w = new ScrollNudge(deck, (amount) => setNudge(Math.sign(amount)));
+    wheel.current = w;
+    const onWheel = (e: WheelEvent) => {
+      if (e.ctrlKey || grab.current) return; // pinch-zoom, or a hand already on the record
+      if (w.handle(e)) e.preventDefault();
+    };
+    el.addEventListener('wheel', onWheel, { passive: false });
+    return () => {
+      el.removeEventListener('wheel', onWheel);
+      w.release();
+      wheel.current = null;
+    };
+  }, [deck]);
 
   useFrame(loop, () => {
     const track = deck.store.get().track;
@@ -71,6 +94,7 @@ export function Turntable({ deck, loop, still }: { deck: Deck; loop: FrameLoop; 
     const cx = r.left + r.width / 2;
     const cy = r.top + r.height / 2;
     e.currentTarget.setPointerCapture(e.pointerId);
+    wheel.current?.release();
     // The rim bends; the top scratches in vinyl mode and bends in CDJ mode.
     // A stopped record moves under the hand either way, to find a spot.
     const rim = Math.hypot(e.clientX - cx, e.clientY - cy) > (r.width / 2) * RIM;
@@ -171,13 +195,14 @@ export function Turntable({ deck, loop, still }: { deck: Deck; loop: FrameLoop; 
         ))}
       </div>
       <div
+        ref={plate}
         className={`${s.platter} ${held ? s.platterHeld : ''} ${st.track ? '' : s.platterEmpty}`}
         data-jog={st.jogMode}
         role="slider"
         tabIndex={0}
         aria-label={`Deck ${deck.label} platter — ${
           st.jogMode === 'vinyl' ? 'drag the record to scratch' : 'turn it to bend the pitch'
-        }, or turn the rim to bend; hold an arrow key to nudge`}
+        }, or turn the rim to bend; hold an arrow key or scroll to nudge`}
         aria-valuemin={-1}
         aria-valuemax={1}
         aria-valuenow={nudge}

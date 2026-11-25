@@ -99,6 +99,10 @@ export const DECK_GUIDE: GuideSection[] = [
         text: 'Jog mode, for the top of the record. Vinyl: touching it holds the record, so you can scratch it. CDJ: touching it only bends the tempo, like the rim, and never stops the track. Either way, a stopped deck moves under your hand, and each deck remembers its own mode. A controller’s touch-sensitive jog follows the same switch.',
       },
       {
+        name: 'Scroll over the record',
+        text: `While the deck plays, a mouse wheel or two-finger scroll over the record nudges it, like a hand on the platter’s edge: down to push it ahead, up to hold it back, up to ${pct(BEND)} for a full wheel notch, less for a gentle trackpad stroke. It lets go a moment after you stop. With the deck paused, hold Shift and scroll to inch the playhead (about 0.2 s a notch). Anywhere else the page scrolls as usual.`,
+      },
+      {
         name: 'Waveform strip',
         text: 'The whole track. Click or tap it to drop the needle there.',
       },
@@ -340,6 +344,34 @@ export const BEAT_FX_GUIDE: GuideSection = {
     {
       name: 'On',
       text: 'Turns the effect on and off. The delays, reverb, flanger and phaser ring out when you turn them off; Helix fades. Keys: F for deck A, H for deck B, B for the master.',
+    },
+  ],
+};
+
+/** Outputs → Listen to and audio health (ListenPanel), written from engine/listen.ts, engine/engine.ts and ui/wakeLock.ts. */
+export const LISTEN_GUIDE: GuideSection = {
+  id: 'listen',
+  title: 'Listening',
+  items: [
+    {
+      name: 'Listen to',
+      text: 'What this output plays when it’s your only one. Master is the mix the room hears. Deck A cue and Deck B cue play that deck alone, before its fader, at the Phones level. Cue / master blend is the headphone mix: the channels with Cue lit, blended with the master by the Cue mix knob. Pick a deck’s cue to line up the next track on a laptop with one output, then go back to Master.',
+    },
+    {
+      name: 'With headphones on their own output',
+      text: 'With Headphones set to Split or to a second device, the cue already has somewhere to go, so this output plays the master and the choice waits until Headphones is Off again.',
+    },
+    {
+      name: 'Listening volume',
+      text: 'How loud this output is, from off to about +4 dB (0 dB at four-fifths of the way). It comes after the master meters and the recorder, so a recording, the master level and the meters don’t change with it. Double-click to go back to 0 dB. Both are remembered.',
+    },
+    {
+      name: 'Audio health',
+      text: 'The sample rate the audio runs at and its latency: the browser’s own buffer (base) and, where it says, the time to the speakers. Dropouts counts the gaps where the audio came too late and the output filled in silence — only in browsers that report them (AudioContext.playoutStats); elsewhere it says so rather than guess.',
+    },
+    {
+      name: 'Screen',
+      text: 'While a deck plays, the screen is kept from dimming and locking, and let go when nothing plays. Hidden in browsers that can’t.',
     },
   ],
 };

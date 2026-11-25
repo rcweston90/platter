@@ -27,6 +27,7 @@ import { useSheetSize } from './ui/library/Splitter';
 import { Studio } from './slicer/studio';
 import { SlicerView } from './ui/slicer/SlicerView';
 import { PhoneDock, PhoneTabs, usePhone, type PhoneFocus } from './ui/Phone';
+import { useScreenAwake } from './ui/wakeLock';
 import s from './platter.module.css';
 
 /**
@@ -75,6 +76,7 @@ export default function App() {
   const pinned = useRef<HTMLDivElement>(null);
   const docked = useDocked();
   const phone = usePhone();
+  useScreenAwake(session);
   const [focus, setFocus] = useState<PhoneFocus>('A');
   // The library flyout sits on the phone's play dock (see .phoneDock).
   const sheet = useSheetSize(pinned, phone ? 68 : 0);
