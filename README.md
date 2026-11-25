@@ -130,8 +130,8 @@ GitHub Actions).
   analysed on import.
 - **Library flyout**: the library lives in a sheet pinned to the bottom of
   the window, so it's always one click away and never below the fold.
-  Closed, only its header shows: the tabs (Crate, Up next, Mashups, Auto-DJ,
-  Recordings) and decks A and B as drop targets, with the deck
+  Closed, only its header shows: the tabs (Crate, Playlists, Up next,
+  Mashups, Auto-DJ, Recordings) and decks A and B as drop targets, with the deck
   <kbd>Enter</kbd> would load to marked **Next**. Click a tab, the chevron or
   **Tracks**, or press <kbd>T</kbd>, and it slides up over the lower part of
   the rig; the top bar and waveforms stay in view. Drag its top edge (or
@@ -153,6 +153,22 @@ GitHub Actions).
   <kbd>←</kbd>/<kbd>→</kbd> load to deck A or B, <kbd>Enter</kbd> loads to
   the idle deck, <kbd>+</kbd> queues for Auto-DJ; or drag a row onto a deck.
   Long crates stay smooth: only the rows on screen are drawn.
+- **Playlists** (the Playlists tab): make, rename, reorder and delete
+  playlists. Add a track with the playlist button on its crate row (press a
+  playlist to add the track or take it out, or name a new one), or drag rows
+  from the crate's mini window or full screen onto a playlist. In a playlist,
+  drag rows or use ▴ ▾ (or <kbd>Alt</kbd>+<kbd>↑</kbd>/<kbd>↓</kbd>) to
+  reorder, × or <kbd>Delete</kbd> to take one out, and load to a deck just as
+  from the crate (A and B, <kbd>←</kbd>/<kbd>→</kbd>, <kbd>Enter</kbd>, or
+  drag a row onto a deck).
+- **History** (under the playlists): a track is logged once it has played on
+  a deck for 60 seconds, counting only time it was actually playing, with the
+  time it started and the deck. History is grouped into sessions: one starts
+  when the page loads, and a new one after two hours with nothing playing.
+  **Export tracklist** downloads a session as plain text (time into the set,
+  artist and title), and you can clear a session or all of history. Tracks
+  played this session get a tick, and a dimmed title, in the crate and in
+  playlists.
 - **Mashups**: every track in a linked folder is analysed in the background
   for tempo (with half and double time), key in Camelot, loudness (LUFS),
   energy (1–10) and beat grid. Sort and filter by any of them, pick a track
@@ -231,10 +247,10 @@ GitHub Actions).
 
 **Saves**
 - The crate, its analysis and every cue point; settings; MIDI mappings;
-  sampler pads; recordings; and which tracks were on the decks — all kept in
-  this browser (IndexedDB).
-- **Backup** saves cues, tempo, keys, settings and MIDI mappings (not the
-  audio) as one JSON file; **Import** restores it on another browser once the
+  sampler pads; recordings; playlists and play history; and which tracks
+  were on the decks — all kept in this browser (IndexedDB).
+- **Backup** saves cues, tempo, keys, playlists, settings and MIDI mappings
+  (not the audio) as one JSON file; **Import** restores it on another browser once the
   same files are added, matched by file name.
 - **Import** also reads a **Rekordbox** collection export (`.xml`): tempo,
   first beat, key, memory cues, and hot cues and hot loops A–H with their
