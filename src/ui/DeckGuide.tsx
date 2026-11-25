@@ -4,6 +4,20 @@ import { BEND, JUMP_BEATS, KEY_SHIFT_MAX, LOOP_BEATS, MIN_MOTOR, PITCH_RANGES, Q
 import { beatsLabel, FX_GROUPS, FX_META, FX_TYPES } from '../engine/fx';
 import { bankLabel, CUE_COLORS } from '../engine/cues';
 import { HOT_BANK_SIZE, HOT_CUES, MEMORY_CUES } from '../engine/types';
+import {
+  crossfaderGains,
+  EQ_BOOST_DB,
+  EQ_CUT_DB,
+  EQ_HIGH_HZ,
+  EQ_LOW_HZ,
+  EQ_PEAK_HZ,
+  EQ_SHELF_HIGH_HZ,
+  EQ_SHELF_LOW_HZ,
+  FADER_CUT_EDGE,
+  faderGain,
+  FILTER_LOCK,
+  ISO_CUT_DB,
+} from '../engine/mixer';
 import { InfoIcon } from './icons';
 import { usePhone } from './Phone';
 import s from '../platter.module.css';
@@ -306,6 +320,41 @@ export const BEAT_FX_GUIDE: GuideSection = {
     {
       name: 'On',
       text: 'Turns the effect on and off. The delays, reverb, flanger and phaser ring out when you turn them off; Helix fades. Keys: F for deck A, H for deck B, B for the master.',
+    },
+  ],
+};
+
+const hz = (f: number) => (f >= 1000 ? `${+(f / 1000).toFixed(1)} kHz` : `${f} Hz`);
+const dbAt = (g: number) => `${Math.round(20 * Math.log10(g))} dB`;
+
+/** The mixer's channel switches and set-and-forget row (Mixer.tsx), from engine/mixer.ts. */
+export const MIXER_GUIDE: GuideSection = {
+  id: 'mixer',
+  title: 'Mixer',
+  items: [
+    {
+      name: 'Hi  Mid  Low',
+      text: `Each channel’s EQ. Centre is flat, right boosts up to +${EQ_BOOST_DB} dB. Left cuts: with Iso down to −${ISO_CUT_DB} dB, and fully left is a kill, the band gone; with EQ down to −${EQ_CUT_DB} dB, never a kill. Double-click to centre.`,
+    },
+    {
+      name: 'Filter',
+      text: `Left is a low-pass sweeping down to 90 Hz, right a high-pass sweeping up to 9 kHz. It locks off at centre: the first ${Math.round(FILTER_LOCK * 100)}% of travel either side does nothing, and a drag through the middle holds there, so it parks off by feel.`,
+    },
+    {
+      name: 'A  Thru  B',
+      text: 'Crossfader assign, under each channel fader. A follows the crossfader’s left side, B its right side, and Thru ignores the crossfader: the channel is set by its fader alone. Deck A starts on A and deck B on B; put both on one side to fade them together.',
+    },
+    {
+      name: 'EQ: Iso  EQ',
+      text: `The EQ type, for both channels. Iso is an isolator: the bands split at ${hz(EQ_LOW_HZ)} and ${hz(EQ_HIGH_HZ)}, a band turned fully down is gone, and at centre they add back up flat. EQ is a classic channel EQ: a low shelf at ${hz(EQ_SHELF_LOW_HZ)}, a broad mid at ${hz(EQ_PEAK_HZ)} and a high shelf at ${hz(EQ_SHELF_HIGH_HZ)}, from +${EQ_BOOST_DB} to −${EQ_CUT_DB} dB: gentler cuts that leave some of the band. The knobs stay where they are when you switch.`,
+    },
+    {
+      name: 'Ch curve: Slow  Lin  Fast',
+      text: `How each channel fader’s travel turns into level. Lin: loudness rises evenly, ${dbAt(faderGain(0.5, 'linear'))} at halfway. Slow: the level comes in late, ${dbAt(faderGain(0.5, 'slow'))} at halfway, for long blends. Fast: full level within the first ${Math.round(FADER_CUT_EDGE * 100)}% of travel, for cuts and scratching.`,
+    },
+    {
+      name: 'X curve: Smooth  Full  Cut',
+      text: `How the crossfader blends. Smooth: constant power, each deck at ${dbAt(crossfaderGains(0, 'power')[0])} in the middle, so a blend keeps its loudness. Full: both decks at full level in the middle, each fading out over the far half. Cut: each side opens fully within the last few percent of travel, for scratching. Double-click the crossfader to centre it.`,
     },
   ],
 };

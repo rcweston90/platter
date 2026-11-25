@@ -1,5 +1,5 @@
 import { FxSlot, FxUnit } from './fx';
-import { Channel, crossfaderGains, levelGain, type ChannelState, type CrossfaderCurve } from './mixer';
+import { Channel, crossfadeFor, levelGain, type ChannelState, type ChannelSwitches, type CrossfaderCurve, type XfAssign } from './mixer';
 
 /** Worklets ship as files beside the page (public/worklets/), resolved
  *  against the document so the app works from any sub-path. The query is a
@@ -150,8 +150,8 @@ export class DjEngine {
     if (this.ctx.state !== 'running') void this.ctx.resume();
   }
 
-  applyChannel(i: 0 | 1, s: ChannelState) {
-    this.channels[i].apply(s);
+  applyChannel(i: 0 | 1, s: ChannelState, sw?: ChannelSwitches) {
+    this.channels[i].apply(s, sw);
   }
 
   /** Puts the Beat FX unit on channel A (0), B (1) or the master (2). */
@@ -159,8 +159,8 @@ export class DjEngine {
     this.fxSlots.forEach((s, i) => s.select(i === slot));
   }
 
-  applyCrossfader(x: number, curve: CrossfaderCurve) {
-    const [a, b] = crossfaderGains(x, curve);
+  applyCrossfader(x: number, curve: CrossfaderCurve, assign: readonly [XfAssign, XfAssign] = ['A', 'B']) {
+    const [a, b] = crossfadeFor(x, curve, assign);
     this.channels[0].setCrossfade(a);
     this.channels[1].setCrossfade(b);
   }

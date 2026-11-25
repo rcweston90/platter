@@ -1327,12 +1327,6 @@
   color: var(--dj-dim);
 }
 
-.curves {
-  display: flex;
-  justify-content: center;
-  gap: 6px;
-}
-
 /* ── Knob ───────────────────────────────────────────────────────────────── */
 
 .knobWrap {
@@ -2942,7 +2936,8 @@
       'hi trim'
       'mid filter'
       'low cue'
-      'fader fader';
+      'fader fader'
+      'assign assign';
     gap: 8px 10px;
     align-items: center;
     justify-items: center;
@@ -2981,6 +2976,10 @@
     margin-top: 4px;
   }
 
+  .root[data-phone] .channel > :nth-child(9) {
+    grid-area: assign;
+  }
+
   .root[data-phone] .mixer .xfaderRow {
     display: none;
   }
@@ -2988,11 +2987,6 @@
   .root[data-phone] .fader,
   .root[data-phone] .meter {
     height: 180px;
-  }
-
-  .root[data-phone] .curves {
-    padding-top: 12px;
-    border-top: 1px solid var(--dj-line);
   }
 
   /* 33 / 45: the plinth's container query shrinks them for a narrow plinth;
