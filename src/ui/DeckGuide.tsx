@@ -288,6 +288,34 @@ export const BEAT_FX_GUIDE: GuideSection = {
   ],
 };
 
+/** The booth guide (src/guide): the chat panel behind Guide in the top bar. */
+export const BOOTH_GUIDE_HELP: GuideSection = {
+  id: 'booth',
+  title: 'Booth guide',
+  items: [
+    {
+      name: 'Guide',
+      text: 'Opens the booth guide beside the rig (from the bottom on a phone). Ask how to do something and it answers in the panel. × or Esc closes it, and closing stops anything it was doing.',
+    },
+    {
+      name: 'Not connected',
+      text: 'The guide isn’t connected to an AI model yet. A built-in demo answers a few questions: how to beatmatch, what Slip does, a quick transition between the two decks, timed moves like “bring the crossfader to centre over 8 bars” or “kill deck A’s low at the next bar”, and what a control does. Nothing you type leaves the page.',
+    },
+    {
+      name: 'Control chips',
+      text: 'Controls named in an answer are buttons. Press one and the page scrolls to that control and rings it; on a phone the sheet tucks down while it shows you (press Booth guide to bring it back).',
+    },
+    {
+      name: 'Moves',
+      text: 'The guide can move controls in time with the playing deck, counted in its beats and bars: fades over a few bars, kills on the next bar, several at once. Each moving control is ringed with its value, and the status line shows the bar and what’s moving.',
+    },
+    {
+      name: 'Stop',
+      text: 'Stops a run; every control stays where it got to. Touching anything on the rig (a click, a key, the scroll wheel, or a MIDI control moving a fader the guide is moving) stops it too, so you can always take over.',
+    },
+  ],
+};
+
 /**
  * An ⓘ button that opens a guide panel. Click or tap pins it open; with
  * `hover`, a mouse resting on the button opens it too. Escape, a press

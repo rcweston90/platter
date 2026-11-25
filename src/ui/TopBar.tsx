@@ -40,7 +40,18 @@ const noSubscribe = () => () => {};
 /** Browser capability, read once per render without subscribing. */
 const useCapability = (check: () => boolean) => useSyncExternalStore(noSubscribe, check, () => false);
 
-export function TopBar({ session, loop, onSlicer }: { session: DjSession; loop: FrameLoop; onSlicer?: () => void }) {
+export function TopBar({
+  session,
+  loop,
+  onSlicer,
+  guide,
+}: {
+  session: DjSession;
+  loop: FrameLoop;
+  onSlicer?: () => void;
+  /** The booth guide's panel (src/guide): whether it's open, and its toggle. */
+  guide?: { open: boolean; toggle: () => void };
+}) {
   const m = useStoreSelect(
     session.mixer,
     ({ audio, audioError, recording, lastRecording, cueRouting, masterDevice, devices }) => ({ audio, audioError, recording, lastRecording, cueRouting, masterDevice, devices }),
@@ -159,6 +170,18 @@ export function TopBar({ session, loop, onSlicer }: { session: DjSession; loop: 
         <button type="button" className={`${s.primaryBtn} ${s.browseBtn}`} aria-expanded={browsing} onClick={() => openBrowse()}>
           {phone ? 'Browse' : 'Browse music'}
         </button>
+        {guide && (
+          <button
+            type="button"
+            className={s.action}
+            aria-expanded={guide.open}
+            aria-label="Booth guide: ask how to do things"
+            title="Ask how to do things in Platter"
+            onClick={guide.toggle}
+          >
+            Guide
+          </button>
+        )}
         {onSlicer && !phone && (
           <button type="button" className={s.action} onClick={onSlicer} title="Chop samples from your tracks and arrange them with drums">
             Slicer

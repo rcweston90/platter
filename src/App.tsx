@@ -26,6 +26,7 @@ import { useSheetSize } from './ui/library/Splitter';
 import { Studio } from './slicer/studio';
 import { SlicerView } from './ui/slicer/SlicerView';
 import { PhoneDock, PhoneTabs, usePhone, type PhoneFocus } from './ui/Phone';
+import { BoothGuide } from './guide/BoothGuide';
 import s from './platter.module.css';
 
 /**
@@ -75,6 +76,7 @@ export default function App() {
   const docked = useDocked();
   const phone = usePhone();
   const [focus, setFocus] = useState<PhoneFocus>('A');
+  const [guideOpen, setGuideOpen] = useState(false);
   // The library flyout sits on the phone's play dock (see .phoneDock).
   const sheet = useSheetSize(pinned, phone ? 68 : 0);
   const { open: libOpen } = useStore(libraryFlyout);
@@ -371,7 +373,7 @@ export default function App() {
       // can scroll everything above it.
       style={{ '--lib-reserve': `${libOpen ? sheet.height : LIB_BAR}px`, ...(slicing ? { display: 'none' } : {}) } as React.CSSProperties}
     >
-      <TopBar session={session} loop={loop} onSlicer={() => void studio.open()} />
+      <TopBar session={session} loop={loop} onSlicer={() => void studio.open()} guide={{ open: guideOpen, toggle: () => setGuideOpen((o) => !o) }} />
 
       {phone ? (
         <div ref={pinned} className={s.phoneTop}>
@@ -401,6 +403,13 @@ export default function App() {
     </div>
     {/* Outside the root on purpose: see .phoneDock in platter.module.css. */}
     {phone && !slicing && <PhoneDock session={session} />}
+    {/* The booth guide, outside the root too: the rig's keys stay out of its chat. */}
+    <BoothGuide
+      session={session}
+      open={guideOpen && !slicing}
+      onClose={() => setGuideOpen(false)}
+      onReveal={(area) => phone && area !== 'top' && setFocus(area)}
+    />
     {slicing && <SlicerView studio={studio} session={session} loop={loop} />}
     </>
   );
