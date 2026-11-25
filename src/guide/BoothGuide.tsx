@@ -5,6 +5,7 @@ import { BOOTH_GUIDE_HELP, InfoTip } from '../ui/DeckGuide';
 import { usePrefersReducedMotion } from '../ui/hooks';
 import { usePhone } from '../ui/Phone';
 import { GuideChat, type ChatEntry } from './chat';
+import { ClaudeModel, guideStatus } from './claude';
 import { DemoModel } from './demo';
 import { boothSnapshot } from './model';
 import { controlById, type ControlArea, type GuideControl } from './registry';
@@ -46,7 +47,12 @@ function guideFor(session: DjSession): Guide {
   if (!it) {
     const runner = new MoveRunner(session);
     const host: ToolHost = { session, runner, point: (c) => pointer.show(c) };
-    const chat = new GuideChat(new DemoModel(() => boothSnapshot(session)), session, host);
+    const demo = new DemoModel(() => boothSnapshot(session));
+    const chat = new GuideChat(demo, session, host);
+    // The demo answers until the site's server says it's connected to Claude.
+    void guideStatus().then((status) => {
+      if (status?.configured) chat.setModel(new ClaudeModel(status, demo, () => chat.setModel(demo)));
+    });
     it = { chat, runner, host };
     guides.set(session, it);
     // The tests (and the console) can reach it, as they reach the rig.
@@ -73,7 +79,7 @@ export function BoothGuide({
   onReveal?: (area: ControlArea) => void;
 }) {
   const [{ chat, runner }] = useState(() => guideFor(session));
-  const { entries, busy } = useStore(chat.store);
+  const { entries, busy, model } = useStore(chat.store);
   const run = useStore(runner.store);
   const phone = usePhone();
   const still = usePrefersReducedMotion();
@@ -202,7 +208,12 @@ export function BoothGuide({
 
         {!(phone && tucked) && (
           <>
-            {!chat.model.connected && (
+            {model.connected ? (
+              <p className={g.note} role="note">
+                Answers come from <strong>{model.label}</strong>. What you ask, and the decks’ track titles, tempos and
+                faders, go to Anthropic to answer it.
+              </p>
+            ) : (
               <p className={g.note} role="note">
                 <strong>Not connected to an AI model yet.</strong> A built-in demo answers a few questions so you can
                 try the guide; nothing you type leaves this page.

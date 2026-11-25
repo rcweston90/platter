@@ -9,7 +9,8 @@
     "worklets": "node scripts/extract-stretch-worklet.mjs",
     "predev": "npm run worklets",
     "dev": "vite",
-    "prebuild": "npm run worklets",
+    "prebuild": "npm run worklets && node scripts/guide-prompt.mjs --check",
+    "guide-prompt": "node scripts/guide-prompt.mjs",
     "build": "tsc && vite build",
     "preview": "vite preview",
     "typecheck": "tsc",
@@ -17,6 +18,7 @@
     "test:controls": "node tests/controls.mjs",
     "test:listening": "node tests/listening.mjs",
     "test:sync": "node tests/sync.mjs",
+    "test:guide": "node tests/guide.mjs && node tests/guide-api.mjs",
     "artifact": "npm run build && node scripts/artifact.mjs",
     "test:stems": "node tests/stems.mjs && node tests/spectral.mjs",
     "test:returning-visitor": "node tests/returning-visitor.mjs",
@@ -34,6 +36,7 @@
     "perf:trace": "node tests/perf-trace.mjs"
   },
   "dependencies": {
+    "@anthropic-ai/sdk": "1.14.0",
     "demucs-web": "1.0.2",
     "music-metadata": "12.3.2",
     "onnxruntime-web": "1.31.1",

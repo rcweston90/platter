@@ -23,22 +23,36 @@ export interface ChatEntry {
 export interface ChatState {
   entries: ChatEntry[];
   busy: boolean;
+  /** Who answers: shown in the panel. */
+  model: { label: string; connected: boolean };
 }
 
 /** Rounds of tool use per question, so a confused model can't loop forever. */
 const MAX_ROUNDS = 4;
 
 export class GuideChat {
-  readonly store: Store<ChatState> = createStore<ChatState>({ entries: [], busy: false });
+  readonly store: Store<ChatState>;
   private history: GuideMessage[] = [];
   private abort: AbortController | null = null;
   private seq = 0;
 
   constructor(
-    readonly model: GuideModel,
+    private _model: GuideModel,
     private session: DjSession,
     private host: ToolHost,
-  ) {}
+  ) {
+    this.store = createStore<ChatState>({ entries: [], busy: false, model: { label: _model.label, connected: _model.connected } });
+  }
+
+  get model(): GuideModel {
+    return this._model;
+  }
+
+  /** Swaps who answers (the demo for Claude once the server says it's connected, and back); the conversation stays. */
+  setModel(model: GuideModel) {
+    this._model = model;
+    this.store.set({ model: { label: model.label, connected: model.connected } });
+  }
 
   /** Asks the guide; resolves when its answer (and any tool rounds) are done. */
   async ask(text: string) {
@@ -60,7 +74,7 @@ export class GuideChat {
         const calls: ToolCall[] = [];
         const results: GuideMessage[] = [];
         const booth = boothSnapshot(this.session);
-        for await (const chunk of this.model.reply(this.history, tools, { booth, signal: abort.signal })) {
+        for await (const chunk of this._model.reply(this.history, tools, { booth, signal: abort.signal })) {
           if (abort.signal.aborted) return;
           if (chunk.type === 'text') {
             said += chunk.text;

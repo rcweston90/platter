@@ -384,8 +384,8 @@ export const BOOTH_GUIDE_HELP: GuideSection = {
       text: 'Opens the booth guide beside the rig (from the bottom on a phone). Ask how to do something and it answers in the panel. × or Esc closes it, and closing stops anything it was doing.',
     },
     {
-      name: 'Not connected',
-      text: 'The guide isn’t connected to an AI model yet. A built-in demo answers a few questions: how to beatmatch, what Slip does, a quick transition between the two decks, timed moves like “bring the crossfader to centre over 8 bars” or “kill deck A’s low at the next bar”, and what a control does. Nothing you type leaves the page.',
+      name: 'Who answers',
+      text: 'Where the site is connected to Claude, the panel says so and Claude answers: your question, the conversation so far and the decks’ track titles, tempos and faders go to Anthropic to answer it, a few questions every few minutes at most. Otherwise a built-in demo answers a few questions: how to beatmatch, what Slip does, a quick transition between the two decks, timed moves like “bring the crossfader to centre over 8 bars” or “kill deck A’s low at the next bar”, and what a control does, and nothing you type leaves the page.',
     },
     {
       name: 'Control chips',
