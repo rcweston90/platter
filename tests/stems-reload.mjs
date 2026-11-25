@@ -73,14 +73,17 @@ check(true, `deck B (${titles[1]}) is split after the reload without being playe
 await page.getByRole('group', { name: 'Deck A stems' }).getByRole('button', { name: 'Vocals' }).click();
 await page.getByRole('button', { name: 'Deck A play' }).click();
 await page.waitForFunction(() => window.platter.decks[0].store.get().playing, null, { timeout: 15000 });
-await page.waitForTimeout(1200);
-// The stems row's meters read the same peaks every frame: sample for a while, keep the loudest.
+// Muting eases over a few milliseconds as play starts: read after that.
+await page.waitForTimeout(300);
+await page.evaluate(() => window.platter.stems[0].levels());
+// The stems row's meters take the same peaks every frame: sample often for a
+// few seconds (the demo has quiet stretches), keep the loudest.
 const lv = await page.evaluate(async () => {
   const top = { vocals: 0, drums: 0, bass: 0, other: 0 };
-  for (let i = 0; i < 40; i++) {
+  for (let i = 0; i < 300; i++) {
     const l = window.platter.stems[0].levels();
     for (const k of Object.keys(top)) top[k] = Math.max(top[k], l[k]);
-    await new Promise((r) => requestAnimationFrame(r));
+    await new Promise((r) => setTimeout(r, 10));
   }
   return top;
 });
