@@ -1,9 +1,23 @@
 import { useEffect, useId, useLayoutEffect, useRef, useState, type CSSProperties, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
-import { BEND, JUMP_BEATS, LOOP_BEATS, PITCH_RANGES, QUANTIZE_BEATS, ROLL_BEATS, loopLabel } from '../engine/deck';
+import { BEND, JUMP_BEATS, KEY_SHIFT_MAX, LOOP_BEATS, MIN_MOTOR, PITCH_RANGES, QUANTIZE_BEATS, ROLL_BEATS, WIDE_RANGE, loopLabel, rangeLabel } from '../engine/deck';
 import { beatsLabel, FX_GROUPS, FX_META, FX_TYPES } from '../engine/fx';
 import { bankLabel, CUE_COLORS } from '../engine/cues';
 import { HOT_BANK_SIZE, HOT_CUES, MEMORY_CUES } from '../engine/types';
+import {
+  crossfaderGains,
+  EQ_BOOST_DB,
+  EQ_CUT_DB,
+  EQ_HIGH_HZ,
+  EQ_LOW_HZ,
+  EQ_PEAK_HZ,
+  EQ_SHELF_HIGH_HZ,
+  EQ_SHELF_LOW_HZ,
+  FADER_CUT_EDGE,
+  faderGain,
+  FILTER_LOCK,
+  ISO_CUT_DB,
+} from '../engine/mixer';
 import { InfoIcon } from './icons';
 import { usePhone } from './Phone';
 import s from '../platter.module.css';
@@ -27,7 +41,7 @@ export interface GuideSection {
 }
 
 const pct = (n: number) => `${Math.round(n * 100)}%`;
-const ranges = PITCH_RANGES.map((r) => `±${r * 100}`).join(' ');
+const ranges = PITCH_RANGES.map(rangeLabel).join(' ');
 /** "a, b, c or d" */
 const either = (xs: string[]) => (xs.length < 2 ? xs.join('') : `${xs.slice(0, -1).join(', ')} or ${xs[xs.length - 1]}`);
 
@@ -41,7 +55,11 @@ export const PITCH_GUIDE: GuideSection = {
     },
     {
       name: ranges,
-      text: `How far the fader reaches: ${either(PITCH_RANGES.map(pct))} either way. Narrow for fine control, wide for big changes. Switching keeps your tempo and moves the fader to match, unless the tempo is past the new range; then it’s pulled in to the edge. With Sync on, the deck widens its own range when it has to.`,
+      text: `How far the fader reaches: ${either(PITCH_RANGES.map(pct))} either way; WIDE is ±${pct(WIDE_RANGE)}, from a crawl (its −100% end turns at ${pct(MIN_MOTOR)}) to double speed. Narrow for fine control, wide for big changes. Switching keeps your tempo and moves the fader to match, unless the tempo is past the new range; then it’s pulled in to the edge. With Sync on, the deck widens its own range when it has to.`,
+    },
+    {
+      name: 'Reset',
+      text: 'Tempo reset: puts the pitch fader back to 0, the track’s own tempo, as double-clicking the fader does. It’s dimmed while the fader is already at 0.',
     },
     {
       name: '<  >  under the range',
@@ -70,7 +88,15 @@ export const DECK_GUIDE: GuideSection[] = [
     items: [
       {
         name: 'Record',
-        text: 'Drag it to scratch. With it selected, hold an arrow key to nudge, like the < > buttons by the fader.',
+        text: 'Drag it to scratch (in Vinyl mode). With it selected, hold an arrow key to nudge, like the < > buttons by the fader.',
+      },
+      {
+        name: 'Rim',
+        text: `The platter’s edge, outside the record, where the strobe dots are. Turn it while the track plays to bend the tempo: the faster you turn, the more it bends, up to ${pct(BEND * 2)}. Stop turning and it’s back at the fader’s tempo. On a stopped deck it moves the record, to find a spot.`,
+      },
+      {
+        name: 'Vinyl  CDJ',
+        text: 'Jog mode, for the top of the record. Vinyl: touching it holds the record, so you can scratch it. CDJ: touching it only bends the tempo, like the rim, and never stops the track. Either way, a stopped deck moves under your hand, and each deck remembers its own mode. A controller’s touch-sensitive jog follows the same switch.',
       },
       {
         name: 'Waveform strip',
@@ -221,7 +247,7 @@ export const DECK_GUIDE: GuideSection[] = [
         name: 'Key (8A)',
         text: 'The key you hear, in Camelot notation. Green: it mixes with the other deck. Red: it clashes.',
       },
-      { name: '♭  ♯', text: 'Moves the key down or up a semitone, up to 6 each way, without changing the tempo.' },
+      { name: '♭  ♯', text: `Moves the key down or up a semitone, up to ${KEY_SHIFT_MAX} each way (an octave), without changing the tempo.` },
       { name: 'Match', text: 'Moves to the nearest key that mixes with the other deck.' },
       { name: '0', text: 'Takes the key shift off.' },
     ],
@@ -248,6 +274,16 @@ export const DECK_GUIDE: GuideSection[] = [
       },
       { name: '÷2  ×2', text: 'Halve or double the detected tempo, when the analysis picked the wrong one.' },
       { name: '⏏', text: 'Unloads the track. Pause first.' },
+    ],
+  },
+  {
+    id: 'load',
+    title: 'Loading',
+    items: [
+      {
+        name: 'Doubles',
+        text: 'Instant doubles. While it’s lit, loading the track the other deck already has makes this deck join it: the same place in the track, the same tempo, key lock, key shift and loop, and playing if the other deck is playing, so the two run together. Off, a load starts at the track’s cue point as usual. On to begin with; each deck remembers its own.',
+      },
     ],
   },
 ];
@@ -304,6 +340,41 @@ export const BEAT_FX_GUIDE: GuideSection = {
     {
       name: 'On',
       text: 'Turns the effect on and off. The delays, reverb, flanger and phaser ring out when you turn them off; Helix fades. Keys: F for deck A, H for deck B, B for the master.',
+    },
+  ],
+};
+
+const hz = (f: number) => (f >= 1000 ? `${+(f / 1000).toFixed(1)} kHz` : `${f} Hz`);
+const dbAt = (g: number) => `${Math.round(20 * Math.log10(g))} dB`;
+
+/** The mixer's channel switches and set-and-forget row (Mixer.tsx), from engine/mixer.ts. */
+export const MIXER_GUIDE: GuideSection = {
+  id: 'mixer',
+  title: 'Mixer',
+  items: [
+    {
+      name: 'Hi  Mid  Low',
+      text: `Each channel’s EQ. Centre is flat, right boosts up to +${EQ_BOOST_DB} dB. Left cuts: with Iso down to −${ISO_CUT_DB} dB, and fully left is a kill, the band gone; with EQ down to −${EQ_CUT_DB} dB, never a kill. Double-click to centre.`,
+    },
+    {
+      name: 'Filter',
+      text: `Left is a low-pass sweeping down to 90 Hz, right a high-pass sweeping up to 9 kHz. It locks off at centre: the first ${Math.round(FILTER_LOCK * 100)}% of travel either side does nothing, and a drag through the middle holds there, so it parks off by feel.`,
+    },
+    {
+      name: 'A  Thru  B',
+      text: 'Crossfader assign, under each channel fader. A follows the crossfader’s left side, B its right side, and Thru ignores the crossfader: the channel is set by its fader alone. Deck A starts on A and deck B on B; put both on one side to fade them together.',
+    },
+    {
+      name: 'EQ: Iso  EQ',
+      text: `The EQ type, for both channels. Iso is an isolator: the bands split at ${hz(EQ_LOW_HZ)} and ${hz(EQ_HIGH_HZ)}, a band turned fully down is gone, and at centre they add back up flat. EQ is a classic channel EQ: a low shelf at ${hz(EQ_SHELF_LOW_HZ)}, a broad mid at ${hz(EQ_PEAK_HZ)} and a high shelf at ${hz(EQ_SHELF_HIGH_HZ)}, from +${EQ_BOOST_DB} to −${EQ_CUT_DB} dB: gentler cuts that leave some of the band. The knobs stay where they are when you switch.`,
+    },
+    {
+      name: 'Ch curve: Slow  Lin  Fast',
+      text: `How each channel fader’s travel turns into level. Lin: loudness rises evenly, ${dbAt(faderGain(0.5, 'linear'))} at halfway. Slow: the level comes in late, ${dbAt(faderGain(0.5, 'slow'))} at halfway, for long blends. Fast: full level within the first ${Math.round(FADER_CUT_EDGE * 100)}% of travel, for cuts and scratching.`,
+    },
+    {
+      name: 'X curve: Smooth  Full  Cut',
+      text: `How the crossfader blends. Smooth: constant power, each deck at ${dbAt(crossfaderGains(0, 'power')[0])} in the middle, so a blend keeps its loudness. Full: both decks at full level in the middle, each fading out over the far half. Cut: each side opens fully within the last few percent of travel, for scratching. Double-click the crossfader to centre it.`,
     },
   ],
 };

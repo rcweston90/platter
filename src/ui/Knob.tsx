@@ -17,6 +17,9 @@ interface KnobProps {
   format: (v: number) => string;
   /** Draw the arc from the default (centre-detent knobs) rather than the minimum. */
   bipolar?: boolean;
+  /** Half-width of the centre detent while dragging, as a fraction of the
+   *  range (bipolar knobs only). A wide one locks the knob at its default. */
+  detent?: number;
   size?: 'sm' | 'md';
 }
 
@@ -27,7 +30,7 @@ const DRAG_PX = 200; // px of vertical drag for the full range
  * A rotary control: drag up/down (Shift for fine), arrow keys, Page Up/Down,
  * Home/End, double-click or Delete to reset. An ARIA slider underneath.
  */
-export function Knob({ label, name, value, min, max, defaultValue, onChange, format, bipolar, size = 'md' }: KnobProps) {
+export function Knob({ label, name, value, min, max, defaultValue, onChange, format, bipolar, detent = 0.02, size = 'md' }: KnobProps) {
   const drag = useRef<{ y: number; v: number } | null>(null);
   const span = max - min;
   const t = (value - min) / span;
@@ -47,7 +50,7 @@ export function Knob({ label, name, value, min, max, defaultValue, onChange, for
     const fine = e.shiftKey ? 0.2 : 1;
     let v = d.v + ((d.y - e.clientY) / DRAG_PX) * span * fine;
     // A soft detent at the default, so centring by feel works.
-    if (bipolar && Math.abs(v - defaultValue) < span * 0.02) v = defaultValue;
+    if (bipolar && Math.abs(v - defaultValue) < span * detent) v = defaultValue;
     set(v);
   };
   const end = () => {
