@@ -19,6 +19,7 @@ import { focusCrateSearch } from './ui/crate/TrackBrowser';
 import { openBrowse } from './ui/browse';
 import { cameBackFromSoundCloud } from './engine/soundcloud';
 import { ScrollingWave } from './ui/Waveforms';
+import { PhaseMeter } from './ui/PhaseMeter';
 import { PitchLane } from './ui/PitchLane';
 import { PitchIcon } from './ui/icons';
 import { LIB_BAR, closeLibrary, libraryFlyout, openLibrary, toggleLibrary, useDocked } from './ui/library/dock';
@@ -318,7 +319,9 @@ export default function App() {
       <SyncStrip decks={session.decks} loop={loop} zoom={zoom} />
       <div className={s.waveRow} data-deck="B">
         <div className={s.waveBox}>
-          <WaveTag deck={deckB} />
+          <WaveTag deck={deckB}>
+            <PhaseMeter decks={session.decks} loop={loop} />
+          </WaveTag>
           <ScrollingWave deck={deckB} loop={loop} zoom={zoom} label="Deck B waveform around the playhead" />
         </div>
         {pitchLanes && <PitchLane deck={deckB} hits={session.hits[1]} loop={loop} zoom={zoom} />}

@@ -83,6 +83,10 @@ function channelActions(d: 'A' | 'B'): MidiAction[] {
     k('filter', 'Filter'),
     k('fader', 'Channel fader'),
     { id: `${d}.pfl`, label: 'Headphone cue', group: g, kind: 'button' },
+    { id: `${d}.xfA`, label: 'Crossfader assign: A', group: g, kind: 'button' },
+    { id: `${d}.xfThru`, label: 'Crossfader assign: THRU', group: g, kind: 'button' },
+    { id: `${d}.xfB`, label: 'Crossfader assign: B', group: g, kind: 'button' },
+    { id: `${d}.xfAssign`, label: 'Crossfader assign: step A / THRU / B', group: g, kind: 'button' },
   ];
 }
 

@@ -50,6 +50,14 @@
   --dj-hot-12: #9aa5b8;
   /* Memory cue markers on the waveforms. */
   --dj-memory: #f2eee6;
+  /* Phrase bands on the waveforms (engine/phrases.ts): cool at the ends,
+     warm as the track lifts, violet where the low end drops out. */
+  --dj-phrase-intro: #5e8fd6;
+  --dj-phrase-verse: #3fd0c4;
+  --dj-phrase-build: #ffb347;
+  --dj-phrase-drop: #ff6b86;
+  --dj-phrase-break: #c99bff;
+  --dj-phrase-outro: #7d8aa3;
   --dj-vinyl: #0b0b0c;
   --dj-groove: #1d1e21;
   --dj-plinth-1: #26282c;

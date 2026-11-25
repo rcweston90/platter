@@ -1,4 +1,5 @@
 import type { TrackLibraryInfo } from '../library/types';
+import type { PhraseCache } from './phrases';
 
 /** Waveform summary: per-band peak envelopes, `rate` bins per second, 0–255. */
 export interface WavePeaks {
@@ -40,6 +41,12 @@ export interface TrackRecord {
   bpm: number | null;
   /** Time of a beat, in seconds — the beat grid is gridOffset + n · 60/bpm. */
   gridOffset: number;
+  /** The DJ set the tempo or grid by hand (grid edit, tap, ÷2/×2): analysis
+   *  run again keeps them. Absent on tracks saved before grid editing. */
+  gridEdited?: boolean;
+  /** Phrases (intro, build, drop …) read from the waveform on the grid they
+   *  name; read again when the grid changes. Absent until first shown. */
+  phrases?: PhraseCache;
   /** Camelot key code (8A = A minor); null until analysed or if unclear. */
   key: string | null;
   peaks: WavePeaks | null;
