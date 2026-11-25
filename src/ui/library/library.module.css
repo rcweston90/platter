@@ -357,6 +357,11 @@
   overflow: hidden;
 }
 
+/* Playlists scroll their own sidebar and list too. */
+.panel[data-tab='playlists'] {
+  overflow: hidden;
+}
+
 .rail {
   flex: none;
   width: clamp(300px, 26%, 380px);
