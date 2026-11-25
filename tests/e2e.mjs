@@ -290,6 +290,27 @@ check(midiResult.bound === 'n:2:40', `MIDI learn binds deck B play to ${midiResu
 check(midiResult.toggled, 'the learned note toggles deck B');
 check(midiResult.xfader === 1, `a learned CC moves the crossfader (now ${midiResult.xfader})`);
 
+// Crossfader assign is learnable: one note per position, and one that steps.
+const midiAssign = await page.evaluate(() => {
+  const { midi, mixer } = window.platter;
+  midi.learn('A.xfThru');
+  midi.receive(new Uint8Array([0x90, 50, 127]));
+  midi.learn('A.xfAssign');
+  midi.receive(new Uint8Array([0x90, 51, 127]));
+  midi.receive(new Uint8Array([0x90, 50, 127]));
+  const thru = mixer.get().xfAssign[0];
+  midi.receive(new Uint8Array([0x90, 51, 127]));
+  const stepped = mixer.get().xfAssign[0];
+  midi.receive(new Uint8Array([0x90, 51, 127]));
+  midi.receive(new Uint8Array([0x90, 51, 127]));
+  return { thru, stepped, back: mixer.get().xfAssign[0] };
+});
+check(
+  midiAssign.thru === 'thru' && midiAssign.stepped === 'B' && midiAssign.back === 'thru',
+  `MIDI: crossfader assign learns and steps A → THRU → B (${midiAssign.thru}, ${midiAssign.stepped}, ${midiAssign.back})`,
+);
+await page.evaluate(() => window.platter.setXfAssign(0, 'A'));
+
 // ── Auto-DJ cues the next track ──
 await page.getByRole('tab', { name: /Auto-DJ/ }).click();
 await page.getByRole('tab', { name: 'Crate' }).click();

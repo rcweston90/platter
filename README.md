@@ -95,15 +95,17 @@ GitHub Actions).
   mixes with the other deck.
 
 **Mixer**
-- Trim, three-band isolator EQ (fully left kills the band) and a one-knob
-  low-/high-pass filter per channel.
+- Trim, three-band EQ and a one-knob low-/high-pass filter per channel. The
+  EQ switches between ISO, an isolator (fully left kills the band), and EQ, a
+  classic shelf / mid / shelf from +6 to −26 dB. The filter locks off at centre.
 - **Beat FX**: one unit you send to deck A, deck B or the master — delay,
   echo, ping pong, spiral, reverb, helix, roll, triplet roll, flanger, phaser,
   filter, triplet filter, mobius, trans and crush — timed in beats of the
   deck's live tempo (or a tapped one), with a TIME readout, low/mid/high band
   select, an X-pad and FX quantize.
 - Channel and master peak meters, a safety limiter on the master.
-- Crossfader with Smooth, Full and Cut (scratch) curves.
+- Crossfader with Smooth, Full and Cut (scratch) curves, and an A / THRU / B
+  assign per channel. Channel faders have Slow, Linear and Fast-cut curves.
 - Headphone cue (PFL) with a cue/master blend: split one output (master left,
   cue right, for a splitter cable) or send the cue to a second audio device.
 - **Sampler**: 64 pads in four banks of 16, and a library of 860+ sounds
@@ -388,7 +390,7 @@ public/sounds/cc0/  the CC0 recordings, fetched on first use
   the whole track (bass weighted, since it names the tonic) and correlates it
   with the Krumhansl–Kessler major and minor profiles. The open-source key
   finders worth using are GPL/AGPL, so this one is written here, MIT.
-- **The EQ is an isolator**: Linkwitz–Riley crossovers at 220 Hz and 2.6 kHz,
+- **The EQ is an isolator** (in ISO, the default): Linkwitz–Riley crossovers at 220 Hz and 2.6 kHz,
   so a band turned all the way down is gone. Waveforms split at the same
   frequencies, so killing the low is the blue you'd expect to lose.
 - **Beat FX** read the deck's live tempo, so a 3/4-beat echo stays 3/4 of a

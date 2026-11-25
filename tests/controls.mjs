@@ -289,6 +289,149 @@ for (let i = 0; i < n; i++) {
   check(await pressed(curves.nth(i)), `Mixer: crossfader curve “${await curves.nth(i).textContent()}” selects`);
 }
 
+/* ── Mixer switches ─────────────────────────────────────────────────────── */
+
+const group = (name) => mixer.getByRole('group', { name });
+const seg = (name, button) => group(name).getByRole('button', { name: button, exact: true });
+
+// EQ type: Iso's full-left is a kill, EQ's is −26 dB.
+const low = mixer.getByRole('slider', { name: 'Channel A low EQ' });
+await low.focus();
+await page.keyboard.press('Home');
+check((await low.getAttribute('aria-valuetext')) === 'kill', 'Mixer: in Iso, low EQ full left is a kill');
+await seg('EQ type', 'EQ').click();
+check(await pressed(seg('EQ type', 'EQ')), 'Mixer: EQ type switches to EQ');
+check((await low.getAttribute('aria-valuetext')) === '−26.0 dB' || (await low.getAttribute('aria-valuetext')) === '-26.0 dB', `Mixer: in EQ, low EQ full left is −26 dB (${await low.getAttribute('aria-valuetext')})`);
+await low.dblclick();
+
+// Channel-fader curve: half travel reads −12 dB linear, −18 dB slow, full level fast.
+await vol.fill('0.5');
+const faderAt = async (curve) => {
+  await seg('Channel fader curve', curve).click();
+  return vol.getAttribute('aria-valuetext');
+};
+const lin = await faderAt('Lin');
+const slow = await faderAt('Slow');
+const fast = await faderAt('Fast');
+check(lin === '−12.0 dB' && slow === '−18.1 dB' && fast === '+0.0 dB', `Mixer: channel-fader curves at half travel (lin ${lin}, slow ${slow}, fast ${fast})`);
+const engineGain = (i) => page.evaluate((i) => new Promise((r) => setTimeout(() => r(window.platter.engine.channels[i].xfade.gain.value), 150)), i);
+await seg('Channel fader curve', 'Lin').click();
+await vol.fill('1');
+
+// Crossfader assign: THRU ignores the crossfader; A follows its A side.
+const assignA = group('Channel A crossfader assign');
+check(await pressed(assignA.getByRole('button', { name: 'A', exact: true })), 'Mixer: channel A starts assigned to A');
+check(await pressed(group('Channel B crossfader assign').getByRole('button', { name: 'B', exact: true })), 'Mixer: channel B starts assigned to B');
+await xf.fill('1');
+const cutA = await engineGain(0);
+await assignA.getByRole('button', { name: 'Thru' }).click();
+const thruA = await engineGain(0);
+check(cutA < 0.01 && thruA > 0.99, `Mixer: with the crossfader at B, channel A is out on A (${cutA.toFixed(3)}) and full on THRU (${thruA.toFixed(3)})`);
+await assignA.getByRole('button', { name: 'B', exact: true }).click();
+check((await engineGain(0)) > 0.99, 'Mixer: channel A assigned to B follows the B side');
+await assignA.getByRole('button', { name: 'A', exact: true }).click();
+await xf.dblclick();
+
+// Centre-lock filter: a small drag off centre stays off; a bigger one sweeps.
+const filt = mixer.getByRole('slider', { name: 'Channel A filter' });
+const dragFilter = async (dy) => {
+  // Mid-screen, clear of the pinned waveforms above and the library bar below.
+  await filt.evaluate((el) => el.scrollIntoView({ block: 'center' }));
+  const fb = await filt.boundingBox();
+  await page.mouse.move(fb.x + fb.width / 2, fb.y + fb.height / 2);
+  await page.mouse.down();
+  await page.mouse.move(fb.x + fb.width / 2, fb.y + fb.height / 2 - dy, { steps: 4 });
+  await page.mouse.up();
+  return [Number(await filt.getAttribute('aria-valuenow')), await filt.getAttribute('aria-valuetext')];
+};
+const [small, smallText] = await dragFilter(6);
+check(small === 0 && smallText === 'off', `Mixer: filter locks off near centre (${small}, ${smallText})`);
+await filt.dblclick();
+const [big, bigText] = await dragFilter(40);
+check(big > 0.3 && /high-pass/.test(bigText), `Mixer: filter sweeps past the lock (${big}, ${bigText})`);
+await filt.dblclick();
+
+// The switches are kept: set some, reload, and they're back.
+await seg('Channel fader curve', 'Slow').click();
+await group('Channel B crossfader assign').getByRole('button', { name: 'Thru' }).click();
+await page.waitForTimeout(800);
+await page.reload({ waitUntil: 'networkidle' });
+await page.getByRole('region', { name: 'Mixer' }).waitFor();
+await page.waitForFunction(() => window.platter?.mixer.get().faderCurve === 'slow', null, { timeout: 10000 }).catch(() => undefined);
+check(
+  (await pressed(seg('EQ type', 'EQ'))) &&
+    (await pressed(seg('Channel fader curve', 'Slow'))) &&
+    (await pressed(group('Channel B crossfader assign').getByRole('button', { name: 'Thru' }))) &&
+    (await pressed(seg('Crossfader curve', 'Cut'))),
+  'Mixer: EQ type, fader curve, crossfader curve and assign survive a reload',
+);
+await seg('EQ type', 'Iso').click();
+await seg('Channel fader curve', 'Lin').click();
+await group('Channel B crossfader assign').getByRole('button', { name: 'B', exact: true }).click();
+await seg('Crossfader curve', 'Smooth').click();
+
+/* ── Mixer DSP: the EQ, rendered offline ────────────────────────────────── */
+
+// An impulse through the isolator alone and through a channel's EQ in each
+// mode, in an OfflineAudioContext; each spectrum read by a plain DFT.
+const dsp = await page.evaluate(async () => {
+  const { ChannelEq, Isolator } = await import('/src/engine/mixer.ts');
+  const sr = 48000;
+  const N = 16384;
+  const render = async (build) => {
+    const ctx = new OfflineAudioContext(1, N, sr);
+    const buf = ctx.createBuffer(1, N, sr);
+    buf.getChannelData(0)[0] = 1;
+    const src = ctx.createBufferSource();
+    src.buffer = buf;
+    const node = build(ctx);
+    src.connect(node.input);
+    node.output.connect(ctx.destination);
+    src.start();
+    const out = (await ctx.startRendering()).getChannelData(0);
+    return (f) => {
+      const w = (2 * Math.PI * f) / sr;
+      let re = 0;
+      let im = 0;
+      for (let n = 0; n < N; n++) {
+        re += out[n] * Math.cos(w * n);
+        im -= out[n] * Math.sin(w * n);
+      }
+      return 10 * Math.log10(re * re + im * im + 1e-30);
+    };
+  };
+  const spread = (db) => {
+    let min = Infinity;
+    let max = -Infinity;
+    for (let k = 0; k < 120; k++) {
+      const v = db(20 * 1000 ** (k / 119));
+      min = Math.min(min, v);
+      max = Math.max(max, v);
+    }
+    return { min, max };
+  };
+  const eq = (mode, low, mid, high) => (ctx) => {
+    const e = new ChannelEq(ctx);
+    e.set(mode, low, mid, high, 0);
+    return e;
+  };
+  const iso = spread(await render((ctx) => new Isolator(ctx)));
+  const isoFlat = spread(await render(eq('iso', 0.5, 0.5, 0.5)));
+  const eqFlat = spread(await render(eq('eq', 0.5, 0.5, 0.5)));
+  const isoKill = await render(eq('iso', 0, 0.5, 0.5));
+  const eqCut = await render(eq('eq', 0, 0.5, 0.5));
+  return { iso, isoFlat, eqFlat, isoKill40: isoKill(40), eqCut30: eqCut(30), eqCut2k: eqCut(2000) };
+});
+const dbRange = ({ min, max }) => `${min.toFixed(2)} … ${max >= 0 ? '+' : ''}${max.toFixed(2)} dB`;
+const flat = ({ min, max }) => max < 0.5 && min > -0.5;
+check(flat(dsp.iso), `Mixer: isolator bands at centre sum flat (${dbRange(dsp.iso)})`);
+check(flat(dsp.isoFlat) && flat(dsp.eqFlat), `Mixer: channel EQ flat at centre in Iso (${dbRange(dsp.isoFlat)}) and EQ (${dbRange(dsp.eqFlat)})`);
+check(dsp.isoKill40 < -50, `Mixer: Iso low fully down kills the lows (${dsp.isoKill40.toFixed(1)} dB at 40 Hz)`);
+check(
+  dsp.eqCut30 < -22 && dsp.eqCut30 > -28 && Math.abs(dsp.eqCut2k) < 1,
+  `Mixer: EQ low fully down is a shelf, not a kill (${dsp.eqCut30.toFixed(1)} dB at 30 Hz, ${dsp.eqCut2k.toFixed(1)} dB at 2 kHz)`,
+);
+
 check(errors.length === 0, `no page errors${errors.length ? `: ${errors.join(' | ')}` : ''}`);
 await browser.close();
 console.log(failures ? `\n${failures} failed` : '\nall passed');
