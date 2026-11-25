@@ -3,8 +3,9 @@ import { STEM_LABELS, STEMS, type StemName } from '../../engine/stems';
 import type { Studio, StudioState } from '../../slicer/studio';
 import type { AutoSlice, Source } from '../../slicer/types';
 import { MAX_HITS } from '../../slicer/dsp';
-import { Glyph, ICON } from './chopKit';
+import { BANK, bankName, Glyph, ICON } from './chopKit';
 import { Popover } from './Popover';
+import { StepTag } from './SlicerGuide';
 import w from './workspace.module.css';
 
 type Mode = AutoSlice['mode'];
@@ -166,7 +167,7 @@ export function ChopToolbar({ studio, state, src, ready, phone, onPickSource }: 
     ) : mode === 'grid' ? (
       <span className={w.live}>
         <span className={w.label} id={`${sensId}-every`}>
-          Every
+          Slice every
         </span>
         <span className={w.seg} role="radiogroup" aria-labelledby={`${sensId}-every`}>
           {BEATS.map((b) => (
@@ -187,6 +188,9 @@ export function ChopToolbar({ studio, state, src, ready, phone, onPickSource }: 
       </span>
     ) : (
       <span className={w.live}>
+        <span className={w.label} aria-hidden="true">
+          Into
+        </span>
         <span className={w.seg} role="radiogroup" aria-label="Number of slices">
           {COUNTS.map((c) => (
             <button key={c} type="button" role="radio" aria-checked={p.count === c} onClick={() => set({ count: c })} disabled={!ready && !src.duration}>
@@ -194,7 +198,7 @@ export function ChopToolbar({ studio, state, src, ready, phone, onPickSource }: 
             </button>
           ))}
         </span>
-        <span className={w.unit}>parts</span>
+        <span className={w.unit}>equal parts</span>
       </span>
     );
 
@@ -213,16 +217,24 @@ export function ChopToolbar({ studio, state, src, ready, phone, onPickSource }: 
       <span
         className={w.sliceCount}
         data-busy={finding || undefined}
-        title={capped ? `The ${MAX_HITS} strongest hits: one for each pad. Turn sensitivity down, or chop a shorter part, for different ones.` : undefined}
+        title={
+          capped
+            ? `The ${MAX_HITS} strongest hits. Turn sensitivity down, or chop a shorter part, for different ones.`
+            : n > 64
+              ? 'A lot of slices: a whole track cut small. Try Hits, a longer slice, or Equal parts.'
+              : undefined
+        }
       >
         <b>{n}</b> slice{n === 1 ? '' : 's'}
         {capped ? <span className={w.dim}> · strongest</span> : null}
+        {!phone && n > BANK ? <span className={w.dim}> · pad banks A–{bankName(Math.ceil(n / BANK) - 1)}</span> : null}
       </span>
     </span>
   );
 
   return (
     <div className={w.toolbar} data-phone={phone || undefined}>
+      {!phone && <StepTag step="slices" />}
       <div className={w.tbSource}>
         {phone ? (
           <button type="button" className={w.srcPick} onClick={onPickSource} aria-label={`Sample: ${src.name}. Pick another sample`}>
@@ -234,9 +246,17 @@ export function ChopToolbar({ studio, state, src, ready, phone, onPickSource }: 
             {src.name}
           </h2>
         )}
-        <button type="button" className={w.chip} aria-haspopup="dialog" aria-expanded={menu?.kind === 'bpm'} onClick={open('bpm')} title="The sample’s tempo">
+        <button
+          type="button"
+          className={w.chip}
+          aria-haspopup="dialog"
+          aria-expanded={menu?.kind === 'bpm'}
+          onClick={open('bpm')}
+          title="This sample’s own tempo (the song’s is at the top)"
+        >
           {src.bpm ? (
             <>
+              {!phone && <span className={w.dim}>Sample </span>}
               <b>{fmtBpm(src.bpm)}</b> BPM
             </>
           ) : (
@@ -250,7 +270,14 @@ export function ChopToolbar({ studio, state, src, ready, phone, onPickSource }: 
       </div>
 
       <div className={w.tbChop}>
-        <span className={w.seg} role="radiogroup" aria-label="Chop on">
+        {phone ? (
+          <StepTag step="slices" compact />
+        ) : (
+          <span className={w.label} aria-hidden="true">
+            Cut on
+          </span>
+        )}
+        <span className={w.seg} role="radiogroup" aria-label="Cut on">
           {MODES.map((m) => (
             <button
               key={m.id}
@@ -363,11 +390,20 @@ function BpmPanel({ studio, state, src }: { studio: Studio; state: StudioState; 
   const id = useId();
   const song = state.project.bpm;
   const same = !!src.bpm && Math.abs(src.bpm - song) < 0.01;
+  const rate = src.bpm ? song / src.bpm : 1;
   return (
     <div className={w.popSection} data-col>
       <label htmlFor={id} className={w.popLabel}>
         Sample tempo
       </label>
+      <p className={w.fine}>
+        {src.bpm
+          ? same
+            ? 'The tempo found in this sound. It matches the song’s, so slices play as recorded.'
+            : `The tempo found in this sound. The song runs at ${fmtBpm(song)}, so slices with Sync tempo play ${rate < 1 ? 'slower and lower' : 'faster and higher'} (${rate.toFixed(2)}×), like a record.`
+          : 'No tempo found. Type one to cut on Beats and to sync slices to the song.'}{' '}
+        Often off by double or half: ½× and 2× fix that.
+      </p>
       <div className={w.popRow}>
         <BpmField id={id} value={src.bpm} onCommit={(v) => studio.setSourceBpm(src.id, v)} />
         <button

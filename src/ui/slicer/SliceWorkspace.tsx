@@ -190,10 +190,10 @@ export function SliceWorkspace({ studio, session, loop }: { studio: Studio; sess
                 }
               }}
             >
-              <div className={w.sheet} role="dialog" aria-modal="true" aria-label="Pick a sample">
+              <div className={w.sheet} role="dialog" aria-modal="true" aria-label="Pick a sound">
                 <div className={w.sheetHead}>
                   <span className={w.sheetGrip} aria-hidden="true" />
-                  <h2>Samples</h2>
+                  <h2>Pick a sound</h2>
                   <button type="button" className={w.btn} onClick={() => setSheet(false)} autoFocus>
                     Done
                   </button>

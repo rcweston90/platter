@@ -6,6 +6,7 @@ import type { Studio, StudioState } from '../../slicer/studio';
 import type { Snap } from '../../slicer/types';
 import { useFrame, type FrameLoop } from '../frame';
 import { Arranger } from './Arranger';
+import { SLICER_GUIDE, STEPS } from './SlicerGuide';
 import { SliceWorkspace } from './SliceWorkspace';
 import { useIsPhone } from './usePhone';
 import v from './slicer.module.css';
@@ -81,6 +82,8 @@ export function SlicerView({ studio, session, loop }: { studio: Studio; session:
       if (mod || e.altKey) return;
       if ((e.key === 'Delete' || e.key === 'Backspace') && studio.store.get().selection.length) return run(() => studio.deleteClips());
       if (e.key === 'Escape') {
+        // A guide or menu open over the view closes on its own Escape.
+        if (e.target instanceof HTMLElement && e.target.closest('dialog, [role="dialog"]')) return;
         const s = studio.store.get();
         if (s.audition) return run(() => studio.stopAudition());
         if (s.selection.length) return run(() => studio.select([]));
@@ -128,11 +131,11 @@ export function SlicerView({ studio, session, loop }: { studio: Studio; session:
       <button type="button" className={v.menuItem} disabled={!!st.busy || !p.clips.length} onClick={(e) => (void studio.sendToCrate('loop'), closeMenu(e))}>
         Send the loop to the crate<span className={v.dim}>A seamless loop for a deck</span>
       </button>
-      {!p.clips.length && <p className={v.menuNote}>Put some slices on the timeline first.</p>}
+      {!p.clips.length && <p className={v.menuNote}>Put some slices in the song first.</p>}
     </>
   );
 
-  const songSummary = `${fmtBpm(p.bpm)} BPM · ${SNAPS.find((s) => s.value === p.snap)?.label ?? 'Off'}`;
+  const songSummary = `${fmtBpm(p.bpm)} BPM · grid ${SNAPS.find((s) => s.value === p.snap)?.label ?? 'off'}`;
   const songFields = (
     <>
         <div className={v.field}>
@@ -175,8 +178,8 @@ export function SlicerView({ studio, session, loop }: { studio: Studio; session:
 
   const song = (
     <details className={v.menu}>
-      <summary className={v.btn} title="Song tempo, grid, swing and level">
-        <span className={v.songSum}>{songSummary}</span> <Caret />
+      <summary className={v.btn} title="The song’s tempo, the grid clips snap to, swing and level">
+        <span className={v.dim}>Song</span> <span className={v.songSum}>{songSummary}</span> <Caret />
       </summary>
       <div className={`${v.menuPanel} ${v.songPanel}`}>{songFields}</div>
     </details>
@@ -189,7 +192,7 @@ export function SlicerView({ studio, session, loop }: { studio: Studio; session:
       </summary>
       <div className={`${v.menuPanel} ${v.songPanel}`}>
         <div className={v.menuRow}>
-          <span className={v.songSum}>{songSummary}</span>
+          <span className={v.songSum}>Song {songSummary}</span>
         </div>
         {songFields}
         <div className={v.menuRow}>
@@ -202,6 +205,10 @@ export function SlicerView({ studio, session, loop }: { studio: Studio; session:
         </div>
         <hr className={v.rule} />
         {exportItems}
+        <hr className={v.rule} />
+        <button type="button" className={v.menuItem} onClick={(e) => (setKeysOpen(true), closeMenu(e))}>
+          How it works<span className={v.dim}>The four steps, and what each does</span>
+        </button>
       </div>
     </details>
   );
@@ -261,11 +268,16 @@ export function SlicerView({ studio, session, loop }: { studio: Studio; session:
       className={`${v.rec} ${st.recording ? v.recOn : ''}`}
       aria-pressed={st.recording}
       onClick={() => studio.setRecording(!st.recording)}
-      aria-label={st.recording ? 'Stop recording (Shift+R)' : 'Record pads into the timeline (Shift+R)'}
-      title={st.recording ? 'Stop recording (Shift+R)' : 'Record: play the pads and they land on the timeline (Shift+R)'}
+      aria-label={st.recording ? 'Stop recording (Shift+R)' : 'Record the pads into the song (Shift+R)'}
+      title={st.recording ? 'Stop recording (Shift+R)' : 'Record pads: the song plays and the pads you play land on the sample lane with the red dot (Shift+R)'}
     >
       <RecIcon />
-      {!phone && <span>Rec</span>}
+      {!phone && (
+        <span className={v.nowrap}>
+          {st.recording ? 'Recording' : 'Rec'}
+          {!st.recording && <span className={v.wide}> pads</span>}
+        </span>
+      )}
     </button>
   );
 
@@ -332,8 +344,8 @@ export function SlicerView({ studio, session, loop }: { studio: Studio; session:
         <div className={v.edits}>
           {!phone && undoRedo}
           {!phone && (
-            <button type="button" className={`${v.btn} ${v.icon}`} onClick={() => setKeysOpen(true)} aria-label="Keyboard shortcuts" title="Keyboard shortcuts (?)">
-              ?
+            <button type="button" className={v.btn} onClick={() => setKeysOpen(true)} aria-label="How the slicer works, and its keys" title="How the slicer works, and its keys (?)">
+              ?<span className={v.wide}> How it works</span>
             </button>
           )}
           {phone ? phoneMenu : exportMenu}
@@ -382,11 +394,11 @@ export function SlicerView({ studio, session, loop }: { studio: Studio; session:
           </button>
           <div className={v.tabs} role="tablist" aria-label="Slicer area">
             <button type="button" role="tab" aria-selected={area === 'chop'} className={v.tab} onClick={() => setArea('chop')}>
-              <ChopIcon /> Chop
+              <ChopIcon /> Slices
               {src && src.slices.length > 1 && <span className={v.badge}>{src.slices.length}</span>}
             </button>
             <button type="button" role="tab" aria-selected={area === 'arrange'} className={v.tab} onClick={() => setArea('arrange')}>
-              <ArrangeIcon /> Arrange
+              <ArrangeIcon /> Song
               {p.clips.length > 0 && <span className={v.badge}>{p.clips.length}</span>}
             </button>
           </div>
@@ -412,9 +424,9 @@ const SHORTCUTS: [string, string][] = [
   ['Space', 'Play or stop the song'],
   ['1 2 3 4 · Q W E R · A S D F · Z X C V', 'Play the pads (they mirror the 4×4 grid)'],
   ['← →', 'Pick the previous or next slice'],
-  ['Enter', 'Put the picked slice at the end of the timeline'],
-  ['/', 'Cut where the sample is sounding'],
-  ['Shift+R', 'Record: pads you play land on the timeline'],
+  ['Enter', 'Add the picked slice to the song (after the last clip on the first sample lane)'],
+  ['/', 'Add a cut where the sample is sounding'],
+  ['Shift+R', 'Rec pads: pads you play land in the song'],
   ['Cmd/Ctrl+Z · Shift+Cmd/Ctrl+Z', 'Undo · redo'],
   ['Cmd/Ctrl+D', 'Duplicate the selected clips'],
   ['Cmd/Ctrl+E', 'Split clips at the playhead'],
@@ -423,8 +435,16 @@ const SHORTCUTS: [string, string][] = [
   ['Delete', 'Delete the selected clips'],
   ['Home', 'Back to the start'],
   ['Esc', 'Stop the sound, clear the selection, then close'],
-  ['?', 'This list'],
+  ['?', 'This page'],
 ];
+
+/** One line per step, for the How it works page. */
+const HOW: Record<(typeof STEPS)[number]['id'], string> = {
+  sound: 'Choose a track from your crate, or open a file. It arrives already cut into slices.',
+  slices: 'Choose how it’s cut: on its hits, on its beats, or into equal parts. Play it through and tap Add cut to cut by hand.',
+  pads: 'Each slice is a pad: press one, or its key, to play it. Rec pads records what you play into the song.',
+  song: 'Drag pads onto the lanes, use Add to song, or put all the slices in order and rearrange them. Then Export.',
+};
 
 function Shortcuts({ onClose }: { onClose: () => void }) {
   const ref = useRef<HTMLDialogElement>(null);
@@ -433,13 +453,27 @@ function Shortcuts({ onClose }: { onClose: () => void }) {
     if (d && !d.open) d.showModal?.();
   }, []);
   return (
-    <dialog ref={ref} className={v.keys} onClose={onClose} onClick={(e) => e.target === ref.current && onClose()} aria-label="Keyboard shortcuts">
+    <dialog ref={ref} className={v.keys} onClose={onClose} onClick={(e) => e.target === ref.current && onClose()} aria-label="How the slicer works">
       <div className={v.keysHead}>
-        <h2>Keyboard shortcuts</h2>
+        <h2>How the slicer works</h2>
         <button type="button" className={`${v.btn} ${v.icon}`} onClick={onClose} aria-label="Close">
           ×
         </button>
       </div>
+      <ol className={v.howSteps}>
+        {STEPS.map((x) => (
+          <li key={x.id}>
+            <span className={v.howN} aria-hidden="true">
+              {x.n}
+            </span>
+            <span>
+              <b>{SLICER_GUIDE[x.id].title.replace(/^\d · /, '')}.</b> {HOW[x.id]}
+            </span>
+          </li>
+        ))}
+      </ol>
+      <p className={v.howNote}>Each step’s ⓘ says what its controls do.</p>
+      <h3 className={v.keysSub}>Keys</h3>
       <dl className={v.keyList}>
         {SHORTCUTS.map(([k, what]) => (
           <div key={k}>
@@ -453,10 +487,10 @@ function Shortcuts({ onClose }: { onClose: () => void }) {
 }
 
 function hint(st: StudioState) {
-  if (st.recording) return 'Recording: play the pads and they land on the timeline · Space stops';
+  if (st.recording) return 'Recording: play the pads and they land in the song · Space stops';
   if (st.playing) return 'Space stops · Shift+R records the pads · Cmd/Ctrl+E splits at the playhead';
-  if (!st.project.sources.length) return 'Drop a FLAC or WAV, or pick a track from your crate · ? shows the shortcuts';
-  return 'Play the pads with the keys · Shift+R records them into the song · ? shows the shortcuts';
+  if (!st.project.sources.length) return 'Step 1: pick a track from your crate, or drop a FLAC or WAV · ? explains the page';
+  return 'Play the pads with the keys · Shift+R records them into the song · ? explains the page';
 }
 
 function closeMenu(e: React.MouseEvent) {
