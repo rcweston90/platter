@@ -14,6 +14,10 @@
  *               priming), measured when the file was written.
  *   · "pcm16":  16-bit PCM at the stems model's rate, deflated — the fallback
  *               where the browser can't encode Opus. One packet per channel.
+ *   · "raw16":  16-bit PCM at the stems model's rate, as is. Written the
+ *               moment a split finishes, so a refresh straight after can't
+ *               lose it; replaced by Opus once that's encoded (a while on a
+ *               slow machine). One packet per channel.
  *
  * Pure (no DOM), so it's tested in Node. All little-endian.
  */
@@ -24,7 +28,7 @@ const MAGIC = 'PLTSTEM1';
 /** Changes when the separation would give different stems (model, layout). */
 export const STEM_MODEL = 'htdemucs-v4-onnx/drums,bass,vocals';
 
-export type StemCodec = 'opus' | 'pcm16';
+export type StemCodec = 'opus' | 'pcm16' | 'raw16';
 
 export interface StemFileHeader {
   model: string;
@@ -130,7 +134,7 @@ function validHeader(h: StemFileHeader): boolean {
   return (
     !!h &&
     typeof h.model === 'string' &&
-    (h.codec === 'opus' || h.codec === 'pcm16') &&
+    (h.codec === 'opus' || h.codec === 'pcm16' || h.codec === 'raw16') &&
     Number.isFinite(h.sampleRate) &&
     h.sampleRate > 0 &&
     Number.isInteger(h.frames) &&

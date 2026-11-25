@@ -2,6 +2,8 @@
  * Stems survive a reload: a deck's split is kept (demos too), and after a
  * reload the decks' tracks get their stems back with nothing pressed, saved
  * ones loaded and others split straight away once the model is in the browser.
+ * A refresh the moment a split finishes keeps it too (it's written as is at
+ * once, then re-encoded smaller in the background).
  *
  *   npm run dev & npm run test:stems-reload   # URL defaults to http://localhost:5173/
  */
@@ -68,6 +70,47 @@ check((await page.evaluate(() => window.platter.decks[0].hasAudio)) === false, '
 // Deck B was never split; the model is in the browser now, so it splits right away.
 await page.getByRole('group', { name: 'Deck B stems' }).getByRole('button', { name: 'Vocals' }).waitFor({ timeout: 90000 });
 check(true, `deck B (${titles[1]}) is split after the reload without being played`);
+
+// The saved splits in the browser: each file's codec, read from its header.
+const savedCodecs = () =>
+  page.evaluate(async () => {
+    const out = [];
+    const walk = async (dir) => {
+      for await (const [name, h] of dir.entries()) {
+        if (h.kind === 'directory') await walk(h);
+        else if (name.endsWith('.platterstems')) {
+          const f = await h.getFile();
+          if (f.size < 12) continue; // being written
+          const b = new Uint8Array(await f.slice(0, 4096).arrayBuffer());
+          const len = new DataView(b.buffer).getUint32(8, true);
+          out.push(JSON.parse(new TextDecoder().decode(b.subarray(12, 12 + len))).codec);
+        }
+      }
+    };
+    await walk(await navigator.storage.getDirectory());
+    return out;
+  });
+
+// Refresh the moment deck B's split finishes: it's kept, not split again.
+await page.reload({ waitUntil: 'networkidle' });
+await page.waitForFunction(() => window.platter?.decks[1].store.get().track, null, { timeout: 20000 });
+const t1 = Date.now();
+await page.getByRole('group', { name: 'Deck B stems' }).getByRole('button', { name: 'Vocals' }).waitFor({ timeout: 30000 });
+const loadedSaved = await page.getByRole('group', { name: 'Deck B stems' }).getByText('Loaded the saved stems').count();
+check(loadedSaved > 0 && Date.now() - t1 < 15000, `refreshing right as deck B's split finished, its stems load back as saved (${Date.now() - t1} ms), not split again`);
+if (SHOTS) await page.getByRole('group', { name: 'Deck B stems' }).screenshot({ path: `${SHOTS}/refresh-right-after-split.png` });
+
+// The quick save is uncompressed; it's re-encoded smaller in the background.
+const codecs = await (async () => {
+  for (let i = 0; i < 120; i++) {
+    const c = await savedCodecs();
+    if (c.length >= 2 && !c.includes('raw16')) return c;
+    await new Promise((r) => setTimeout(r, 500));
+  }
+  return savedCodecs();
+})();
+check(codecs.length >= 2 && !codecs.includes('raw16'), `both saved splits end up compact (${codecs.join(', ')})`);
+await page.getByRole('group', { name: 'Deck A stems' }).getByRole('button', { name: 'Vocals' }).waitFor({ timeout: 30000 });
 
 // Play: the held stems go onto the deck and are heard.
 await page.getByRole('group', { name: 'Deck A stems' }).getByRole('button', { name: 'Vocals' }).click();
