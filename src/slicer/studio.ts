@@ -102,6 +102,9 @@ const fileKey = (id: string) => `slicer-file:${id}`;
 const HISTORY = 120;
 /** Edits with the same merge key this close together are one undo step (a drag). */
 const MERGE_MS = 1200;
+/** Longer than this (seconds), a sample is a whole track: its first chop spreads
+ *  its cuts across it rather than taking every hit. */
+const LONG_SAMPLE = 30;
 
 /** One stems split of a source's audio, shared by all its parts. */
 interface StemSet {
@@ -741,19 +744,25 @@ export class Studio implements AudioLookup {
   }
 
   /** First chop of a newly loaded sample, aiming for a playable set of pads:
-   *  a short sample on its hits (no closer than an eighth note), a long one
-   *  in bars, and beats when the hits are too few (a pad, a held chord).
-   *  Part of opening the sample, so not an undo step of its own. */
+   *  on its hits (no closer than an eighth note), at most MAX_HITS of them, so
+   *  a whole track gives its strongest hits rather than a slice per bar; and
+   *  beats when the hits are too few (a pad, a held chord). Part of opening
+   *  the sample, so not an undo step of its own. */
   private async autoChop(id: string, buf: AudioBuffer) {
     const src = this.source(id);
     if (!src) return;
     const bpm = src.bpm;
     this.adoptTempo(src);
-    if (bpm && buf.duration > 30) {
-      await this.autoSlice(id, { mode: 'grid', beats: 4 }, null);
+    const eighth = bpm ? Math.max(0.05, Math.min(0.3, 30 / bpm)) : 0.12;
+    if (buf.duration > LONG_SAMPLE) {
+      // A whole track: its hits spread across it, the strongest in each
+      // stretch, so the pads cover the song in about MAX_HITS pieces that
+      // each start on a hit, not the loudest MAX_HITS bunched in one chorus.
+      const spread = Math.max(eighth, buf.duration / (MAX_HITS * 1.5));
+      await this.autoSlice(id, { mode: 'transients', sensitivity: 0.5, minGap: Math.round(spread * 1000) / 1000 }, null);
       return;
     }
-    const minGap = bpm ? Math.max(0.05, Math.min(0.3, 30 / bpm)) : 0.12;
+    const minGap = eighth;
     for (const sensitivity of [0.5, 0.3]) {
       await this.autoSlice(id, { mode: 'transients', sensitivity, minGap }, null);
       const n = this.source(id)?.slices.length ?? 0;
