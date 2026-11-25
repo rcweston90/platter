@@ -594,6 +594,94 @@ await page.waitForFunction(() => window.platter.decks[1].store.get().jogMode ===
 check((await pressed(jog(B, 'CDJ'))) && (await pressed(jog(A, 'Vinyl'))), 'Jog mode: each deck’s mode is kept after a reload');
 check(!(await pressed(B.getByRole('button', { name: 'Deck B instant doubles' }))) && (await pressed(A.getByRole('button', { name: 'Deck A instant doubles' }))), 'Instant doubles: each deck’s setting is kept after a reload');
 
+/* ── Waveform smarts: phrases, phase meter, beat countdown, grid edit ───── */
+
+// Phrases: Night Bus is built intro 8, build 8, drop 16, break 8, drop 16, outro 8.
+await page.waitForFunction(() => window.platter.decks[0].store.get().phrases?.length > 0, null, { timeout: 5000 });
+const phraseList = await page.evaluate(() => window.platter.decks[0].store.get().phrases.map((p) => `${p.kind}${p.bars}`).join(' '));
+check(phraseList === 'intro8 build8 drop16 break8 drop16 outro8', `Phrases: Night Bus reads as its arrangement (${phraseList})`);
+
+// Phase meter: shown while both decks play, gone when one stops.
+const phaseMeter = page.locator('[aria-label^="Phase"][role="img"]');
+if (!(await A.getByRole('button', { name: 'Deck A pause' }).count())) await A.getByRole('button', { name: 'Deck A play' }).click();
+await B.getByRole('button', { name: 'Deck B play' }).click();
+await page.waitForFunction(() => document.querySelector('[aria-label="Deck B pause"]'), null, { timeout: 15000 });
+await page.waitForTimeout(400);
+const phaseText = await phaseMeter.textContent();
+check((await phaseMeter.isVisible()) && /^[+−]0\.\d\d$/.test(phaseText), `Phase meter: shows B's offset in beats while both play (${phaseText})`);
+await B.getByRole('button', { name: 'Deck B pause' }).click();
+await A.getByRole('button', { name: 'Deck A pause' }).click();
+await page.waitForTimeout(200);
+check(!(await phaseMeter.isVisible()), 'Phase meter: hidden once a deck stops');
+
+// Beat countdown: the arithmetic, then on the deck.
+const cdUnit = await page.evaluate(async () => {
+  const { countdownBeats, countdownTarget } = await import('/src/engine/countdown.ts');
+  const b = 0.5;
+  const hot = [null, { t: 10, color: 0 }, { t: 4, color: 1 }];
+  const loop = { active: false, start: 0, end: 0 };
+  return {
+    texts: [34, 32, 31.5, 4.1, 0.5, 0].map((n) => countdownBeats(n * b, b).text).join(' '),
+    nextHot: countdownTarget({ hotCues: hot, memoryCues: [6], loop }, 3, b),
+    nextMem: countdownTarget({ hotCues: hot, memoryCues: [6], loop }, 4, b),
+    passed: countdownTarget({ hotCues: hot, memoryCues: [6], loop }, 10, b),
+    loop: countdownTarget({ hotCues: hot, memoryCues: [], loop: { active: true, start: 1, end: 3 } }, 2, b),
+  };
+});
+check(cdUnit.texts === '8.2 8.0 8.0 1.1 0.1 0.0', `Countdown: beats to bars.beats, counted up (${cdUnit.texts})`);
+check(cdUnit.nextHot?.kind === 'hot' && cdUnit.nextHot.slot === 2 && cdUnit.nextMem?.kind === 'memory' && cdUnit.nextMem.t === 6, 'Countdown: aims at the nearest hot or memory cue ahead');
+check(cdUnit.passed === null && cdUnit.loop?.kind === 'loop' && cdUnit.loop.t === 3, 'Countdown: nothing once every cue is behind; a running loop counts to its end');
+
+const beatA = await page.evaluate(() => 60 / window.platter.decks[0].store.get().bpm);
+const countdownA = A.locator('[aria-label^="Deck A countdown"]');
+await page.evaluate((b) => window.platter.decks[0].seek(34 * b), beatA);
+await page.waitForTimeout(300);
+await A.getByRole('button', { name: 'Set hot cue C' }).click();
+await page.evaluate(() => window.platter.decks[0].seek(0));
+await page.waitForTimeout(300);
+check((await countdownA.textContent()) === 'C8.2', `Countdown: 34 beats before hot cue C reads C 8.2 (${await countdownA.textContent()})`);
+await page.evaluate(() => window.platter.decks[0].setLoopBeats(4));
+await A.getByRole('button', { name: /^Start 4-beat loop/ }).click();
+await page.waitForTimeout(300);
+check((await countdownA.textContent()) === 'LOOP1.0', `Countdown: in a 4-beat loop it counts to the loop's end (${await countdownA.textContent()})`);
+await A.getByRole('button', { name: /Deck A: exit the loop/ }).click();
+await A.getByRole('button', { name: /^Hot cue C at / }).click({ modifiers: ['Shift'] });
+
+// Grid edit: nudges, the downbeat, ÷2 ×2 — and all of it saved with the track.
+await A.getByRole('button', { name: 'Deck A grid edit' }).click();
+const gridRow = A.getByRole('group', { name: 'Deck A grid edit' });
+check(await gridRow.isVisible(), 'Grid: the Grid button opens the edit row');
+const g0 = await page.evaluate(() => window.platter.decks[0].store.get().gridOffset);
+await gridRow.getByRole('button', { name: 'Deck A: move the beat grid 10 ms later' }).click();
+await gridRow.getByRole('button', { name: 'Deck A: move the beat grid 1 ms earlier' }).click();
+const g1 = await page.evaluate(() => window.platter.decks[0].store.get().gridOffset);
+check(near(g1 - g0, 0.009, 1e-6), `Grid: +10 ms then −1 ms moves the grid 9 ms (${((g1 - g0) * 1000).toFixed(2)} ms)`);
+await page.evaluate(() => window.platter.decks[0].seek(3.5));
+await page.waitForTimeout(300);
+await gridRow.getByRole('button', { name: 'Deck A: make the playhead the downbeat' }).click();
+const g2 = await page.evaluate(() => window.platter.decks[0].store.get().gridOffset);
+check(near(g2, 3.5, 0.005), `Grid: 1 here puts a downbeat at the playhead (${g2.toFixed(4)} s)`);
+await gridRow.getByRole('button', { name: 'Deck A: halve the detected tempo' }).click();
+check((await bpm(A)) === '62.0', `Grid: ÷2 halves the tempo (${await bpm(A)})`);
+await gridRow.getByRole('button', { name: 'Deck A: double the detected tempo' }).click();
+check((await bpm(A)) === '124.0', `Grid: ×2 doubles it back (${await bpm(A)})`);
+// Phrases are read again on the new grid, and saved with it.
+await page.waitForFunction((g) => window.platter.crate.get().tracks.find((t) => t.id === 'demo-night-bus')?.phrases?.gridOffset === g, g2, { timeout: 3000 }).catch(() => {});
+const savedGrid = await page.evaluate(() => {
+  const t = window.platter.crate.get().tracks.find((t) => t.id === 'demo-night-bus');
+  return { gridOffset: t.gridOffset, bpm: t.bpm, edited: t.gridEdited, phrasesAt: t.phrases?.gridOffset };
+});
+check(savedGrid.gridOffset === g2 && savedGrid.bpm === 124 && savedGrid.edited === true && savedGrid.phrasesAt === g2, `Grid: the edit is saved with the track, phrases too (${JSON.stringify(savedGrid)})`);
+await page.waitForTimeout(500);
+await page.reload({ waitUntil: 'networkidle' });
+await A.getByText('Night Bus').waitFor({ timeout: 15000 });
+await page.waitForFunction(() => window.platter.decks[0].store.get().track?.id === 'demo-night-bus', null, { timeout: 15000 });
+const reloaded = await page.evaluate(() => {
+  const st = window.platter.decks[0].store.get();
+  return { gridOffset: st.gridOffset, bpm: st.bpm, phrases: st.phrases?.length ?? 0 };
+});
+check(reloaded.gridOffset === g2 && reloaded.bpm === 124 && reloaded.phrases > 0, `Grid: after a reload deck A keeps the edited grid, with its phrases (${JSON.stringify(reloaded)})`);
+
 check(errors.length === 0, `no page errors${errors.length ? `: ${errors.join(' | ')}` : ''}`);
 await browser.close();
 console.log(failures ? `\n${failures} failed` : '\nall passed');

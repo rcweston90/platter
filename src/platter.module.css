@@ -631,6 +631,162 @@
   gap: 4px;
 }
 
+/* ── Beat countdown: bars.beats to the next cue or the loop's end ──────── */
+
+.countdown {
+  --cd: var(--dj-dim);
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  min-width: 76px;
+  font-variant-numeric: tabular-nums;
+}
+
+.countdown[data-kind='loop'] {
+  --cd: var(--dj-play);
+}
+
+.countdown[data-kind='memory'] {
+  --cd: var(--dj-memory);
+}
+
+.countdownTag {
+  min-width: 18px;
+  padding: 0 4px;
+  border-radius: 3px;
+  background: var(--cd);
+  color: var(--dj-ink);
+  font: 700 11px/16px var(--font-label);
+  letter-spacing: 0.05em;
+  text-align: center;
+}
+
+.countdownTag:empty {
+  display: none;
+}
+
+.countdownNum {
+  color: var(--dj-text);
+  font-family: var(--font-mono);
+  font-size: 15px;
+}
+
+.countdown[data-kind='none'] .countdownNum {
+  color: var(--dj-dim);
+}
+
+/* ── Grid edit: nudge the grid, set the one, halve or double ───────────── */
+
+.gridEdit {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 8px;
+  padding: 6px 8px;
+  border: 1px solid color-mix(in srgb, var(--dj-cue) 45%, transparent);
+  border-radius: 6px;
+  background: color-mix(in srgb, var(--dj-cue) 6%, var(--dj-panel));
+}
+
+.gridEditLabel {
+  color: var(--dj-cue);
+  font: 700 12px/1 var(--font-label);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.gridEditSet {
+  display: inline-flex;
+  gap: 3px;
+}
+
+.gridEdit .mini {
+  min-width: 40px;
+  min-height: 36px;
+  padding: 0 8px;
+  font-size: 14px;
+}
+
+.gridEditRead {
+  margin-left: auto;
+  color: var(--dj-text);
+  font-family: var(--font-mono);
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+/* ── Phase meter: B's beat against A's, on B's waveform tag ─────────────── */
+
+.phaseMeter {
+  --phase: 0;
+  --tone: var(--dj-cue);
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 0 6px;
+  border-radius: 3px;
+  background: rgb(10 11 13 / 0.82);
+  line-height: 18px;
+}
+
+.phaseMeter[hidden] {
+  display: none;
+}
+
+.phaseMeter[data-tone='ok'] {
+  --tone: var(--dj-play);
+}
+
+.phaseTrack {
+  position: relative;
+  width: 64px;
+  height: 6px;
+  border-radius: 3px;
+  background: var(--dj-panel-3);
+}
+
+/* The centre: beats together. */
+.phaseTrack::before {
+  content: '';
+  position: absolute;
+  top: -2px;
+  bottom: -2px;
+  left: calc(50% - 0.5px);
+  width: 1px;
+  background: var(--dj-dim);
+}
+
+/* From the centre to the marker; --phase runs −0.5…0.5 beats. */
+.phaseFill {
+  position: absolute;
+  top: 1px;
+  bottom: 1px;
+  left: min(50%, calc(50% + var(--phase) * 100%));
+  width: calc(max(var(--phase), var(--phase) * -1) * 100%);
+  border-radius: 2px;
+  background: var(--tone);
+  opacity: 0.45;
+}
+
+.phaseMark {
+  position: absolute;
+  top: -2px;
+  bottom: -2px;
+  left: calc(50% + var(--phase) * 100% - 1.5px);
+  width: 3px;
+  border-radius: 1px;
+  background: var(--tone);
+}
+
+.phaseValue {
+  min-width: 34px;
+  color: var(--tone);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+}
+
 .overview {
   display: block;
   width: 100%;
@@ -2778,8 +2934,13 @@
     display: grid;
     order: 20;
     grid-column: 1 / -1;
-    grid-template-columns: repeat(6, minmax(0, 1fr));
+    grid-template-columns: repeat(3, minmax(0, 1fr));
     gap: 6px;
+  }
+
+  .root[data-phone] .deckMeta > .countdown {
+    order: 20;
+    grid-column: 1 / -1;
   }
 
   .root[data-phone] .bpmTools .mini {

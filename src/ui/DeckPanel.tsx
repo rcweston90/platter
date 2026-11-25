@@ -7,6 +7,8 @@ import { useStore } from '../engine/store';
 import { setText, useDropTarget, useFrame, type FrameLoop } from './frame';
 import { DECK_GUIDE, InfoTip, PITCH_GUIDE } from './DeckGuide';
 import { FxStrip } from './FxStrip';
+import { BeatCountdown } from './BeatCountdown';
+import { GridEditRow, GridToggle } from './GridEdit';
 import { HotCues } from './HotCues';
 import { LoopControls } from './LoopControls';
 import { StemsControl } from './StemsControl';
@@ -229,27 +231,19 @@ export function DeckPanel({
         <span className={s.pitchReadout} aria-label={`Pitch ${pct(st.pitch)}`}>
           {pct(st.pitch)}
         </span>
+        <BeatCountdown deck={deck} loop={loop} />
         <span className={s.bpmTools}>
-          <button type="button" className={s.mini} onClick={() => deck.scaleBpm(0.5)} disabled={!st.bpm} aria-label={`Deck ${deck.label}: halve the detected tempo`}>
-            ÷2
-          </button>
-          <button type="button" className={s.mini} onClick={() => deck.scaleBpm(2)} disabled={!st.bpm} aria-label={`Deck ${deck.label}: double the detected tempo`}>
-            ×2
-          </button>
           <button type="button" className={s.mini} onClick={() => deck.tap()} disabled={!st.track} aria-label={`Deck ${deck.label}: tap tempo — tap on the beat four or more times`}>
             Tap
           </button>
-          <button type="button" className={s.mini} onClick={() => deck.nudgeGrid(-0.01)} disabled={!st.bpm} aria-label={`Deck ${deck.label}: move the beat grid 10 ms earlier`}>
-            <ChevronIcon dir={-1} />
-          </button>
-          <button type="button" className={s.mini} onClick={() => deck.nudgeGrid(0.01)} disabled={!st.bpm} aria-label={`Deck ${deck.label}: move the beat grid 10 ms later`}>
-            <ChevronIcon dir={1} />
-          </button>
+          <GridToggle deck={deck} />
           <button type="button" className={s.mini} onClick={() => deck.eject()} disabled={!st.track || st.playing} aria-label={`Eject deck ${deck.label}`}>
             ⏏
           </button>
         </span>
       </div>
+
+      <GridEditRow deck={deck} />
 
       <Overview deck={deck} loop={loop} />
 

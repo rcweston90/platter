@@ -2,6 +2,7 @@ import type { StretchNode } from 'signalsmith-stretch';
 import { workletUrl, type DjEngine } from './engine';
 import { nearestCompatibleShift, shiftKey } from './key';
 import { createStore, type Store } from './store';
+import { cachedPhrases, phraseCache, type Phrase, type PhraseCache } from './phrases';
 import { defaultCueColor, normaliseCues, tidyMemory } from './cues';
 import { HOT_BANK_SIZE, HOT_BANKS, HOT_CUES, MEMORY_CUES, type HotCue, type TrackCues, type TrackRecord, type WavePeaks } from './types';
 
@@ -127,6 +128,8 @@ export interface DeckState {
   jumpBeats: number;
   /** Beats quantise snaps to (one of QUANTIZE_BEATS). */
   quantizeBeats: number;
+  /** The track's phrases on its current grid (engine/phrases.ts), once read. */
+  phrases: Phrase[] | null;
   /** What a hand on top of the platter does: scratch (vinyl) or bend (cdj). */
   jogMode: JogMode;
   /** Instant doubles: loading the track the other deck has joins it — same
@@ -165,6 +168,7 @@ function initialState(): DeckState {
     loopEdge: null,
     jumpBeats: 16,
     quantizeBeats: 1,
+    phrases: null,
     jogMode: 'vinyl',
     doubles: true,
   };
@@ -200,7 +204,7 @@ export class Deck {
   /** The other deck — the leader this one follows when it syncs. */
   other: Deck | null = null;
   /** Called when cues, tempo or grid change, so the crate can remember them. */
-  onPersist?: (trackId: string, patch: Partial<Pick<TrackRecord, 'cues' | 'bpm' | 'gridOffset'>>) => void;
+  onPersist?: (trackId: string, patch: Partial<Pick<TrackRecord, 'cues' | 'bpm' | 'gridOffset' | 'gridEdited' | 'phrases'>>) => void;
   /** An armed deck was asked to do something: load its audio (and play). */
   onNeedAudio?: (trackId: string, thenPlay: boolean) => void;
 
@@ -231,8 +235,14 @@ export class Deck {
   /** Follower beats per leader beat: 1, or 2 / ½ for a double- or half-time match. */
   private mul = 1;
   private lastLockJump = -Infinity;
+  /** The loaded track's saved phrases, and the track/tempo/grid they're for. */
+  private phraseSeed: PhraseCache | null = null;
+  private phraseKey = '';
+  private phraseTimer: ReturnType<typeof setTimeout> | undefined;
 
-  constructor(readonly index: 0 | 1) {}
+  constructor(readonly index: 0 | 1) {
+    this.store.subscribe(() => this.watchPhrases());
+  }
 
   get label() {
     return this.index === 0 ? 'A' : 'B';
@@ -370,6 +380,7 @@ export class Deck {
    *  cue, a loop, the platter). */
   arm(rec: TrackRecord, peaks: WavePeaks | null, artUrl: string | null) {
     this.loaded = false;
+    this.phraseSeed = rec.phrases ?? null;
     const prevArt = this.store.get().track?.artUrl;
     if (prevArt && prevArt !== artUrl) URL.revokeObjectURL(prevArt);
     this.store.set({
@@ -404,6 +415,7 @@ export class Deck {
     const right = buffer.numberOfChannels > 1 ? new Float32Array(buffer.getChannelData(1)) : null;
     this.post({ type: 'load', left, right }, right ? [left.buffer, right.buffer] : [left.buffer]);
     this.loaded = true;
+    this.phraseSeed = rec.phrases ?? null;
     this.rep = { t: 0, pos: 0, rate: 0, shadow: -1 };
     this.previewing = false;
     const prevArt = this.store.get().track?.artUrl;
@@ -1363,15 +1375,50 @@ export class Deck {
   /** Slide the beat grid by a few milliseconds. */
   nudgeGrid(seconds: number) {
     const { bpm, gridOffset } = this.store.get();
-    if (bpm) this.setBpm(bpm, gridOffset + seconds);
+    if (bpm) this.setBpm(bpm, Math.round((gridOffset + seconds) * 1e5) / 1e5);
+  }
+
+  /** Make the playhead a bar's "one": the grid moves so a downbeat lands
+   *  here, at the same tempo. Bars and phrases count from it. */
+  setDownbeat(at = this.position()) {
+    const { bpm, track } = this.store.get();
+    if (bpm && track) this.setBpm(bpm, Math.round(at * 1e5) / 1e5);
   }
 
   private setBpm(bpm: number, gridOffset: number) {
     const { track } = this.store.get();
     this.store.set({ bpm, gridOffset });
-    if (track) this.onPersist?.(track.id, { bpm, gridOffset });
+    // Marked as edited, so a later re-analysis keeps the DJ's grid.
+    if (track) this.onPersist?.(track.id, { bpm, gridOffset, gridEdited: true });
     this.followTempo(true);
     this.other?.followTempo(true);
+  }
+
+  /** Keeps `phrases` on the current track and grid: the saved ones when they
+   *  fit, else read from the waveform a moment after the grid settles (a
+   *  run of nudges reads once), off the click, and saved with the track. */
+  private watchPhrases() {
+    const s = this.store.get();
+    const t = s.track;
+    const key = t?.peaks && s.bpm ? `${t.id}|${s.bpm}|${s.gridOffset}` : '';
+    if (key === this.phraseKey) return;
+    const sameTrack = !!t && this.phraseKey.startsWith(`${t.id}|`);
+    this.phraseKey = key;
+    clearTimeout(this.phraseTimer);
+    const saved = key ? cachedPhrases(this.phraseSeed, s.bpm, s.gridOffset) : null;
+    // A new grid on the same track keeps the old phrases up until the new
+    // ones are in; a new track starts bare.
+    if (saved || !key || !sameTrack) this.store.set({ phrases: saved });
+    if (saved || !key || !t?.peaks) return;
+    const { peaks, id, duration } = t;
+    const { bpm, gridOffset } = s;
+    this.phraseTimer = setTimeout(() => {
+      if (this.phraseKey !== key || !bpm) return;
+      const cache = phraseCache(peaks, bpm, gridOffset, duration);
+      this.phraseSeed = cache;
+      this.store.set({ phrases: cache.list });
+      this.onPersist?.(id, { phrases: cache });
+    }, 150);
   }
 
   /* ── The platter ──────────────────────────────────────────────────────── */
