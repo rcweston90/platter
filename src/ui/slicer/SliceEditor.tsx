@@ -1,4 +1,5 @@
 import { STEM_LABELS } from '../../engine/stems';
+import { MAX_HITS } from '../../slicer/dsp';
 import type { Studio, StudioState } from '../../slicer/studio';
 import type { Source } from '../../slicer/types';
 import type { FrameLoop } from '../frame';
@@ -84,13 +85,13 @@ export function ChopEmpty({ phone, over, onOpenFiles, onBrowse }: EmptyProps) {
         </svg>
         {phone ? (
           <>
-            <h2>Pick a sample to chop</h2>
-            <p>It arrives cut on its hits, ready to play on the pads.</p>
+            <h2>Pick a sound to slice</h2>
+            <p>It arrives cut on its hits, ready to play on the pads: up to {MAX_HITS} slices, even from a whole track.</p>
           </>
         ) : (
           <>
             <h2>Drop a FLAC or WAV here, or pick a track from your crate</h2>
-            <p>It arrives cut on its hits: play the slices on the pads (1–4, Q–R, A–F, Z–V) and lay them out on the lanes below.</p>
+            <p>It arrives cut on its hits, up to {MAX_HITS} slices. Play them on the pads (1–4, Q–R, A–F, Z–V), then build a song on the lanes below.</p>
           </>
         )}
         <div className={w.emptyActions}>

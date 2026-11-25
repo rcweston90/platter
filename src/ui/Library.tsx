@@ -38,6 +38,7 @@ export function Library({ session, height, max }: { session: DjSession; height: 
   // Not the status line: Auto DJ rewrites it while it counts down a mix.
   const { queue, on } = useStoreSelect(session.autoDj.store, ({ queue, on }) => ({ queue, on }), shallowEqual);
   const { list } = useStore(session.recordings);
+  const mixCount = useStoreSelect(session.moves.store, (st) => st.list.length);
   const { view } = useStore(crateBrowser);
   const { max: maxed } = useStore(dockHeight);
   const [el, width] = useWidth();
@@ -65,7 +66,7 @@ export function Library({ session, height, max }: { session: DjSession; height: 
     { id: 'upnext', label: 'Up next' },
     { id: 'mashups', label: 'Mashups' },
     { id: 'queue', label: 'Auto-DJ', live: on, badge: queue.length || undefined },
-    { id: 'recordings', label: 'Recordings', badge: list.length || undefined },
+    { id: 'recordings', label: 'Recordings', badge: list.length + mixCount || undefined },
   ];
   const onKey = (e: KeyboardEvent<HTMLButtonElement>) => {
     const i = tabs.findIndex((t) => t.id === tab);

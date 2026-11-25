@@ -27,6 +27,7 @@ import { useSheetSize } from './ui/library/Splitter';
 import { Studio } from './slicer/studio';
 import { SlicerView } from './ui/slicer/SlicerView';
 import { PhoneDock, PhoneTabs, usePhone, type PhoneFocus } from './ui/Phone';
+import { MoveMixBar } from './ui/MoveMixes';
 import { BoothGuide } from './guide/BoothGuide';
 import { useScreenAwake } from './ui/wakeLock';
 import s from './platter.module.css';
@@ -378,6 +379,7 @@ export default function App() {
       <MusicFlyout session={session} />
       <SoundsFlyout session={session} />
       <CrateDock session={session} />
+      <MoveMixBar session={session} />
     </div>
     {/* Outside the root on purpose: see .phoneDock in platter.module.css. */}
     {phone && !slicing && <PhoneDock session={session} />}

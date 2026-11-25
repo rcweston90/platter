@@ -293,9 +293,10 @@ GitHub Actions).
   crossfader to centre over 8 bars”, “kill deck A’s low at the next bar”, or
   a whole quick transition. Each moving control is ringed with its value, a
   status line counts the bars, and **Stop** (or touching any control) ends it.
-- It isn't connected to an AI model yet: an offline demo answers a few
-  questions so the panel, rings and moves all work. See *Booth guide: where
-  a model plugs in* below.
+- On the Vercel deployment with a Claude API key set, Claude (Haiku 5.5 by
+  default) answers. Without one, an offline demo answers a few questions so
+  the panel, rings and moves all work. See *Booth guide: how Claude is
+  connected* below.
 
 **Install**: on a real host Platter is an installable app that opens
 offline after the first visit.
@@ -380,6 +381,12 @@ redirect URI `https://<your-site>/soundcloud-callback` (`vercel.json`
 rewrites that path to the app), then set `SOUNDCLOUD_CLIENT_ID` and
 `SOUNDCLOUD_CLIENT_SECRET` in the Vercel project. On a static host the
 SoundCloud side of Browse music says it isn't available.
+
+**The booth guide** answers with Claude on the Vercel deployment:
+`api/guide.ts` holds the key. Set `ANTHROPIC_API_KEY` in the Vercel project
+(Settings → Environment Variables) and redeploy. `GUIDE_MODEL` is optional
+and defaults to `claude-haiku-5-5`. Without a key, and on a static host, the
+guide uses its offline demo.
 
 `npm run artifact` packages the build as a claude.ai artifact. That sandbox
 keeps pages away from other sites and devices, so Audius, MIDI, folder
@@ -478,12 +485,12 @@ CSPs, sandboxed frames) only allow worklets from the site's own files, so
 build time and writes it to `public/worklets/stretch.js`, and the app points
 the library at it through its `moduleUrl` hook.
 
-### Booth guide: where a model plugs in
+### Booth guide: how Claude is connected
 
 The guide's code is in `src/guide/`. It talks to whatever answers it through
 one interface, `GuideModel` in `model.ts`: `reply(messages, tools, { booth,
-signal })` streams back text and tool calls. The chat (`chat.ts`) runs the
-usual tool-use loop around it, a few rounds per question.
+signal })` returns text and tool calls. The chat (`chat.ts`) runs the usual
+tool-use loop around it, a few rounds per question.
 
 - **Controls**: `registry.ts` lists every control the guide may name, read
   or move (id, name, where it is, what it does, how to read and set it).
@@ -494,18 +501,25 @@ usual tool-use loop around it, a few rounds per question.
   controls are dropped and values are resolved and clamped against the
   registry, so a model can only do what the panel's own buttons could.
 - **Moves**: `runner.ts` times them in beats and bars of the playing deck.
-- **What a model is told**: `prompt.ts` has the instructions with the whole
-  control list, and `sanitizeBooth` / `boothText` for the booth as it is now.
-- **Today**: `DemoModel` (`demo.ts`) is the only model, local and offline,
-  and the panel says it isn't connected to an AI model.
-
-A real provider is a second `GuideModel` class, swapped in where
-`BoothGuide.tsx` builds the chat (`guideFor`). Keep any API key on a server
-you control, never in this app's code or bundle: the class should call your
-own endpoint, which adds the key, the instructions from `prompt.ts` and
-whatever request limits you want, and streams the answer back. If the
-endpoint fails, falling back to `DemoModel` keeps the panel usable. Nothing
-in the app calls a model today, and the repository holds no key.
+- **What Claude is told**: `prompt.ts` has the instructions with the whole
+  control list. `npm run guide-prompt` writes them and the tools to
+  `api/_guide/prompt.json`, which the build checks is up to date, so the
+  server never imports the audio engine and the page can't send its own
+  instructions.
+- **The server**: `api/guide.ts` is a Vercel Function. It adds the key from
+  `ANTHROPIC_API_KEY`, the instructions (cached) and the booth as it is now,
+  and calls the model in `GUIDE_MODEL` (default `claude-haiku-5-5`) through
+  the official Anthropic SDK, at low effort with up to 600 tokens an answer.
+  It keeps the last 12 messages and 2,000 characters a question, takes
+  requests only from the site's own pages, and allows 20 questions per
+  visitor every 10 minutes and 300 an hour per server instance, answering
+  a friendly 429 beyond that. `GET /api/guide` says whether it's connected.
+- **The page**: `claude.ts` is the `GuideModel` that calls it. The panel
+  starts on `DemoModel` (`demo.ts`) and switches to Claude once the server
+  says it has a key; if the key goes, or the server can't be reached, the
+  demo answers instead.
+- **Tests**: `npm run test:guide` checks the server with the SDK replaced by
+  a fake client (no network, no key), then the panel in Chromium against it.
 
 ## Open source
 

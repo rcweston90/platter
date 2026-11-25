@@ -364,7 +364,7 @@ export class PreSplitter implements SavedStemsHook {
   /** Is there a saved split of this track's current file? Fills `saved`. */
   private async check(rec: TrackRecord): Promise<boolean> {
     const got = await this.source(rec);
-    if (!got) return false;
+    if (!got) return !!(await this.kept(rec));
     const { src } = got;
     const known = this.saved.get(rec.id);
     if (known?.fingerprint === src.fingerprint) return true;
@@ -379,6 +379,16 @@ export class PreSplitter implements SavedStemsHook {
     if (found) this.saved.set(rec.id, { ...src, bytes: found.bytes, where });
     else this.saved.delete(rec.id);
     return !!found;
+  }
+
+  /** A linked file that can't be read yet (after a restart, before the
+   *  folder is allowed again): stems kept in the browser are found by the
+   *  fingerprint it had last time. Its fingerprint, or null. */
+  private async kept(rec: TrackRecord): Promise<string | null> {
+    if (!this.fromFolder(rec)) return null;
+    const fp = this.saved.get(rec.id)?.fingerprint ?? rec.library?.fingerprint;
+    const dir = fp ? await this.browserDir() : null;
+    return dir && fp && (await hasSaved(dir, fp, fp)) ? fp : null;
   }
 
   private failKey(rec: TrackRecord) {
@@ -643,7 +653,11 @@ export class PreSplitter implements SavedStemsHook {
     const rec = this.rec(trackId);
     if (!rec) return null;
     const got = await this.source(rec);
-    if (!got) return null;
+    if (!got) {
+      const fp = await this.kept(rec);
+      const dir = fp ? await this.browserDir() : null;
+      return dir && fp ? loadSaved(dir, fp, fp) : null;
+    }
     const { src } = got;
     if (this.fromFolder(rec) && this.folder) {
       const found = await loadSaved(this.folder, src.path, src.fingerprint);

@@ -28,6 +28,7 @@ import {
   type RecordingRecord,
 } from './library';
 import { MidiController, type MidiHandlers } from './midi';
+import { MixMoves } from './moves';
 import { BeatBoard } from './beatboard';
 import {
   channelLevel,
@@ -170,8 +171,10 @@ export class DjSession {
   readonly presplit: PreSplitter = new PreSplitter(this);
   /** Each deck's stems (vocals, drums, bass, other): split on request (or loaded if saved), held in memory. */
   readonly stems: [DeckStems, DeckStems] = [
-    new DeckStems(this.decks[0], (id) => this.decodeForStems(id), this.presplit, () => this.presplit.on),
-    new DeckStems(this.decks[1], (id) => this.decodeForStems(id), this.presplit, () => this.presplit.on),
+    // Stems always come by themselves on a deck; the auto-split switch is about
+    // the background (splitting the rest of the library ahead of time).
+    new DeckStems(this.decks[0], (id) => this.decodeForStems(id), this.presplit, () => true),
+    new DeckStems(this.decks[1], (id) => this.decodeForStems(id), this.presplit, () => true),
   ];
   /** Each deck's hits and how high or low each sounds, read when its audio loads (engine/hits). */
   readonly hits: [DeckHits, DeckHits] = [new DeckHits(0, (id) => this.monoMix(id)), new DeckHits(1, (id) => this.monoMix(id))];
@@ -189,6 +192,8 @@ export class DjSession {
   readonly autoDj: AutoDj;
   /** The mixer's Beat FX section (one unit, on deck A, deck B or the master). */
   readonly fx: BeatFx;
+  /** Move mixes: Rec moves, replay and sharing (engine/moves). */
+  readonly moves: MixMoves;
   /** What the main output plays, and its own volume (listen.ts). */
   readonly listen: Listening = new Listening(this);
   /** Your playlists (engine/playlists). */
@@ -234,6 +239,8 @@ export class DjSession {
       this.mixer.get().cueRouting.kind !== 'off' || this.listen.store.get().source === 'blend';
     this.midi = new MidiController(this.midiHandlers());
     this.autoDj = new AutoDj(this);
+    // Last: it hooks the decks', mixer's and Beat FX's controls.
+    this.moves = new MixMoves(this);
   }
 
   /* ── Lifecycle ────────────────────────────────────────────────────────── */
@@ -241,6 +248,8 @@ export class DjSession {
   /** Safe to call again after `dispose` — React's dev double-mount does. */
   async init() {
     this.disposed = false;
+    // First, so a shared #mix= link is offered without waiting for the rest.
+    void this.moves.init();
     let tracks = await loadCrate();
     if (this.disposed) return;
     if (!tracks.length) {
@@ -274,6 +283,18 @@ export class DjSession {
     void this.library.init().then(() => {
       void this.presplit.init().then(() => {
         void this.armStems();
+        // The model in the browser now (a deck just split): a deck still
+        // waiting for it can split too.
+        for (const st of this.stems) {
+          let was = st.store.get().status;
+          this.unsubs.push(
+            st.store.subscribe(() => {
+              const now = st.store.get().status;
+              if (now === 'ready' && was !== 'ready') void this.armStems();
+              was = now;
+            }),
+          );
+        }
         // A linked folder allowed later: armed decks can read their tracks now.
         let was = this.library.store.get().folderAccess;
         this.unsubs.push(
@@ -295,14 +316,42 @@ export class DjSession {
     if (this.disposed) return;
     const cached = await modelCached();
     const access = this.library.store.get().folderAccess;
+    let needsFolder = false;
     for (const i of [0, 1] as const) {
       const id = this.decks[i].store.get().track?.id;
       const rec = id ? this.crate.get().tracks.find((t) => t.id === id) : null;
-      const st = this.stems[i].store.get().status;
-      if (!rec || this.decks[i].hasAudio || (st !== 'none' && st !== 'idle')) continue;
-      const readable = !!rec.demo || !!rec.blob || (!!rec.handle && access === 'granted');
-      this.stems[i].trackArmed(rec, cached && readable);
+      const st = this.stems[i].store.get();
+      if (!rec || this.decks[i].hasAudio || (st.status !== 'none' && st.status !== 'idle') || st.stopped) continue;
+      const locked = !!rec.handle && !rec.blob && access !== 'granted';
+      const readable = !!rec.demo || !!rec.blob || (!!rec.handle && !locked);
+      if (locked) needsFolder = true;
+      // Already waiting, and nothing has changed that would let it start.
+      if (st.waiting && !(cached && readable)) continue;
+      this.stems[i].trackArmed(rec, cached && readable, locked ? 'Stems load once Platter can read your music folder' : null);
     }
+    if (needsFolder) this.askFolderOnFirstTouch();
+  }
+
+  private folderAsk: (() => void) | null = null;
+
+  /** After a restart the browser lets a linked folder be read again only
+   *  inside a click or key press. Rather than a button for it, the first one
+   *  anywhere asks (Chrome offers "Allow on every visit", after which it
+   *  doesn't ask again), and the decks' stems follow. */
+  private askFolderOnFirstTouch() {
+    if (this.folderAsk || typeof window === 'undefined') return;
+    const ask = () => {
+      this.folderAsk?.();
+      void this.presplit.allowFolder();
+    };
+    window.addEventListener('pointerdown', ask, true);
+    window.addEventListener('keydown', ask, true);
+    this.folderAsk = () => {
+      window.removeEventListener('pointerdown', ask, true);
+      window.removeEventListener('keydown', ask, true);
+      this.folderAsk = null;
+    };
+    this.unsubs.push(() => this.folderAsk?.());
   }
 
   /** Puts the last session's tracks (or the crate's first two) on the decks
@@ -446,6 +495,7 @@ export class DjSession {
     void this.autoDj.setOn(false);
     this.beats.stop();
     this.fx.dispose();
+    this.moves.dispose();
     this.listen.dispose();
     this.sampler.silence();
     if (this.saveTimer !== null) window.clearTimeout(this.saveTimer);

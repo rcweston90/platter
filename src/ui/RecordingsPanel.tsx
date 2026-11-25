@@ -3,34 +3,67 @@ import type { DjSession } from '../engine/session';
 import { useStore } from '../engine/store';
 import { saveFile } from './save';
 import { formatTime } from './Waveforms';
+import { MoveMixImport, MoveMixRow } from './MoveMixes';
+import { InfoTip, MIX_MOVES_GUIDE } from './DeckGuide';
 import s from '../platter.module.css';
+import mm from './movemix.module.css';
 
-/** Every recorded mix, kept in this browser until deleted. */
+/** Every recorded mix, kept in this browser until deleted: audio from Rec,
+ *  and move mixes from Rec moves (MoveMixes.tsx), newest first. */
 export function RecordingsPanel({ session }: { session: DjSession }) {
   const { list } = useStore(session.recordings);
+  const { list: mixes } = useStore(session.moves.store);
   const [playing, setPlaying] = useState<{ id: string; url: string } | null>(null);
   const [note, setNote] = useState<string | null>(null);
 
   // Object URLs for previews are made on demand and released when done.
   useEffect(() => () => (playing ? URL.revokeObjectURL(playing.url) : undefined), [playing]);
 
-  if (!list.length) {
+  const head = (
+    <div className={mm.panelHead}>
+      <p>
+        Rec keeps the sound. Rec moves keeps what you do (every fader, knob, pad and jump) as a small file that replays on the decks,
+        and that you can send as a link.
+      </p>
+      <MoveMixImport session={session} onNote={setNote} />
+      <InfoTip label="About move mixes" title="Move mixes" sections={[MIX_MOVES_GUIDE]} deck="A" />
+    </div>
+  );
+  const rows = [
+    ...list.map((r) => ({ kind: 'audio' as const, at: r.createdAt, r })),
+    ...mixes.map((mix) => ({ kind: 'moves' as const, at: mix.createdAt, mix })),
+  ].sort((a, b) => b.at - a.at);
+
+  if (!rows.length) {
     return (
       <div className={s.panelBody}>
-        <p className={s.crateEmpty}>No recordings yet. Press Rec in the top bar; every mix is kept here until you delete it.</p>
+        {head}
+        {note && (
+          <p className={s.crateNote} role="status">
+            {note}
+          </p>
+        )}
+        <p className={s.crateEmpty}>No recordings yet. Press Rec or Rec moves in the top bar; every mix is kept here until you delete it.</p>
       </div>
     );
   }
   return (
     <div className={s.panelBody}>
+      {head}
       {note && (
         <p className={s.crateNote} role="status">
           {note}
         </p>
       )}
       <ul className={s.queueList}>
-        {list.map((r) => (
-          <li key={r.id} className={s.queueRow}>
+        {rows.map((row) => {
+          if (row.kind === 'moves') return <MoveMixRow key={row.mix.id} session={session} mix={row.mix} onNote={setNote} />;
+          const r = row.r;
+          return (
+          <li key={r.id} className={s.queueRow} data-kind="audio">
+            <span className={`${s.badge} ${mm.kind}`} data-tone="muted" title="Audio: a recording of the sound">
+              Audio
+            </span>
             <span className={s.audiusMeta}>
               <span className={s.rowTitle}>{r.name}</span>
               <span className={s.dim}>
@@ -65,7 +98,8 @@ export function RecordingsPanel({ session }: { session: DjSession }) {
               ×
             </button>
           </li>
-        ))}
+          );
+        })}
       </ul>
     </div>
   );

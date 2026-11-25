@@ -115,6 +115,13 @@ export function StemsControl({ stems, label }: { stems: DeckStems; label: string
             Stop
           </button>
         </>
+      ) : st.status === 'idle' && stems.automatic && !st.stopped ? (
+        <>
+          <span className={s.keyLabel}>Stems</span>
+          <span className={t.status} role="status">
+            {st.waiting ?? 'Getting stems ready'}
+          </span>
+        </>
       ) : (
         <>
           <span className={s.keyLabel}>Stems</span>

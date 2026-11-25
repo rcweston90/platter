@@ -234,8 +234,8 @@ export const DECK_GUIDE: GuideSection[] = [
     title: 'Stems',
     items: [
       {
-        name: 'Split',
-        text: 'Splits the track into vocals, drums, bass and other, in your browser. The first split downloads a model of about 170 MB.',
+        name: 'Stems',
+        text: 'Every track on a deck is split into vocals, drums, bass and other by itself, in your browser; there’s nothing to press. The first split downloads a model of about 170 MB. Split only shows if you stopped one.',
       },
       {
         name: 'Parts',
@@ -291,6 +291,32 @@ export const DECK_GUIDE: GuideSection[] = [
     ],
   },
 ];
+
+/** Rec moves and the move mixes in Recordings (engine/moves). */
+export const MIX_MOVES_GUIDE: GuideSection = {
+  id: 'moves',
+  title: 'Recording your moves',
+  items: [
+    {
+      name: 'Rec moves',
+      text: 'In the top bar. Records what you do rather than the sound: the tracks you load, play, pause and cue, seeks and beat jumps, the pitch fader, Sync, the channel faders, crossfader, trim, EQ and filter, loops, hot cue pads and the Beat FX, each on the audio clock. Fader and knob drags are kept 25 times a second. Press it again to stop; the mix goes in Recordings, marked Moves, beside your audio recordings.',
+    },
+    {
+      name: 'Replay',
+      text: 'Plays a move mix back on the decks: the tracks load, and every control moves when it moved. Touch any control (a click, a key, MIDI) and the replay stops right there; the decks are yours from that point, playing as they were.',
+    },
+    {
+      name: 'Missing tracks',
+      text: 'A move mix carries the moves, not the music, so it only replays tracks you have: the demos, or tracks in your own crate (matched by title and artist when they were added separately). For any other, Replay names it and lets you pick one of your tracks instead, or skip it; a skipped deck sits out while it would have played.',
+    },
+    {
+      name: 'Copy link  Download',
+      text: 'Copy link puts the whole mix in a link, compressed, for a chat or an email; opening it adds the mix to the Recordings of whoever opens it and offers to replay it. A long mix is too big for a link: Download saves it as a .plattermix file instead, and Import mix in Recordings opens one.',
+    },
+  ],
+};
+
+DECK_GUIDE.push(MIX_MOVES_GUIDE);
 
 const fxList = (g: (typeof FX_GROUPS)[number]) =>
   FX_TYPES.filter((t) => t.group === g)
@@ -358,8 +384,8 @@ export const BOOTH_GUIDE_HELP: GuideSection = {
       text: 'Opens the booth guide beside the rig (from the bottom on a phone). Ask how to do something and it answers in the panel. × or Esc closes it, and closing stops anything it was doing.',
     },
     {
-      name: 'Not connected',
-      text: 'The guide isn’t connected to an AI model yet. A built-in demo answers a few questions: how to beatmatch, what Slip does, a quick transition between the two decks, timed moves like “bring the crossfader to centre over 8 bars” or “kill deck A’s low at the next bar”, and what a control does. Nothing you type leaves the page.',
+      name: 'Who answers',
+      text: 'Where the site is connected to Claude, the panel says so and Claude answers: your question, the conversation so far and the decks’ track titles, tempos and faders go to Anthropic to answer it, a few questions every few minutes at most. Otherwise a built-in demo answers a few questions: how to beatmatch, what Slip does, a quick transition between the two decks, timed moves like “bring the crossfader to centre over 8 bars” or “kill deck A’s low at the next bar”, and what a control does, and nothing you type leaves the page.',
     },
     {
       name: 'Control chips',

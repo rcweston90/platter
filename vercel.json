@@ -1,4 +1,7 @@
 {
   "$schema": "https://openapi.vercel.sh/vercel.json",
-  "rewrites": [{ "source": "/soundcloud-callback", "destination": "/index.html" }]
+  "rewrites": [{ "source": "/soundcloud-callback", "destination": "/index.html" }],
+  "functions": {
+    "api/guide.ts": { "includeFiles": "api/_guide/prompt.json" }
+  }
 }

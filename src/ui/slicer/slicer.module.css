@@ -486,6 +486,52 @@
   line-height: 1.4;
 }
 
+.howSteps {
+  display: grid;
+  gap: 10px;
+  margin: 0;
+  padding: 16px 18px 4px;
+  list-style: none;
+}
+
+.howSteps li {
+  display: grid;
+  grid-template-columns: 24px 1fr;
+  gap: 10px;
+  align-items: start;
+  font-size: 14px;
+  line-height: 1.45;
+}
+
+.howN {
+  display: inline-grid;
+  place-items: center;
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  background: var(--dj-b);
+  color: var(--dj-ink);
+  font: 700 12px/1 var(--font-label);
+}
+
+.howNote {
+  margin: 8px 18px 0 52px;
+  color: var(--dj-dim);
+  font-size: 13px;
+}
+
+.keysSub {
+  margin: 18px 18px 0;
+  color: var(--dj-dim);
+  font: 600 12px/1 var(--font-label);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.nowrap {
+  white-space: nowrap;
+}
+
 /* Laptop widths: the header keeps to one row. */
 @media (max-width: 1180px) {
   .transport .btn > svg + * {
@@ -669,4 +715,11 @@
 
 .pane {
   container-type: inline-size;
+}
+
+/* The longer names in the header, where they fit. */
+@media (max-width: 1360px) {
+  .wide {
+    display: none;
+  }
 }
