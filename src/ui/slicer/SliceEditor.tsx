@@ -84,13 +84,13 @@ export function ChopEmpty({ phone, over, onOpenFiles, onBrowse }: EmptyProps) {
         </svg>
         {phone ? (
           <>
-            <h2>Pick a sample to chop</h2>
-            <p>It arrives cut on its hits, ready to play on the pads.</p>
+            <h2>Pick a sound to slice</h2>
+            <p>It arrives cut into slices, ready to play on the pads: short sounds on their hits, longer tracks by the bar.</p>
           </>
         ) : (
           <>
             <h2>Drop a FLAC or WAV here, or pick a track from your crate</h2>
-            <p>It arrives cut on its hits: play the slices on the pads (1–4, Q–R, A–F, Z–V) and lay them out on the lanes below.</p>
+            <p>It arrives cut into slices (short sounds on their hits, longer tracks by the bar). Play them on the pads (1–4, Q–R, A–F, Z–V), then build a song on the lanes below.</p>
           </>
         )}
         <div className={w.emptyActions}>

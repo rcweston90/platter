@@ -7,6 +7,7 @@ import { recordLaneId, useSel } from './arrangeStore';
 import { ClipInspector, DupIcon, HearIcon } from './ClipInspector';
 import { DrumIcon, LaneHeader, TrashIcon, WaveIcon } from './LaneHeader';
 import { Popover } from './Popover';
+import { StepTag } from './SlicerGuide';
 import { SoundPicker } from './SoundPicker';
 import { Timeline, type TimelineControl } from './Timeline';
 import { useIsPhone, useIsTouch } from './usePhone';
@@ -84,6 +85,8 @@ export function Arranger({ studio, session, loop }: { studio: Studio; session: D
   return (
     <section className={st.arranger} aria-label="Arrangement" data-phone={phone || undefined}>
       <div className={st.toolbar} role="toolbar" aria-label="Arrangement tools">
+        <StepTag step="song" compact={phone} />
+        <span className={st.sep} aria-hidden="true" />
         <button
           ref={addBtn}
           type="button"
@@ -168,14 +171,14 @@ export function Arranger({ studio, session, loop }: { studio: Studio; session: D
               <p className={st.emptyTitle}>Build the song</p>
               <button type="button" className={st.primary} disabled={!slices} onClick={() => layOut(0)}>
                 <LayoutIcon />
-                {slices ? `Lay out all ${slices} slice${slices === 1 ? '' : 's'}` : 'Lay out all slices'}
+                {slices ? `Put all ${slices} slice${slices === 1 ? '' : 's'} in order` : 'Put all slices in order'}
               </button>
-              <p className={st.emptySub}>{slices ? `${sourceName ?? 'The sample'} in its original groove, ready to flip` : 'Open a sample in Chop first'}</p>
+              <p className={st.emptySub}>{slices ? `${sourceName ?? 'The sample'} rebuilt from its slices, ready to rearrange` : 'Pick a sound in step 1 first'}</p>
               <ul className={st.emptyWays}>
                 <li>
                   <span className={st.recDot} aria-hidden="true" />
                   <span>
-                    Arm <b>Rec</b> and play the pads to record a take
+                    Or press <b>Rec pads</b> and play the pads to record a take
                   </span>
                 </li>
                 <li>
@@ -265,7 +268,7 @@ export function Arranger({ studio, session, loop }: { studio: Studio; session: D
               <LayoutIcon />
             </span>
             <span className={st.menuText}>
-              Lay out all slices<small>{slices ? `${slices} from ${sourceName ?? 'the sample'}, at the playhead` : 'Open a sample in Chop first'}</small>
+              All slices, in order<small>{slices ? `${slices} from ${sourceName ?? 'the sample'}, at the playhead` : 'Pick a sound in step 1 first'}</small>
             </span>
           </button>
         </Popover>

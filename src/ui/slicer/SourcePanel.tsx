@@ -7,6 +7,7 @@ import { useDropTarget } from '../frame';
 import { Glyph, ICON } from './chopKit';
 import { fmtTime } from './SliceWave';
 import w from './workspace.module.css';
+import { StepTag } from './SlicerGuide';
 
 export type SourceTab = 'crate' | 'files' | 'project';
 
@@ -53,6 +54,11 @@ export function SourcePanel({ studio, session, state, tab, onTab, onOpenFiles, o
 
   return (
     <aside ref={panel} className={w.sources} data-over={over} data-variant={variant} aria-label="Samples">
+      {variant !== 'sheet' && (
+        <div className={w.sourcesHead}>
+          <StepTag step="sound" />
+        </div>
+      )}
       <div className={w.tabsRow}>
         <div className={w.tabs} role="tablist" aria-label="Sample sources">
           {TABS.map((t) => (

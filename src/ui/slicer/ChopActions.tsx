@@ -40,9 +40,10 @@ interface Props {
 }
 
 /**
- * Listening and cutting on the left (play the sample through, tap Cut on the
- * hits), the picked slice and what to do with it on the right. Lay out all is
- * the way in to the song on a phone, where nothing drags.
+ * Listening and cutting on the left (play the sample through, tap Add cut on
+ * the hits), the picked slice and what to do with it on the right. On a
+ * phone, where nothing drags, All in order is here too; on a desk it's in the
+ * song's own step (its empty card and the + Lane menu).
  */
 export function ChopActions({ studio, state, src, ready, slice, pointer, phone }: Props) {
   const [more, setMore] = useState<HTMLElement | null>(null);
@@ -90,9 +91,9 @@ export function ChopActions({ studio, state, src, ready, slice, pointer, phone }
         }}
         onClick={(e) => e.detail === 0 && cut()}
         title={`Cut a new slice where the sample is sounding (or at the cursor) · key ${CUT_KEY}`}
-        aria-label={`Cut here (key ${CUT_KEY})`}
+        aria-label={`Add a cut here (key ${CUT_KEY})`}
       >
-        <Glyph d={ICON.cut} /> Cut
+        <Glyph d={ICON.cut} /> Add cut
         {!phone && <kbd className={w.kbd}>{CUT_KEY}</kbd>}
       </button>
     </div>
@@ -107,7 +108,8 @@ export function ChopActions({ studio, state, src, ready, slice, pointer, phone }
           <span className={w.swatchDot} style={{ background: sliceColor(src, sel) }} aria-hidden="true" />
           Slice <b>{sel + 1}</b>
           <span className={w.dim}>
-            /{n} · {fmtLen(b - a)}
+            /{n}
+            <span className={w.sliceLen}> · {fmtLen(b - a)}</span>
           </span>
         </>
       )}
@@ -115,7 +117,7 @@ export function ChopActions({ studio, state, src, ready, slice, pointer, phone }
   );
 
   const audition = (
-    <div className={w.btnGroup} role="group" aria-label="Hear the slice">
+    <div className={w.btnGroup} role="group" aria-label="Hear the slice" data-labelled>
       <button
         type="button"
         className={w.iconBtn}
@@ -138,6 +140,7 @@ export function ChopActions({ studio, state, src, ready, slice, pointer, phone }
         title="Loop the slice"
       >
         <Glyph d={ICON.loop} />
+        <span className={w.iconText}>Loop</span>
       </button>
       <button
         type="button"
@@ -150,6 +153,7 @@ export function ChopActions({ studio, state, src, ready, slice, pointer, phone }
         title="Hear the slice backwards"
       >
         <Glyph d={ICON.reverse} fill />
+        <span className={w.iconText}>Reverse</span>
       </button>
     </div>
   );
@@ -161,20 +165,23 @@ export function ChopActions({ studio, state, src, ready, slice, pointer, phone }
         className={w.btn}
         disabled={!ready}
         onClick={() => (studio.selectSlice(sel), studio.appendSlice(src.id, sel))}
-        title="Add the slice after the last clip on the sample lane (Enter) — or drag a pad onto any lane"
-        aria-label="Add the slice to the timeline"
+        title="Add the picked slice to the song, after the last clip on the first sample lane (Enter) — or drag a pad onto any lane"
+        aria-label="Add the picked slice to the song"
       >
-        <Glyph d={ICON.add} /> {phone ? 'Add' : 'Add to timeline'}
+        <Glyph d={ICON.add} /> {phone ? 'Add' : 'Add to song'}
       </button>
-      <button
-        type="button"
-        className={w.primary}
-        disabled={!ready || n < 1}
-        onClick={() => studio.layoutSlices(src.id)}
-        title="Put every slice on a lane in its original groove, from the cursor: a starting point for a flip"
-      >
-        <Glyph d={ICON.layout} /> Lay out all
-      </button>
+      {phone && (
+        <button
+          type="button"
+          className={w.btn}
+          disabled={!ready || n < 1}
+          onClick={() => studio.layoutSlices(src.id)}
+          title="Put every slice in the song in its original rhythm, from the cursor: the sound rebuilt from its slices, ready to rearrange"
+          aria-label={`Put all ${n} slices in the song, in order`}
+        >
+          <Glyph d={ICON.layout} /> All in order
+        </button>
+      )}
       <button
         type="button"
         className={w.iconBtn}

@@ -6,6 +6,10 @@ import type { Peaks, Source } from '../../slicer/types';
 import { fitCanvas, useFrame, type FrameLoop } from '../frame';
 import { BANK, bankName, exactSlice, fmtLen, PAD_KEYS, sliceColor } from './chopKit';
 import { setSliceDrag } from './dnd';
+import { StepTag } from './SlicerGuide';
+
+/** Bank letters shown as a row up to this many; past it, arrows. */
+const MAX_LETTERS = 8;
 import w from './workspace.module.css';
 
 export { PAD_KEYS };
@@ -104,7 +108,11 @@ export function SlicePads({ studio, source, peaks, slice, bank, onBank, loop, to
   return (
     <div className={w.padsBox} aria-label={`Pads for ${source.name}`} role="group">
       <div className={w.padsHead}>
-        {banks > 1 ? (
+        <StepTag step="pads" />
+        <span className={w.padsRange}>{n > BANK ? `${first + 1}–${Math.min(n, first + BANK)} of ${n}` : `${n} slice${n === 1 ? '' : 's'}`}</span>
+      </div>
+      {banks > 1 &&
+        (banks <= MAX_LETTERS ? (
           <div className={w.banks} role="radiogroup" aria-label="Pad bank">
             {Array.from({ length: banks }, (_, b) => (
               <button
@@ -121,10 +129,18 @@ export function SlicePads({ studio, source, peaks, slice, bank, onBank, loop, to
             ))}
           </div>
         ) : (
-          <span className={w.padsTitle}>Pads</span>
-        )}
-        <span className={w.padsRange}>{n > BANK ? `${first + 1}–${Math.min(n, first + BANK)} of ${n}` : `${n} slice${n === 1 ? '' : 's'}`}</span>
-      </div>
+          <div className={w.bankPager} role="group" aria-label="Pad bank">
+            <button type="button" disabled={bank === 0} onClick={() => onBank(bank - 1)} aria-label="Previous bank">
+              ‹
+            </button>
+            <span aria-live="polite">
+              Bank {bankName(bank)} · {bank + 1} of {banks}
+            </span>
+            <button type="button" disabled={bank >= banks - 1} onClick={() => onBank(bank + 1)} aria-label="Next bank">
+              ›
+            </button>
+          </div>
+        ))}
       <div className={w.pads} ref={grid} data-touch={touch || undefined}>
         {Array.from({ length: BANK }, (_, k) => {
           const i = first + k;

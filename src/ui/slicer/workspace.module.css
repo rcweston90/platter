@@ -1717,3 +1717,133 @@
     animation: none;
   }
 }
+
+/* ── Steps ──────────────────────────────────────────────────────────────── */
+/* Each area names its step (1 Sound, 2 Slices, 3 Pads, 4 Song) with its part
+   of the guide, so the page reads in order: pick, cut, play, arrange. */
+
+.step {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  min-width: 0;
+}
+
+.stepN {
+  display: inline-grid;
+  place-items: center;
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  background: var(--dj-b);
+  color: var(--dj-ink);
+  font: 700 12px/1 var(--font-label);
+}
+
+.stepLabel {
+  color: var(--dj-text);
+  font: 600 13px/1 var(--font-label);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+.step[data-compact] .stepLabel {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+}
+
+.stepInfo {
+  width: 28px;
+  height: 28px;
+  margin-left: -4px;
+}
+
+.stepInfo svg {
+  width: 17px;
+  height: 17px;
+}
+
+.sourcesHead {
+  flex: none;
+  display: flex;
+  align-items: center;
+  min-height: 40px;
+  padding: 6px 10px 0 14px;
+}
+
+/* The picked slice's Play / Loop / Reverse, named so they don't read as
+   previous / next. */
+.iconText {
+  display: none;
+}
+
+.actions {
+  container-type: inline-size;
+}
+
+.btnGroup[data-labelled] .iconBtn:has(.iconText) {
+  width: auto;
+  gap: 5px;
+  padding: 0 9px 0 7px;
+}
+
+.btnGroup[data-labelled] .iconText {
+  display: inline;
+  font: 600 13px/1 var(--font-label);
+}
+
+/* Banks past what fits as letters: one bank at a time with arrows. */
+.bankPager {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  min-width: 0;
+}
+
+.bankPager button {
+  flex: none;
+  width: 30px;
+  height: 30px;
+  border: 1px solid var(--dj-line);
+  border-radius: 6px;
+  background: var(--dj-bg);
+  color: var(--dj-text);
+  font: 600 14px/1 var(--font-label);
+  cursor: pointer;
+}
+
+.bankPager button:disabled {
+  opacity: 0.35;
+  cursor: default;
+}
+
+.bankPager span {
+  min-width: 64px;
+  color: var(--dj-text);
+  font: 600 13px/1 var(--font-label);
+  text-align: center;
+  white-space: nowrap;
+}
+
+/* A narrow editor (a laptop with the list open): the slice buttons go back
+   to icons, their names in their tooltips. */
+@container (max-width: 720px) {
+  .btnGroup[data-labelled] .iconBtn:has(.iconText) {
+    width: 36px;
+    padding: 0;
+  }
+
+  .btnGroup[data-labelled] .iconText {
+    display: none;
+  }
+
+  .sliceLen {
+    display: none;
+  }
+}
