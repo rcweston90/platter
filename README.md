@@ -279,6 +279,17 @@ GitHub Actions).
   first beat, key, memory cues, and hot cues and hot loops A–H with their
   colours.
 
+**Booth guide** (the **Guide** button in the top bar)
+- A chat panel that answers how to do things in Platter. Controls it names
+  are buttons: press one to have the control ringed on screen.
+- It can also play moves for you, in time with the playing deck: “bring the
+  crossfader to centre over 8 bars”, “kill deck A’s low at the next bar”, or
+  a whole quick transition. Each moving control is ringed with its value, a
+  status line counts the bars, and **Stop** (or touching any control) ends it.
+- It isn't connected to an AI model yet: an offline demo answers a few
+  questions so the panel, rings and moves all work. See *Booth guide: where
+  a model plugs in* below.
+
 **Install**: on a real host Platter is an installable app that opens
 offline after the first visit.
 
@@ -338,6 +349,7 @@ npm run test:sync      # sync lock: tempo, phase through jumps, nudges, bars, th
 npm run test:library      # tags, fingerprints, mashup scorer, folder scanner
 npm run test:library-dsp  # tempo, loudness and energy on synthetic audio
 npm run test:sound        # sound match: CLAP features against Python, scoring
+node tests/guide.mjs      # booth guide: tool-call checks, demo answers (no browser)
 ```
 
 The end-to-end check drives a real browser through cueing, playing, sync,
@@ -458,6 +470,35 @@ CSPs, sandboxed frames) only allow worklets from the site's own files, so
 `scripts/extract-stretch-worklet.mjs` captures that exact module source at
 build time and writes it to `public/worklets/stretch.js`, and the app points
 the library at it through its `moduleUrl` hook.
+
+### Booth guide: where a model plugs in
+
+The guide's code is in `src/guide/`. It talks to whatever answers it through
+one interface, `GuideModel` in `model.ts`: `reply(messages, tools, { booth,
+signal })` streams back text and tool calls. The chat (`chat.ts`) runs the
+usual tool-use loop around it, a few rounds per question.
+
+- **Controls**: `registry.ts` lists every control the guide may name, read
+  or move (id, name, where it is, what it does, how to read and set it).
+  Chips, rings, the tools and the prompt are all made from it.
+- **Tools**: `tools.ts` makes `ring_control`, `read_control`, `run_moves` and
+  `stop` from the registry, and runs them in the page. Every tool call a
+  model returns goes through `sanitizeToolCall` first: unknown tools and
+  controls are dropped and values are resolved and clamped against the
+  registry, so a model can only do what the panel's own buttons could.
+- **Moves**: `runner.ts` times them in beats and bars of the playing deck.
+- **What a model is told**: `prompt.ts` has the instructions with the whole
+  control list, and `sanitizeBooth` / `boothText` for the booth as it is now.
+- **Today**: `DemoModel` (`demo.ts`) is the only model, local and offline,
+  and the panel says it isn't connected to an AI model.
+
+A real provider is a second `GuideModel` class, swapped in where
+`BoothGuide.tsx` builds the chat (`guideFor`). Keep any API key on a server
+you control, never in this app's code or bundle: the class should call your
+own endpoint, which adds the key, the instructions from `prompt.ts` and
+whatever request limits you want, and streams the answer back. If the
+endpoint fails, falling back to `DemoModel` keeps the panel usable. Nothing
+in the app calls a model today, and the repository holds no key.
 
 ## Open source
 

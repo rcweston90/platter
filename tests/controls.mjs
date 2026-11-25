@@ -529,6 +529,62 @@ for (let i = 0; i < n; i++) {
   check(await pressed(curves.nth(i)), `Mixer: crossfader curve “${await curves.nth(i).textContent()}” selects`);
 }
 
+/* ── Booth guide (the offline demo model) ───────────────────────────────── */
+
+const guideBtn = page.getByRole('button', { name: 'Booth guide: ask how to do things' });
+await guideBtn.click();
+const guide = page.getByRole('region', { name: 'Booth guide' });
+await guide.waitFor({ timeout: 5000 });
+check(await guide.getByText('Not connected to an AI model yet.').isVisible(), 'Guide: opens from the top bar and says it isn’t connected to an AI model');
+const askGuide = async (q) => {
+  await guide.locator('#booth-guide-input').fill(q);
+  await guide.getByRole('button', { name: 'Ask', exact: true }).click();
+};
+const xfAt = async () => Number(await xf.inputValue());
+const runStatus = guide.getByRole('status', { name: 'Guide moves' });
+const waitFor = async (fn, ms) => {
+  const t0 = Date.now();
+  while (Date.now() - t0 < ms) {
+    if (await fn()) return true;
+    await page.waitForTimeout(100);
+  }
+  return false;
+};
+
+// The transition: deck A plays, the crossfader starts hard on A, and the
+// guide brings B in on the bar and fades across.
+await xf.fill('-1');
+await askGuide('Play a quick transition between the demo tracks');
+check(await waitFor(async () => (await guide.getByRole('button', { name: 'Stop', exact: true }).count()) > 0, 5000), 'Guide: the transition starts a run with a Stop button');
+check(await waitFor(async () => (await xfAt()) > -0.85, 12000), `Guide: the transition moves the crossfader (now ${await xfAt()})`);
+check(/Bar \d|Waiting/.test(await runStatus.textContent()), `Guide: the status line counts bars (“${await runStatus.textContent()}”)`);
+await guide.getByRole('button', { name: 'Stop', exact: true }).click();
+const held = await xfAt();
+await page.waitForTimeout(1500);
+check((await xfAt()) === held, `Guide: Stop halts the crossfader where it was (${held})`);
+check(/^Stopped/.test(await runStatus.textContent()), `Guide: the status says it stopped (“${await runStatus.textContent()}”)`);
+check((await guide.getByRole('button', { name: 'Stop', exact: true }).count()) === 0, 'Guide: the Stop button goes once stopped');
+
+// A hand on the controls stops a run too.
+await xf.fill('-1');
+await askGuide('Bring the crossfader to centre over 8 bars');
+await waitFor(async () => (await xfAt()) > -0.95, 8000);
+await xf.focus();
+await page.keyboard.press('ArrowRight');
+check(await waitFor(async () => /you took over|by hand/.test(await runStatus.textContent()), 2000), `Guide: touching a control stops the run (“${await runStatus.textContent()}”)`);
+
+// Chips in an answer ring their control.
+await askGuide('what does the filter on deck b do');
+const chip = guide.locator('button[class*="chip"]', { hasText: 'Channel B filter' }).last();
+await chip.waitFor({ timeout: 5000 });
+const ring = page.locator('[data-ring="B.filter"]');
+await waitFor(async () => (await ring.count()) === 0, 6000); // the answer's own ring fades first
+await chip.click();
+const ringed = await waitFor(async () => (await ring.count()) === 1 && (await ring.isVisible()), 4000);
+check(ringed, `Guide: a chip rings its control on screen${ringed ? '' : ` (rings: ${await page.evaluate(() => [...document.querySelectorAll('[data-ring]')].map((r) => `${r.dataset.ring} ${r.style.visibility}`).join(', ') || 'none')})`}`);
+await guide.getByRole('button', { name: 'Close the booth guide' }).click();
+check((await guide.count()) === 0, 'Guide: the close button closes the panel');
+
 /* ── Mixer switches ─────────────────────────────────────────────────────── */
 
 const group = (name) => mixer.getByRole('group', { name });
