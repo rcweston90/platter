@@ -234,8 +234,8 @@ export const DECK_GUIDE: GuideSection[] = [
     title: 'Stems',
     items: [
       {
-        name: 'Split',
-        text: 'Splits the track into vocals, drums, bass and other, in your browser. The first split downloads a model of about 170 MB.',
+        name: 'Stems',
+        text: 'Every track on a deck is split into vocals, drums, bass and other by itself, in your browser; there’s nothing to press. The first split downloads a model of about 170 MB. Split only shows if you stopped one.',
       },
       {
         name: 'Parts',

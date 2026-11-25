@@ -58,6 +58,10 @@ export interface StemsState {
   solo: StemName | null;
   /** Stems for this track are saved on disk: Split loads them instead of splitting. */
   saved: boolean;
+  /** Stems are on their way but can't start yet: why, in a few words (no Split to press). */
+  waiting: string | null;
+  /** Stopped by hand: only then does the deck offer Split. */
+  stopped: boolean;
 }
 
 /** Saved stems on disk (presplit.ts), as a deck sees them. */
@@ -81,7 +85,7 @@ export interface SavedStemsHook {
 const unmuted = (): Record<StemName, boolean> => ({ vocals: false, drums: false, bass: false, other: false });
 
 function initial(): StemsState {
-  return { status: 'none', message: null, progress: 0, backend: null, seconds: null, muted: unmuted(), solo: null, saved: false };
+  return { status: 'none', message: null, progress: 0, backend: null, seconds: null, muted: unmuted(), solo: null, saved: false, waiting: null, stopped: false };
 }
 
 /* ── The worker, shared by both decks ──────────────────────────────────── */
@@ -148,15 +152,20 @@ export class DeckStems {
    * The deck shows this track but has no audio yet (after a reload the last
    * tracks come back like this). Its stems get ready now, so they're there
    * the moment it plays: saved ones load, else it's split if `fresh`.
+   * Otherwise `waiting` says what they wait for (shown in place of Split);
+   * call again once that's sorted.
    */
-  trackArmed(rec: TrackRecord, fresh: boolean) {
+  trackArmed(rec: TrackRecord, fresh: boolean, waiting: string | null = null) {
     if (this.deck.hasAudio || this.deck.store.get().track?.id !== rec.id) return;
     this.reset(rec.id);
     this.armed = true;
     this.setUp(rec);
     if (!stemsPolicy(rec).allowed || !DeckStems.supported() || !this.auto()) return;
     void (async () => {
-      if (!fresh && !(await this.saved?.has(rec.id).catch(() => false))) return;
+      if (!fresh && !(await this.saved?.has(rec.id).catch(() => false))) {
+        if (this.trackId === rec.id && this.store.get().status === 'idle') this.store.set({ waiting: waiting ?? 'Stems come as it plays' });
+        return;
+      }
       if (this.trackId === rec.id) void this.split();
     })();
   }
@@ -197,6 +206,9 @@ export class DeckStems {
         this.store.set({ saved: true });
         this.unwatch?.();
         this.unwatch = null;
+        // Waiting on the deck (e.g. after a reload): the saved ones come in now.
+        const st = this.store.get();
+        if (this.armed && st.status === 'idle' && !st.stopped && this.auto()) void this.split();
       };
       void this.saved.has(id).then((has) => has && mark());
       // Split in the background while it sits here: Split becomes instant.
@@ -235,7 +247,7 @@ export class DeckStems {
     const s = this.store.get();
     const trackId = this.trackId;
     if (!trackId || (!this.deck.hasAudio && !this.armed) || (s.status !== 'idle' && s.status !== 'error')) return;
-    this.store.set({ status: 'prepare', message: null, progress: 0 });
+    this.store.set({ status: 'prepare', message: null, progress: 0, waiting: null, stopped: false });
     if (this.saved) {
       const found = await this.saved.load(trackId).catch(() => null);
       if (this.trackId !== trackId) return;
@@ -284,13 +296,13 @@ export class DeckStems {
   cancel() {
     if (this.joining !== null) {
       this.joining = null;
-      this.store.set({ status: 'idle', message: null, progress: 0 });
+      this.store.set({ status: 'idle', message: null, progress: 0, stopped: true });
       return;
     }
     if (this.job === null) return;
     const id = this.trackId;
     this.reset(id);
-    this.store.set({ status: 'idle', message: null });
+    this.store.set({ status: 'idle', message: null, stopped: true });
   }
 
   private onMessage(trackId: string, m: FromWorker) {
