@@ -1,5 +1,5 @@
 import { FxSlot, FxUnit } from './fx';
-import { Channel, crossfaderGains, levelGain, type ChannelState, type CrossfaderCurve } from './mixer';
+import { Channel, crossfadeFor, levelGain, type ChannelState, type ChannelSwitches, type CrossfaderCurve, type XfAssign } from './mixer';
 
 /** Worklets ship as files beside the page (public/worklets/), resolved
  *  against the document so the app works from any sub-path. The query is a
@@ -18,6 +18,14 @@ export const workletUrl = (name: string) =>
  *   · device — a second audio interface, by deviceId.
  */
 export type CueRouting = { kind: 'off' } | { kind: 'split' } | { kind: 'device'; deviceId: string };
+
+/**
+ * What the main output plays while the headphones have no output of their
+ * own (cue routing off): the master, deck A or B alone (pre-fader, as its
+ * headphone cue hears it), or the headphone mix — the cued channels blended
+ * with the master by the Cue mix knob. See listen.ts.
+ */
+export type ListenSource = 'master' | 'cueA' | 'cueB' | 'blend';
 
 export interface OutputDevice {
   deviceId: string;
@@ -52,6 +60,12 @@ export class DjEngine {
   private hpStream: MediaStreamAudioDestinationNode | null = null;
   private hpElement: SinkAudioElement | null = null;
   private routing: CueRouting = { kind: 'off' };
+  /** The main output's own volume: after the master meters and the
+   *  recorder's tap, so it changes what you hear and nothing else. */
+  private out: GainNode;
+  private listen: ListenSource = 'master';
+  private listenFrom: Record<ListenSource, GainNode>;
+  private listenCue: GainNode;
   private recorder: MediaRecorder | null = null;
   private recordDest: MediaStreamAudioDestinationNode | null = null;
   private recordChunks: Blob[] = [];
@@ -103,7 +117,44 @@ export class DjEngine {
     this.monoMaster.connect(this.merger, 0, 0);
     this.monoHp.connect(this.merger, 0, 1);
 
-    this.masterOut.connect(ctx.destination);
+    // The main output: one of four sources, picked by gain so a switch is a
+    // quick fade, not a click. Decks A and B are tapped where the channel
+    // meter is (an analyser passes its input through), the same pre-fader
+    // point the headphone cue hears, and follow the headphone level.
+    this.out = ctx.createGain();
+    this.out.connect(ctx.destination);
+    this.listenCue = ctx.createGain();
+    this.listenCue.connect(this.out);
+    this.listenFrom = { master: ctx.createGain(), cueA: ctx.createGain(), cueB: ctx.createGain(), blend: ctx.createGain() };
+    this.masterOut.connect(this.listenFrom.master).connect(this.out);
+    this.hp.connect(this.listenFrom.blend).connect(this.out);
+    this.channels[0].meter.connect(this.listenFrom.cueA).connect(this.listenCue);
+    this.channels[1].meter.connect(this.listenFrom.cueB).connect(this.listenCue);
+    this.applyListen(true);
+  }
+
+  /** The source the main output plays now: the pick applies while the
+   *  headphones have no output of their own; otherwise it's the master
+   *  (split carries the master and cue on its own, left and right). */
+  get listening(): ListenSource {
+    return this.routing.kind === 'off' ? this.listen : 'master';
+  }
+
+  setListen(source: ListenSource, level: number) {
+    this.listen = source;
+    this.out.gain.setTargetAtTime(levelGain(level), this.ctx.currentTime, 0.015);
+    this.applyListen();
+  }
+
+  private applyListen(instant = false) {
+    const on = this.routing.kind === 'split' ? null : this.listening;
+    const t = this.ctx.currentTime;
+    for (const k of Object.keys(this.listenFrom) as ListenSource[]) {
+      const g = this.listenFrom[k].gain;
+      const v = k === on ? 1 : 0;
+      if (instant) g.value = v;
+      else g.setTargetAtTime(v, t, 0.01);
+    }
   }
 
   private mono() {
@@ -150,8 +201,8 @@ export class DjEngine {
     if (this.ctx.state !== 'running') void this.ctx.resume();
   }
 
-  applyChannel(i: 0 | 1, s: ChannelState) {
-    this.channels[i].apply(s);
+  applyChannel(i: 0 | 1, s: ChannelState, sw?: ChannelSwitches) {
+    this.channels[i].apply(s, sw);
   }
 
   /** Puts the Beat FX unit on channel A (0), B (1) or the master (2). */
@@ -159,8 +210,8 @@ export class DjEngine {
     this.fxSlots.forEach((s, i) => s.select(i === slot));
   }
 
-  applyCrossfader(x: number, curve: CrossfaderCurve) {
-    const [a, b] = crossfaderGains(x, curve);
+  applyCrossfader(x: number, curve: CrossfaderCurve, assign: readonly [XfAssign, XfAssign] = ['A', 'B']) {
+    const [a, b] = crossfadeFor(x, curve, assign);
     this.channels[0].setCrossfade(a);
     this.channels[1].setCrossfade(b);
   }
@@ -172,6 +223,7 @@ export class DjEngine {
     this.cueBus.gain.setTargetAtTime(Math.cos((cueMix * Math.PI) / 2), t, 0.015);
     this.cueFromMaster.gain.setTargetAtTime(Math.sin((cueMix * Math.PI) / 2), t, 0.015);
     this.hp.gain.setTargetAtTime(levelGain(cueLevel), t, 0.015);
+    this.listenCue.gain.setTargetAtTime(levelGain(cueLevel), t, 0.015);
   }
 
   /* ── Outputs ─────────────────────────────────────────────────────────── */
@@ -195,18 +247,17 @@ export class DjEngine {
       this.masterOut.disconnect(this.monoMaster);
       this.hp.disconnect(this.monoHp);
       this.merger.disconnect();
-      this.masterOut.connect(this.ctx.destination);
     } else if (this.routing.kind === 'device' && this.hpStream) {
       this.hp.disconnect(this.hpStream);
       this.hpElement?.pause();
     }
     this.routing = next;
+    this.applyListen(true);
 
     if (next.kind === 'split') {
-      this.masterOut.disconnect(this.ctx.destination);
       this.masterOut.connect(this.monoMaster);
       this.hp.connect(this.monoHp);
-      this.merger.connect(this.ctx.destination);
+      this.merger.connect(this.out);
     } else if (next.kind === 'device') {
       if (!this.hpStream) this.hpStream = this.ctx.createMediaStreamDestination();
       if (!this.hpElement) {
@@ -217,6 +268,26 @@ export class DjEngine {
       await this.hpElement.setSinkId?.(next.deviceId);
       await this.hpElement.play();
     }
+  }
+
+  /* ── Health ──────────────────────────────────────────────────────────── */
+
+  /** What the browser tells about the output: its rate and latency, and —
+   *  only where it implements AudioContext.playoutStats — how often the
+   *  output had to fill in silence because audio came too late (a dropout).
+   *  `dropouts` is null where the browser doesn't report them. */
+  health(): AudioHealth {
+    const ctx = this.ctx as AudioContext & { playoutStats?: PlayoutStats };
+    const ps = ctx.playoutStats;
+    const events = ps ? (ps.fallbackFramesEvents ?? ps.underrunEvents) : undefined;
+    const ms = ps ? (ps.fallbackFramesDuration ?? ps.underrunDuration) : undefined;
+    return {
+      sampleRate: ctx.sampleRate,
+      baseLatency: ctx.baseLatency || 0,
+      outputLatency: ctx.outputLatency || 0,
+      dropouts: typeof events === 'number' ? events : null,
+      dropoutMs: typeof ms === 'number' ? ms : null,
+    };
   }
 
   /* ── Recording ───────────────────────────────────────────────────────── */
@@ -271,6 +342,24 @@ export class DjEngine {
     this.hpElement?.pause();
     void this.ctx.close();
   }
+}
+
+/** AudioContext.playoutStats (the Audio Playout Statistics draft). Early
+ *  builds named the counters underrun…, later ones fallbackFrames…. */
+interface PlayoutStats {
+  fallbackFramesEvents?: number;
+  fallbackFramesDuration?: number;
+  underrunEvents?: number;
+  underrunDuration?: number;
+}
+
+export interface AudioHealth {
+  sampleRate: number;
+  /** Seconds. */
+  baseLatency: number;
+  outputLatency: number;
+  dropouts: number | null;
+  dropoutMs: number | null;
 }
 
 /** Audio outputs the browser will name. Labels need a media permission in

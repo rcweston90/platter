@@ -118,8 +118,17 @@ export function readPalette(el: Element) {
     // Canvas fonts can't resolve var(); custom properties compute to the
     // substituted family list, so read the site's mono stack here.
     mono: v('--font-mono') || 'monospace',
+    label: v('--font-label') || 'sans-serif',
     hot: CUE_COLORS.map((_, i) => v(`--dj-hot-${i + 1}`)),
     memory: v('--dj-memory'),
+    phrase: {
+      intro: v('--dj-phrase-intro'),
+      verse: v('--dj-phrase-verse'),
+      build: v('--dj-phrase-build'),
+      drop: v('--dj-phrase-drop'),
+      break: v('--dj-phrase-break'),
+      outro: v('--dj-phrase-outro'),
+    },
   };
 }
 

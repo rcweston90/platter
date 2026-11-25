@@ -10,7 +10,7 @@ import { fetchSoundCloudAudio, SoundCloudError, type ScTrack } from './soundclou
 import { AutoDj } from './autodj';
 import { BeatFx } from './beatfx';
 import { backupToImported, makeBackup, matchTrack, parseBackup, parseRekordboxXml, type ImportedTrack } from './backup';
-import { cueState, Deck, JUMP_BEATS, PITCH_RANGES, QUANTIZE_BEATS } from './deck';
+import { cueState, Deck, DEFAULT_RANGE, JOG_MODES, JUMP_BEATS, PITCH_RANGES, QUANTIZE_BEATS, WIDE_RANGE, type JogMode } from './deck';
 import { normaliseCues } from './cues';
 import { DEMOS, demoRecords, renderDemo } from './demo';
 import { DjEngine, listOutputDevices, unlockDeviceNames, type CueRouting, type OutputDevice } from './engine';
@@ -30,7 +30,20 @@ import {
 import { MidiController, type MidiHandlers } from './midi';
 import { MixMoves } from './moves';
 import { BeatBoard } from './beatboard';
-import { crossfaderGains, defaultChannel, faderGain, type ChannelState, type CrossfaderCurve } from './mixer';
+import {
+  channelLevel,
+  CROSSFADER_CURVES,
+  defaultChannel,
+  EQ_MODES,
+  FADER_CURVES,
+  lockFilter,
+  XF_ASSIGNS,
+  type ChannelState,
+  type CrossfaderCurve,
+  type EqMode,
+  type FaderCurve,
+  type XfAssign,
+} from './mixer';
 import { PADS, Sampler } from './sampler';
 import { DeckStems, STEM_RATE } from './stems';
 import { PreSplitter } from './stems/presplit';
@@ -38,7 +51,10 @@ import { modelCached } from './stems/model';
 import { Preloader } from './preload';
 import { mapLimit } from './limit';
 import { analysisLanes } from '../library/client';
+import { Listening } from './listen';
 import { createStore, type Store } from './store';
+import { PlayHistory } from './history';
+import { Playlists } from './playlists';
 import { emptyCues, HOT_BANK_SIZE, type TrackRecord } from './types';
 
 export interface MixerState {
@@ -46,6 +62,11 @@ export interface MixerState {
   /** −1 (deck A) … 1 (deck B). */
   crossfader: number;
   curve: CrossfaderCurve;
+  /** ISO (full-kill isolator) or EQ (shelf / peak / shelf). */
+  eqMode: EqMode;
+  faderCurve: FaderCurve;
+  /** Each channel's crossfader assign: deck A's channel first. */
+  xfAssign: [XfAssign, XfAssign];
   master: number;
   /** Headphones: 0 = cue only … 1 = master only. */
   cueMix: number;
@@ -100,8 +121,15 @@ interface Settings {
     /** Added after v1 shipped: absent in older saves. */
     jumpBeats?: number;
     quantizeBeats?: number;
+    /** Deck switches, added later still: absent means vinyl, doubles on. */
+    jogMode?: JogMode;
+    doubles?: boolean;
   }[];
   samplerLevel: number;
+  /** Added with the mixer switches: absent in older saves. */
+  eqMode?: EqMode;
+  faderCurve?: FaderCurve;
+  xfAssign?: [XfAssign, XfAssign];
 }
 
 function initialMixer(): MixerState {
@@ -109,6 +137,9 @@ function initialMixer(): MixerState {
     channels: [defaultChannel(), defaultChannel()],
     crossfader: 0,
     curve: 'power',
+    eqMode: 'iso',
+    faderCurve: 'linear',
+    xfAssign: ['A', 'B'],
     master: 0.8,
     cueMix: 0.25,
     cueLevel: 0.8,
@@ -161,6 +192,12 @@ export class DjSession {
   readonly fx: BeatFx;
   /** Move mixes: Rec moves, replay and sharing (engine/moves). */
   readonly moves: MixMoves;
+  /** What the main output plays, and its own volume (listen.ts). */
+  readonly listen: Listening = new Listening(this);
+  /** Your playlists (engine/playlists). */
+  readonly playlists = new Playlists();
+  /** What's been played, by session (engine/history). */
+  readonly history = new PlayHistory();
   engine: DjEngine | null = null;
   private starting: Promise<DjEngine> | null = null;
   private analysing = 0;
@@ -188,11 +225,12 @@ export class DjSession {
     }
     const inMaster = (i: 0 | 1) => {
       const m = this.mixer.get();
-      return faderGain(m.channels[i].fader) * crossfaderGains(m.crossfader, m.curve)[i];
+      return channelLevel(m.channels[i].fader, i, m);
     };
     this.beats = new BeatBoard(this.sampler, this.decks, inMaster);
     this.fx = new BeatFx(this.decks, inMaster, this.mixer);
-    this.sampler.previewToCue = () => this.mixer.get().cueRouting.kind !== 'off';
+    this.sampler.previewToCue = () =>
+      this.mixer.get().cueRouting.kind !== 'off' || this.listen.store.get().source === 'blend';
     this.midi = new MidiController(this.midiHandlers());
     this.autoDj = new AutoDj(this);
     // Last: it hooks the decks', mixer's and Beat FX's controls.
@@ -223,7 +261,11 @@ export class DjSession {
       return { ...t, key: null, status: t.status === 'ready' ? 'analysing' : t.status };
     });
     this.crate.set({ tracks, loaded: true });
+    this.unsubs.push(this.playlists.follow(this.crate), this.history.attach(this.decks));
+    void this.playlists.init();
+    void this.history.init();
     await this.restoreSettings();
+    void this.listen.init();
     await this.fx.init();
     await this.armDecks();
     this.watchForSaves();
@@ -290,16 +332,30 @@ export class DjSession {
   private async restoreSettings() {
     const s = await getValue<Settings>('settings');
     if (!s || s.v !== 1) return;
-    this.mixer.set({ curve: s.curve, master: s.master, cueMix: s.cueMix, cueLevel: s.cueLevel });
+    this.mixer.set({
+      curve: CROSSFADER_CURVES.includes(s.curve) ? s.curve : 'power',
+      master: s.master,
+      cueMix: s.cueMix,
+      cueLevel: s.cueLevel,
+    });
+    if (s.eqMode && EQ_MODES.includes(s.eqMode)) this.mixer.set({ eqMode: s.eqMode });
+    if (s.faderCurve && FADER_CURVES.includes(s.faderCurve)) this.mixer.set({ faderCurve: s.faderCurve });
+    if (Array.isArray(s.xfAssign) && s.xfAssign.length === 2 && s.xfAssign.every((a) => XF_ASSIGNS.includes(a))) {
+      this.mixer.set({ xfAssign: [s.xfAssign[0], s.xfAssign[1]] });
+    }
     s.decks.forEach((p, i) => {
       const d = this.decks[i];
       if (!d) return;
       if ((PITCH_RANGES as readonly number[]).includes(p.range)) d.setRange(p.range);
+      // ±50 was a range before WIDE replaced it: the nearest that still holds it.
+      else if (typeof p.range === 'number' && p.range > DEFAULT_RANGE) d.setRange(PITCH_RANGES.find((r) => r >= p.range) ?? WIDE_RANGE);
       d.setQuantize(p.quantize);
       d.setSlip(p.slip);
       d.store.set({ keyLock: p.keyLock });
       if (p.jumpBeats !== undefined && (JUMP_BEATS as readonly number[]).includes(p.jumpBeats)) d.setJumpBeats(p.jumpBeats);
       if (p.quantizeBeats !== undefined && (QUANTIZE_BEATS as readonly number[]).includes(p.quantizeBeats)) d.setQuantizeBeats(p.quantizeBeats);
+      if (p.jogMode !== undefined && (JOG_MODES as readonly string[]).includes(p.jogMode)) d.setJogMode(p.jogMode);
+      if (typeof p.doubles === 'boolean') d.setDoubles(p.doubles);
     });
     this.sampler.setLevel(s.samplerLevel);
   }
@@ -321,9 +377,14 @@ export class DjSession {
           keyLock: st.keyLock,
           jumpBeats: st.jumpBeats,
           quantizeBeats: st.quantizeBeats,
+          jogMode: st.jogMode,
+          doubles: st.doubles,
         };
       }),
       samplerLevel: this.sampler.store.get().level,
+      eqMode: m.eqMode,
+      faderCurve: m.faderCurve,
+      xfAssign: m.xfAssign,
     };
   }
 
@@ -389,6 +450,7 @@ export class DjSession {
     this.beats.stop();
     this.fx.dispose();
     this.moves.dispose();
+    this.listen.dispose();
     this.sampler.silence();
     if (this.saveTimer !== null) window.clearTimeout(this.saveTimer);
     this.decks.forEach((d) => d.destroy());
@@ -409,9 +471,9 @@ export class DjSession {
     const e = this.engine;
     if (!e) return;
     const m = this.mixer.get();
-    e.applyChannel(0, m.channels[0]);
-    e.applyChannel(1, m.channels[1]);
-    e.applyCrossfader(m.crossfader, m.curve);
+    e.applyChannel(0, m.channels[0], m);
+    e.applyChannel(1, m.channels[1], m);
+    e.applyCrossfader(m.crossfader, m.curve, m.xfAssign);
     e.applyLevels(m.master, m.cueMix, m.cueLevel);
   }
 
@@ -419,7 +481,7 @@ export class DjSession {
     const channels = [...this.mixer.get().channels] as [ChannelState, ChannelState];
     channels[i] = { ...channels[i], ...patch };
     this.mixer.set({ channels });
-    this.engine?.applyChannel(i, channels[i]);
+    this.engine?.applyChannel(i, channels[i], this.mixer.get());
   }
 
   setCrossfader(crossfader: number) {
@@ -429,6 +491,25 @@ export class DjSession {
 
   setCurve(curve: CrossfaderCurve) {
     this.mixer.set({ curve });
+    this.applyMixer();
+  }
+
+  /** The mixer-wide EQ switch: ISO (isolator, full kill) or EQ (shelves). */
+  setEqMode(eqMode: EqMode) {
+    this.mixer.set({ eqMode });
+    this.applyMixer();
+  }
+
+  setFaderCurve(faderCurve: FaderCurve) {
+    this.mixer.set({ faderCurve });
+    this.applyMixer();
+  }
+
+  /** Channel i's crossfader assign: A, THRU (crossfader ignored) or B. */
+  setXfAssign(i: 0 | 1, assign: XfAssign) {
+    const xfAssign = [...this.mixer.get().xfAssign] as [XfAssign, XfAssign];
+    xfAssign[i] = assign;
+    this.mixer.set({ xfAssign });
     this.applyMixer();
   }
 
@@ -776,7 +857,9 @@ export class DjSession {
       deck.load(ready, buffer, artUrl);
       this.hits[i].read(rec.id, buffer);
       this.stems[i].trackLoaded(this.crate.get().tracks.find((t) => t.id === rec.id) ?? rec);
-      if (this.inflight[i]?.play) deck.play();
+      // Instant doubles: the track the other deck has joins it where it is.
+      deck.double(this.decks[i === 0 ? 1 : 0]);
+      if (this.inflight[i]?.play && !deck.store.get().playing) deck.play();
       // Never analysed (no access in the background): do it now.
       if (!rec.demo && rec.status !== 'error' && (rec.bpm === null || (!rec.soundcloud && rec.library?.analysis?.analyzer !== ANALYZER_VERSION))) {
         void this.analyseLoaded(rec, buffer);
@@ -818,7 +901,7 @@ export class DjSession {
   /* ── Backup and import ────────────────────────────────────────────────── */
 
   exportBackup(): { name: string; blob: Blob } {
-    const data = makeBackup(this.crate.get().tracks, this.settings(), this.midi.bindings());
+    const data = makeBackup(this.crate.get().tracks, this.settings(), this.midi.bindings(), this.playlists.toBackup());
     const d = new Date().toISOString().slice(0, 10);
     return { name: `platter-backup-${d}.json`, blob: new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' }) };
   }
@@ -828,6 +911,7 @@ export class DjSession {
     const text = await file.text();
     let entries: (ImportedTrack & { id?: string })[];
     let source: string;
+    let playlists: unknown = undefined;
     try {
       if (/^\s*</.test(text)) {
         entries = parseRekordboxXml(text);
@@ -837,15 +921,18 @@ export class DjSession {
         entries = backupToImported(backup);
         source = 'Backup';
         this.midi.importBindings(backup.midi);
+        playlists = backup.playlists;
       }
     } catch (err) {
       this.crate.set({ note: err instanceof Error ? err.message : 'That file couldn’t be read.' });
       return;
     }
     let updated = 0;
+    const idMap = new Map<string, string>();
     for (const e of entries) {
       const t = matchTrack(this.crate.get().tracks, e);
       if (!t) continue;
+      if (e.id) idMap.set(e.id, t.id);
       const patch: Partial<TrackRecord> = {};
       if (e.bpm) patch.bpm = e.bpm;
       if (e.gridOffset !== null) patch.gridOffset = e.gridOffset;
@@ -865,8 +952,9 @@ export class DjSession {
       updated++;
     }
     const missing = entries.length - updated;
+    const lists = this.playlists.importBackup(playlists, idMap);
     this.crate.set({
-      note: `${source}: updated ${updated} track${updated === 1 ? '' : 's'}${missing ? `; ${missing} aren’t in this crate — add their files, then import again` : ''}.`,
+      note: `${source}: updated ${updated} track${updated === 1 ? '' : 's'}${lists ? ` and ${lists} playlist${lists === 1 ? '' : 's'}` : ''}${missing ? `; ${missing} aren’t in this crate — add their files, then import again` : ''}.`,
     });
   }
 
@@ -917,9 +1005,12 @@ export class DjSession {
       h[`${L}.bendUp`] = (v) => d.setBend(v ? 1 : 0);
       knob(`${L}.pitch`, (v) => d.setPitch((v * 2 - 1) * st().range));
       h[`${L}.jogTouch`] = (v) => {
-        this.jog[i].touched = !!v;
+        // In CDJ jog mode a touched jog bends a playing deck, as untouched.
+        const grab = !!v && d.jogScratches();
+        if (!grab && !this.jog[i].touched) return;
+        this.jog[i].touched = grab;
         this.jog[i].total = 0;
-        d.touch(!!v);
+        d.touch(grab);
       };
       h[`${L}.jog`] = (delta) => {
         const j = this.jog[i];
@@ -937,9 +1028,17 @@ export class DjSession {
       knob(`${L}.high`, (v) => this.setChannel(i, { high: v }));
       knob(`${L}.mid`, (v) => this.setChannel(i, { mid: v }));
       knob(`${L}.low`, (v) => this.setChannel(i, { low: v }));
-      knob(`${L}.filter`, (v) => this.setChannel(i, { filter: Math.abs(v - 0.5) < 0.02 ? 0 : v * 2 - 1 }));
+      knob(`${L}.filter`, (v) => this.setChannel(i, { filter: lockFilter(v * 2 - 1) }));
       knob(`${L}.fader`, (v) => this.setChannel(i, { fader: v }));
       press(`${L}.pfl`, () => this.setChannel(i, { cue: !this.mixer.get().channels[i].cue }));
+      // Crossfader assign: one button per position, and one that steps A → THRU → B.
+      press(`${L}.xfA`, () => this.setXfAssign(i, 'A'));
+      press(`${L}.xfThru`, () => this.setXfAssign(i, 'thru'));
+      press(`${L}.xfB`, () => this.setXfAssign(i, 'B'));
+      press(`${L}.xfAssign`, () => {
+        const now = XF_ASSIGNS.indexOf(this.mixer.get().xfAssign[i]);
+        this.setXfAssign(i, XF_ASSIGNS[(now + 1) % XF_ASSIGNS.length]);
+      });
     }
     knob('xfader', (v) => this.setCrossfader(v * 2 - 1));
     knob('master', (v) => this.setLevels({ master: v }));
@@ -975,6 +1074,12 @@ export class DjSession {
         return this.fx.litFor(m[1] === 'A' ? 'A' : 'B');
       case 'pfl':
         return ch.cue;
+      case 'xfA':
+        return this.mixer.get().xfAssign[i] === 'A';
+      case 'xfThru':
+        return this.mixer.get().xfAssign[i] === 'thru';
+      case 'xfB':
+        return this.mixer.get().xfAssign[i] === 'B';
       case 'hot1':
       case 'hot2':
       case 'hot3':

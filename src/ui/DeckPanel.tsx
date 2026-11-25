@@ -1,5 +1,5 @@
 import { useRef, useState, type KeyboardEvent, type PointerEvent } from 'react';
-import { PITCH_RANGES, ROLL_BEATS, type Deck } from '../engine/deck';
+import { KEY_SHIFT_MAX, PITCH_RANGES, rangeLabel, ROLL_BEATS, type Deck } from '../engine/deck';
 import { beatsLabel } from '../engine/fx';
 import { compatible, keyName } from '../engine/key';
 import type { DjSession } from '../engine/session';
@@ -7,6 +7,8 @@ import { useStore } from '../engine/store';
 import { setText, useDropTarget, useFrame, type FrameLoop } from './frame';
 import { DECK_GUIDE, InfoTip, PITCH_GUIDE } from './DeckGuide';
 import { FxStrip } from './FxStrip';
+import { BeatCountdown } from './BeatCountdown';
+import { GridEditRow, GridToggle } from './GridEdit';
 import { HotCues } from './HotCues';
 import { LoopControls } from './LoopControls';
 import { StemsControl } from './StemsControl';
@@ -229,27 +231,19 @@ export function DeckPanel({
         <span className={s.pitchReadout} aria-label={`Pitch ${pct(st.pitch)}`}>
           {pct(st.pitch)}
         </span>
+        <BeatCountdown deck={deck} loop={loop} />
         <span className={s.bpmTools}>
-          <button type="button" className={s.mini} onClick={() => deck.scaleBpm(0.5)} disabled={!st.bpm} aria-label={`Deck ${deck.label}: halve the detected tempo`}>
-            ÷2
-          </button>
-          <button type="button" className={s.mini} onClick={() => deck.scaleBpm(2)} disabled={!st.bpm} aria-label={`Deck ${deck.label}: double the detected tempo`}>
-            ×2
-          </button>
           <button type="button" className={s.mini} onClick={() => deck.tap()} disabled={!st.track} aria-label={`Deck ${deck.label}: tap tempo — tap on the beat four or more times`}>
             Tap
           </button>
-          <button type="button" className={s.mini} onClick={() => deck.nudgeGrid(-0.01)} disabled={!st.bpm} aria-label={`Deck ${deck.label}: move the beat grid 10 ms earlier`}>
-            <ChevronIcon dir={-1} />
-          </button>
-          <button type="button" className={s.mini} onClick={() => deck.nudgeGrid(0.01)} disabled={!st.bpm} aria-label={`Deck ${deck.label}: move the beat grid 10 ms later`}>
-            <ChevronIcon dir={1} />
-          </button>
+          <GridToggle deck={deck} />
           <button type="button" className={s.mini} onClick={() => deck.eject()} disabled={!st.track || st.playing} aria-label={`Eject deck ${deck.label}`}>
             ⏏
           </button>
         </span>
       </div>
+
+      <GridEditRow deck={deck} />
 
       <Overview deck={deck} loop={loop} />
 
@@ -257,7 +251,7 @@ export function DeckPanel({
         <Turntable deck={deck} loop={loop} still={still} />
         <div className={s.pitchCol}>
           <span className={s.pitchEnd} aria-hidden="true">
-            −{st.range * 100}
+            −{Math.round(st.range * 100)}
           </span>
           <input
             type="range"
@@ -267,7 +261,7 @@ export function DeckPanel({
             step={0.0025}
             value={st.pitch / st.range}
             aria-label={`Deck ${deck.label} pitch`}
-            aria-valuetext={`${pct(st.pitch)}, range ±${st.range * 100}%`}
+            aria-valuetext={`${pct(st.pitch)}, range ±${Math.round(st.range * 100)}%`}
             onChange={(e) => deck.setPitch(Number(e.target.value) * st.range)}
             onDoubleClick={() => deck.resetPitch()}
             onPointerDown={faderDown}
@@ -283,8 +277,18 @@ export function DeckPanel({
             }}
           />
           <span className={s.pitchEnd} aria-hidden="true">
-            +{st.range * 100}
+            +{Math.round(st.range * 100)}
           </span>
+          <button
+            type="button"
+            className={`${s.mini} ${s.tempoReset}`}
+            onClick={() => deck.resetPitch()}
+            disabled={st.pitch === 0}
+            aria-label={`Deck ${deck.label} tempo reset`}
+            title="Tempo reset: the pitch fader back to 0% (double-click the fader does the same)"
+          >
+            Reset
+          </button>
           <div className={s.rangeGroup} role="group" aria-label={`Deck ${deck.label} pitch range`}>
             {PITCH_RANGES.map((r) => (
               <button
@@ -293,9 +297,9 @@ export function DeckPanel({
                 className={`${s.mini} ${s.rangeBtn}`}
                 aria-pressed={st.range === r}
                 onClick={() => deck.setRange(r)}
-                title={`Pitch fader covers −${r * 100}% to +${r * 100}%`}
+                title={`Pitch fader covers −${Math.round(r * 100)}% to +${Math.round(r * 100)}%`}
               >
-                ±{r * 100}
+                {rangeLabel(r)}
               </button>
             ))}
           </div>
@@ -505,13 +509,13 @@ export function DeckPanel({
 
       <div className={s.keyRow} role="group" aria-label={`Deck ${deck.label} key`}>
         <span className={s.keyLabel}>Key</span>
-        <button type="button" className={s.mini} onClick={() => void deck.setKeyShift(st.keyShift - 1)} disabled={!st.track || st.keyShift <= -6} aria-label="Key down a semitone">
+        <button type="button" className={s.mini} onClick={() => void deck.setKeyShift(st.keyShift - 1)} disabled={!st.track || st.keyShift <= -KEY_SHIFT_MAX} aria-label="Key down a semitone">
           ♭
         </button>
         <span className={s.keyShift} aria-label={`Key shift ${st.keyShift} semitones`}>
           {st.keyShift > 0 ? `+${st.keyShift}` : st.keyShift}
         </span>
-        <button type="button" className={s.mini} onClick={() => void deck.setKeyShift(st.keyShift + 1)} disabled={!st.track || st.keyShift >= 6} aria-label="Key up a semitone">
+        <button type="button" className={s.mini} onClick={() => void deck.setKeyShift(st.keyShift + 1)} disabled={!st.track || st.keyShift >= KEY_SHIFT_MAX} aria-label="Key up a semitone">
           ♯
         </button>
         <button
@@ -526,6 +530,23 @@ export function DeckPanel({
         <button type="button" className={s.mini} onClick={() => void deck.setKeyShift(0)} disabled={st.keyShift === 0} aria-label="Reset key shift">
           0
         </button>
+      </div>
+
+      <div className={s.keyRow} role="group" aria-label={`Deck ${deck.label} loading`}>
+        <span className={s.keyLabel}>Load</span>
+        <button
+          type="button"
+          className={s.mini}
+          aria-pressed={st.doubles}
+          onClick={() => deck.setDoubles(!st.doubles)}
+          aria-label={`Deck ${deck.label} instant doubles`}
+          title={`Instant doubles: load the track deck ${deck.other?.label} has and this deck joins it — same place, tempo, loop and play state`}
+        >
+          Doubles
+        </button>
+        <span className={s.loadNote}>
+          {st.doubles ? `Loading deck ${deck.other?.label}’s track joins it in step` : 'Loads start at the cue point'}
+        </span>
       </div>
     </section>
   );

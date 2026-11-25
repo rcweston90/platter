@@ -9,6 +9,7 @@ import { DeckTargets } from './library/DeckTargets';
 import { closeLibrary, dockHeight, libraryFlyout, openLibrary, toggleDockMax, toggleLibrary, useWidth, type LibraryTab } from './library/dock';
 import { Splitter } from './library/Splitter';
 import { MashupsPanel } from './library/MashupsPanel';
+import { PlaylistsPanel } from './library/PlaylistsPanel';
 import { UpNextPanel } from './library/UpNextPanel';
 import { QueuePanel } from './QueuePanel';
 import { RecordingsPanel } from './RecordingsPanel';
@@ -22,8 +23,8 @@ export const RAIL_FROM = 1080;
 const TARGETS_FROM = 720;
 
 /**
- * The library: the crate, what to play next, mashup matching, the Auto-DJ
- * queue and recorded mixes, in a flyout pinned to the bottom of the window
+ * The library: the crate, playlists and play history, what to play next,
+ * mashup matching, the Auto-DJ queue and recorded mixes, in a flyout pinned to the bottom of the window
  * (see library/dock). Closed, only its header shows, so the tabs and the
  * two decks are always one click away without scrolling; a tab, the chevron,
  * T or / slides it up over the lower part of the rig, to the height its
@@ -61,6 +62,7 @@ export function Library({ session, height, max }: { session: DjSession; height: 
 
   const tabs: { id: Tab; label: string; badge?: number; live?: boolean }[] = [
     { id: 'crate', label: 'Crate' },
+    { id: 'playlists', label: 'Playlists' },
     { id: 'upnext', label: 'Up next' },
     { id: 'mashups', label: 'Mashups' },
     { id: 'queue', label: 'Auto-DJ', live: on, badge: queue.length || undefined },
@@ -168,6 +170,7 @@ export function Library({ session, height, max }: { session: DjSession; height: 
       <div id="lib-body" className={l.body} inert={!open || undefined}>
         <div id={`lib-panel-${tab}`} className={l.panel} data-tab={tab} role="tabpanel" aria-labelledby={`lib-tab-${tab}`}>
           {tab === 'crate' && <Crate session={session} />}
+          {tab === 'playlists' && <PlaylistsPanel session={session} />}
           {tab === 'upnext' && <UpNextPanel session={session} />}
           {tab === 'mashups' && <MashupsPanel session={session} />}
           {tab === 'queue' && <QueuePanel session={session} />}

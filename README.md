@@ -16,7 +16,13 @@ GitHub Actions).
 
 **Decks**
 - Grab the record to scratch. The platter's rotation *is* the playhead, so it
-  slows, stops and runs backwards under your hand.
+  slows, stops and runs backwards under your hand. Turn the rim to bend the
+  tempo. A per-deck **Vinyl / CDJ** jog switch: in CDJ mode the top of the
+  record bends like the rim instead of holding the track.
+- **Instant doubles** (per deck, on by default): load the track the other deck
+  has and it joins it at the same place, tempo, loop and play state.
+- Scroll over a playing record (wheel or trackpad) to nudge it; hold Shift
+  and scroll over a paused one to inch the playhead.
 - CDJ-style CUE: while playing, back to the cue point and stop; while stopped,
   set the cue point and hold to preview.
 - Performance pads in three modes: **hot cues** (two banks of eight, A–H
@@ -32,8 +38,9 @@ GitHub Actions).
   adjust by button, arrow key or a drag on the waveform. Beat jump has its own
   size (1/2 to 64 beats) and carries a running loop with it. QUANT snaps to
   1/8, 1/4, 1/2 or 1 beat.
-- Pitch fader with ±8 / ±16 / ±50% ranges and hold-to-bend nudge buttons, and a
-  33 / 45 platter speed switch (45 plays 1.35× fast, on top of the fader).
+- Pitch fader with ±6 / ±8 / ±10 / ±16 / WIDE (±100%) ranges, a tempo reset
+  button, hold-to-bend nudge buttons, and a 33 / 45 platter speed switch
+  (45 plays 1.35× fast, on top of the fader).
 - **Sync lock**: press SYNC and that deck follows the other (tagged
   *Sync ▸ A* on its waveform; the other is tagged *Leader*). It takes the
   leader's tempo, at double or half time when one track is twice the other,
@@ -50,6 +57,14 @@ GitHub Actions).
   start together, with **Line up bars** to put the 1s together. The
   waveforms scroll in heard time, so at the same tempo a beat is the same
   width on both.
+- **Waveform smarts**: phrases (intro, verse, build, drop, breakdown,
+  outro) read from the waveform on 8-bar lines of the beat grid, shown as a
+  coloured band and tint on both waveforms with short labels; a **beat
+  countdown** on each deck (bars.beats to the next hot or memory cue, or to
+  the loop's end); a **phase meter** on deck B's waveform while both play;
+  and **grid edit** (the Grid button): nudge the grid 1 or 10 ms, set the
+  downbeat at the playhead, halve or double the tempo — saved with the
+  track, and kept when it's analysed again.
 - **Beat pitch** lanes above deck A's waveform and below deck B's: each hit
   as a bar, higher hits higher, so you can hear and see which beats in a
   loop sit above or below the others. Notes read as note names (C#3);
@@ -91,21 +106,28 @@ GitHub Actions).
   notation (8A = A minor). The key you hear follows the pitch fader unless key
   lock holds it.
 - The crate colours keys that mix with what's playing.
-- Key shift ♭/♯ by semitones, and **Match** shifts to the nearest key that
+- Key shift ♭/♯ by semitones, up to an octave each way, and **Match** shifts to the nearest key that
   mixes with the other deck.
 
 **Mixer**
-- Trim, three-band isolator EQ (fully left kills the band) and a one-knob
-  low-/high-pass filter per channel.
+- Trim, three-band EQ and a one-knob low-/high-pass filter per channel. The
+  EQ switches between ISO, an isolator (fully left kills the band), and EQ, a
+  classic shelf / mid / shelf from +6 to −26 dB. The filter locks off at centre.
 - **Beat FX**: one unit you send to deck A, deck B or the master — delay,
   echo, ping pong, spiral, reverb, helix, roll, triplet roll, flanger, phaser,
   filter, triplet filter, mobius, trans and crush — timed in beats of the
   deck's live tempo (or a tapped one), with a TIME readout, low/mid/high band
   select, an X-pad and FX quantize.
 - Channel and master peak meters, a safety limiter on the master.
-- Crossfader with Smooth, Full and Cut (scratch) curves.
+- Crossfader with Smooth, Full and Cut (scratch) curves, and an A / THRU / B
+  assign per channel. Channel faders have Slow, Linear and Fast-cut curves.
 - Headphone cue (PFL) with a cue/master blend: split one output (master left,
   cue right, for a splitter cable) or send the cue to a second audio device.
+- **Listen to** (Outputs, or More on a phone): on a single output, hear the
+  master, deck A's cue, deck B's cue or the cue/master blend, at a listening
+  volume that leaves the master, the meters and recordings alone. The same
+  menu shows the sample rate, latency and, where the browser reports them,
+  dropouts. The screen stays awake while a deck plays.
 - **Sampler**: 64 pads in four banks of 16, and a library of 860+ sounds
   (kicks, snares, claps, hats, cymbals, toms, percussion, bass, chord stabs,
   keys, FX, vox, loops and textures) with categories, search, favourites and
@@ -130,8 +152,8 @@ GitHub Actions).
   analysed on import.
 - **Library flyout**: the library lives in a sheet pinned to the bottom of
   the window, so it's always one click away and never below the fold.
-  Closed, only its header shows: the tabs (Crate, Up next, Mashups, Auto-DJ,
-  Recordings) and decks A and B as drop targets, with the deck
+  Closed, only its header shows: the tabs (Crate, Playlists, Up next,
+  Mashups, Auto-DJ, Recordings) and decks A and B as drop targets, with the deck
   <kbd>Enter</kbd> would load to marked **Next**. Click a tab, the chevron or
   **Tracks**, or press <kbd>T</kbd>, and it slides up over the lower part of
   the rig; the top bar and waveforms stay in view. Drag its top edge (or
@@ -153,6 +175,22 @@ GitHub Actions).
   <kbd>←</kbd>/<kbd>→</kbd> load to deck A or B, <kbd>Enter</kbd> loads to
   the idle deck, <kbd>+</kbd> queues for Auto-DJ; or drag a row onto a deck.
   Long crates stay smooth: only the rows on screen are drawn.
+- **Playlists** (the Playlists tab): make, rename, reorder and delete
+  playlists. Add a track with the playlist button on its crate row (press a
+  playlist to add the track or take it out, or name a new one), or drag rows
+  from the crate's mini window or full screen onto a playlist. In a playlist,
+  drag rows or use ▴ ▾ (or <kbd>Alt</kbd>+<kbd>↑</kbd>/<kbd>↓</kbd>) to
+  reorder, × or <kbd>Delete</kbd> to take one out, and load to a deck just as
+  from the crate (A and B, <kbd>←</kbd>/<kbd>→</kbd>, <kbd>Enter</kbd>, or
+  drag a row onto a deck).
+- **History** (under the playlists): a track is logged once it has played on
+  a deck for 60 seconds, counting only time it was actually playing, with the
+  time it started and the deck. History is grouped into sessions: one starts
+  when the page loads, and a new one after two hours with nothing playing.
+  **Export tracklist** downloads a session as plain text (time into the set,
+  artist and title), and you can clear a session or all of history. Tracks
+  played this session get a tick, and a dimmed title, in the crate and in
+  playlists.
 - **Mashups**: every track in a linked folder is analysed in the background
   for tempo (with half and double time), key in Camelot, loudness (LUFS),
   energy (1–10) and beat grid. Sort and filter by any of them, pick a track
@@ -225,20 +263,32 @@ GitHub Actions).
 
 **Controllers and keyboard**
 - **MIDI learn** for every deck, mixer and sampler control: press Learn, move
-  a knob or button. Jog wheels scratch while touched and nudge otherwise;
+  a knob or button. Jog wheels scratch while touched and nudge otherwise (in
+  CDJ jog mode a touched jog nudges too);
   mapped buttons light up to match the rig.
 - A full keyboard layout (below).
 
 **Saves**
 - The crate, its analysis and every cue point; settings; MIDI mappings;
-  sampler pads; recordings; and which tracks were on the decks — all kept in
-  this browser (IndexedDB).
-- **Backup** saves cues, tempo, keys, settings and MIDI mappings (not the
-  audio) as one JSON file; **Import** restores it on another browser once the
+  sampler pads; recordings; playlists and play history; and which tracks
+  were on the decks — all kept in this browser (IndexedDB).
+- **Backup** saves cues, tempo, keys, playlists, settings and MIDI mappings
+  (not the audio) as one JSON file; **Import** restores it on another browser once the
   same files are added, matched by file name.
 - **Import** also reads a **Rekordbox** collection export (`.xml`): tempo,
   first beat, key, memory cues, and hot cues and hot loops A–H with their
   colours.
+
+**Booth guide** (the **Guide** button in the top bar)
+- A chat panel that answers how to do things in Platter. Controls it names
+  are buttons: press one to have the control ringed on screen.
+- It can also play moves for you, in time with the playing deck: “bring the
+  crossfader to centre over 8 bars”, “kill deck A’s low at the next bar”, or
+  a whole quick transition. Each moving control is ringed with its value, a
+  status line counts the bars, and **Stop** (or touching any control) ends it.
+- It isn't connected to an AI model yet: an offline demo answers a few
+  questions so the panel, rings and moves all work. See *Booth guide: where
+  a model plugs in* below.
 
 **Install**: on a real host Platter is an installable app that opens
 offline after the first visit.
@@ -299,6 +349,7 @@ npm run test:sync      # sync lock: tempo, phase through jumps, nudges, bars, th
 npm run test:library      # tags, fingerprints, mashup scorer, folder scanner
 npm run test:library-dsp  # tempo, loudness and energy on synthetic audio
 npm run test:sound        # sound match: CLAP features against Python, scoring
+node tests/guide.mjs      # booth guide: tool-call checks, demo answers (no browser)
 ```
 
 The end-to-end check drives a real browser through cueing, playing, sync,
@@ -339,6 +390,8 @@ src/engine/
   engine.ts     AudioContext, master bus and limiter, headphone routing, recorder
   session.ts    the rig: decks, mixer, crate, sampler, MIDI, Auto-DJ, saves
   analysis.ts   decoding, three-band waveform peaks, tempo, tags
+  phrases.ts    phrase detection (intro, build, drop …) from peaks and grid
+  countdown.ts  the beat countdown to the next cue or the loop's end
   key.ts        key detection and Camelot arithmetic
   sampler.ts    the 64 pads: playing, choke groups, kits, your own sounds
   beatboard.ts  the step sequencer and its lock to the decks' beat grid
@@ -388,7 +441,7 @@ public/sounds/cc0/  the CC0 recordings, fetched on first use
   the whole track (bass weighted, since it names the tonic) and correlates it
   with the Krumhansl–Kessler major and minor profiles. The open-source key
   finders worth using are GPL/AGPL, so this one is written here, MIT.
-- **The EQ is an isolator**: Linkwitz–Riley crossovers at 220 Hz and 2.6 kHz,
+- **The EQ is an isolator** (in ISO, the default): Linkwitz–Riley crossovers at 220 Hz and 2.6 kHz,
   so a band turned all the way down is gone. Waveforms split at the same
   frequencies, so killing the low is the blue you'd expect to lose.
 - **Beat FX** read the deck's live tempo, so a 3/4-beat echo stays 3/4 of a
@@ -417,6 +470,35 @@ CSPs, sandboxed frames) only allow worklets from the site's own files, so
 `scripts/extract-stretch-worklet.mjs` captures that exact module source at
 build time and writes it to `public/worklets/stretch.js`, and the app points
 the library at it through its `moduleUrl` hook.
+
+### Booth guide: where a model plugs in
+
+The guide's code is in `src/guide/`. It talks to whatever answers it through
+one interface, `GuideModel` in `model.ts`: `reply(messages, tools, { booth,
+signal })` streams back text and tool calls. The chat (`chat.ts`) runs the
+usual tool-use loop around it, a few rounds per question.
+
+- **Controls**: `registry.ts` lists every control the guide may name, read
+  or move (id, name, where it is, what it does, how to read and set it).
+  Chips, rings, the tools and the prompt are all made from it.
+- **Tools**: `tools.ts` makes `ring_control`, `read_control`, `run_moves` and
+  `stop` from the registry, and runs them in the page. Every tool call a
+  model returns goes through `sanitizeToolCall` first: unknown tools and
+  controls are dropped and values are resolved and clamped against the
+  registry, so a model can only do what the panel's own buttons could.
+- **Moves**: `runner.ts` times them in beats and bars of the playing deck.
+- **What a model is told**: `prompt.ts` has the instructions with the whole
+  control list, and `sanitizeBooth` / `boothText` for the booth as it is now.
+- **Today**: `DemoModel` (`demo.ts`) is the only model, local and offline,
+  and the panel says it isn't connected to an AI model.
+
+A real provider is a second `GuideModel` class, swapped in where
+`BoothGuide.tsx` builds the chat (`guideFor`). Keep any API key on a server
+you control, never in this app's code or bundle: the class should call your
+own endpoint, which adds the key, the instructions from `prompt.ts` and
+whatever request limits you want, and streams the answer back. If the
+endpoint fails, falling back to `DemoModel` keeps the panel usable. Nothing
+in the app calls a model today, and the repository holds no key.
 
 ## Open source
 

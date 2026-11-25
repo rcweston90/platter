@@ -25,8 +25,8 @@ export const DOCK_MIN = 240;
 /** The closed sheet: just its header. Matches --lib-bar in library.module.css. */
 export const LIB_BAR = 53;
 
-export type LibraryTab = 'crate' | 'upnext' | 'mashups' | 'queue' | 'recordings';
-const TABS: LibraryTab[] = ['crate', 'upnext', 'mashups', 'queue', 'recordings'];
+export type LibraryTab = 'crate' | 'playlists' | 'upnext' | 'mashups' | 'queue' | 'recordings';
+const TABS: LibraryTab[] = ['crate', 'playlists', 'upnext', 'mashups', 'queue', 'recordings'];
 
 const HEIGHT_KEY = 'platter.libraryHeight';
 const STATE_KEY = 'platter.library';

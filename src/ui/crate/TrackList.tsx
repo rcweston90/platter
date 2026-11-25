@@ -5,7 +5,8 @@ import type { DjSession } from '../../engine/session';
 import { warmProps, warmSoon } from '../warm';
 import type { TrackRecord } from '../../engine/types';
 import type { RowStems } from '../../engine/stems/presplit';
-import { useStore } from '../../engine/store';
+import { useStore, useStoreSelect } from '../../engine/store';
+import { AddToPlaylist } from '../library/AddToPlaylist';
 import { TRACK_MIME } from '../DeckPanel';
 import { formatTime } from '../Waveforms';
 import { SOURCE_LABEL, TEMPO_REACH, artUrl, crateBrowser, energyOf, folderOf, sourceOf, tempoGap, type SortKey } from './model';
@@ -112,6 +113,8 @@ export function TrackList({
   const H = rowHeight(mode);
   const { ref, target, playing, loadedOn, queue } = rig;
   const stems = useStore(session.presplit.rows);
+  /** Tracks played this session (engine/history): ticked, title dimmed. */
+  const played = useStoreSelect(session.history.store, (h) => h.played);
 
   useLayoutEffect(() => {
     const el = scroller.current;
@@ -265,6 +268,7 @@ export function TrackList({
             const dir = folderOf(t);
             const second = mode === 'mini' ? t.artist || null : t.library?.tags.album || dir || null;
             const tab = isActive ? 0 : -1;
+            const was = played.has(t.id);
             return (
               <tr
                 key={t.id}
@@ -275,6 +279,7 @@ export function TrackList({
                 data-active={isActive || undefined}
                 data-loaded={on || undefined}
                 data-error={t.status === 'error' || undefined}
+                data-played={was || undefined}
                 draggable
                 onDragStart={(e) => {
                   e.dataTransfer.setData(TRACK_MIME, t.id);
@@ -285,7 +290,7 @@ export function TrackList({
                 }}
                 onDoubleClick={(e) => onDouble(e, t)}
                 {...warmProps(session, t.id)}
-                aria-label={`${t.title}${t.artist ? `, ${t.artist}` : ''}${t.bpm ? `, ${t.bpm.toFixed(0)} BPM` : ''}${t.key ? `, ${t.key}` : ''}${on ? `, on deck ${on}` : ''}`}
+                aria-label={`${t.title}${t.artist ? `, ${t.artist}` : ''}${t.bpm ? `, ${t.bpm.toFixed(0)} BPM` : ''}${t.key ? `, ${t.key}` : ''}${was ? ', played this session' : ''}${on ? `, on deck ${on}` : ''}`}
               >
                 <td className={c.colTrack}>
                   <div className={c.trackCell}>
@@ -296,6 +301,11 @@ export function TrackList({
                     )}
                     <span className={c.titles}>
                       <span className={c.titleLine}>
+                        {was && (
+                          <span className={c.playedTick} title="Played this session" aria-hidden="true">
+                            ✓
+                          </span>
+                        )}
                         <span className={c.title}>{t.title}</span>
                         {on &&
                           on.split(' ').map((d) => (
@@ -429,6 +439,7 @@ export function TrackList({
                         >
                           {qi >= 0 ? `Q${qi + 1}` : '+Q'}
                         </button>
+                        <AddToPlaylist session={session} trackId={t.id} title={t.title} className={c.load} tabIndex={tab} />
                         <button
                           type="button"
                           className={c.remove}

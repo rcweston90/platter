@@ -81,6 +81,10 @@ await A.getByRole('button', { name: 'Deck A play' }).click();
 await page.waitForFunction(() => document.querySelector('[aria-label="Deck A pause"]'), null, { timeout: 15000 });
 await page.waitForTimeout(600);
 
+// Instant doubles would make deck B join deck A when Night Bus loads there;
+// this mix wants B to stay stopped until it's started by hand.
+const doublesB = B.getByRole('button', { name: 'Deck B instant doubles' });
+if ((await doublesB.getAttribute('aria-pressed')) === 'true') await doublesB.click();
 await recMoves.click();
 check((await recMoves.getAttribute('aria-pressed')) === 'true', 'Rec moves: the button lights while recording');
 await page.waitForTimeout(400);
