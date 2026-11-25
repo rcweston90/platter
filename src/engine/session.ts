@@ -174,7 +174,7 @@ export class DjSession {
     new DeckStems(this.decks[1], (id) => this.decodeForStems(id), this.presplit, () => this.presplit.on),
   ];
   /** Each deck's hits and how high or low each sounds, read when its audio loads (engine/hits). */
-  readonly hits: [DeckHits, DeckHits] = [new DeckHits(), new DeckHits()];
+  readonly hits: [DeckHits, DeckHits] = [new DeckHits(0, (id) => this.monoMix(id)), new DeckHits(1, (id) => this.monoMix(id))];
   /** Decodes the track you're about to load ahead of the click (preload.ts). */
   readonly preload = new Preloader(
     (id, rate) => this.decodeQuietly(id, rate),
@@ -220,6 +220,10 @@ export class DjSession {
       d.onPersist = (id, patch) => this.updateTrack(id, patch);
       d.onNeedAudio = (id, play) => void this.loadToDeck(id, d.index, play);
     }
+    // Stems on a deck feed its stem lanes: each part's hits and notes.
+    this.stems.forEach((st, i) => {
+      st.onStems = (id, pcm, rate) => this.hits[i].stemsIn(id, pcm, rate);
+    });
     const inMaster = (i: 0 | 1) => {
       const m = this.mixer.get();
       return channelLevel(m.channels[i].fader, i, m);
@@ -783,6 +787,21 @@ export class DjSession {
     this.preload.warm(trackId);
   }
 
+  /** A track's audio, mono at the stems' rate, for its stem lanes' "other"
+   *  part: decoded afresh without asking for anything, or null. */
+  private async monoMix(trackId: string): Promise<{ mono: Float32Array; rate: number } | null> {
+    const rec = this.crate.get().tracks.find((t) => t.id === trackId);
+    const buf = rec?.demo ? await renderDemo(rec.demo, STEM_RATE) : await this.decodeQuietly(trackId, STEM_RATE).catch(() => null);
+    if (!buf) return null;
+    const mono = new Float32Array(buf.length);
+    const g = 1 / buf.numberOfChannels;
+    for (let c = 0; c < buf.numberOfChannels; c++) {
+      const ch = buf.getChannelData(c);
+      for (let i = 0; i < ch.length; i++) mono[i] += ch[i] * g;
+    }
+    return { mono, rate: buf.sampleRate };
+  }
+
   /** A loaded track's audio again, at the stems model's rate (engine/stems). */
   private decodeForStems(trackId: string): Promise<AudioBuffer> {
     return this.decodeTrack(trackId, STEM_RATE);
@@ -847,7 +866,7 @@ export class DjSession {
         this.updateTrack(rec.id, { peaks, duration: buffer.duration });
       }
       deck.load(ready, buffer, artUrl);
-      this.hits[i].read(rec.id, buffer);
+      this.hits[i].read(rec.id, buffer, this.stems[i].expects(this.crate.get().tracks.find((t) => t.id === rec.id) ?? rec));
       this.stems[i].trackLoaded(this.crate.get().tracks.find((t) => t.id === rec.id) ?? rec);
       // Instant doubles: the track the other deck has joins it where it is.
       deck.double(this.decks[i === 0 ? 1 : 0]);

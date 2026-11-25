@@ -122,6 +122,9 @@ export class DeckStems {
   private held: { stems: StemPcm[]; rate: number } | null = null;
   /** The track is on the deck as a picture only (e.g. after a reload). */
   private armed = false;
+  /** Stems are in for a track, about to move to the deck (which takes the
+   *  buffers): a last look, for the stem lanes' analysis (engine/hits). */
+  onStems: ((trackId: string, stems: StemPcm[], rate: number) => void) | null = null;
 
   /**
    * `decode` gives the track's audio at 44.1 kHz stereo, decoded afresh
@@ -206,8 +209,14 @@ export class DeckStems {
 
   /** Stems in: onto the deck, or held until its audio arrives. */
   private attach(stems: StemPcm[], rate: number) {
+    if (this.trackId) this.onStems?.(this.trackId, stems, rate);
     if (this.deck.hasAudio) this.deck.setStems(stems, rate);
     else this.held = { stems, rate };
+  }
+
+  /** Will this track's stems arrive by themselves once it loads? */
+  expects(rec: TrackRecord) {
+    return stemsPolicy(rec).allowed && DeckStems.supported() && this.auto();
   }
 
   /** Stems arrive by themselves on this deck (no Split to press). */

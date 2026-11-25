@@ -71,7 +71,14 @@ GitHub Actions).
   drums and other unpitched hits show hollow, placed by their brightness.
   The hit under the playhead lights up, and with a loop set the lane holds
   the whole pattern still and a playhead sweeps across it. Read in your
-  browser when a track loads; the pitch button by the zoom hides them.
+  browser when a track loads.
+- **Stem lanes**: once a track's stems are in, the beat pitch splits into a
+  lane per part, coloured like the stem buttons and lined up with the
+  waveform: vocals and other as a piano roll in the track's key, bass with
+  its note and step, drums as kick, snare and hat rows. The pitch button by
+  the zoom picks the view (off, the mix, a lane per part, paired, or all in
+  one), which parts to draw, and whether a muted part fades. Tap a lane's
+  name to mute that part, hold it (or Shift-click) to hear it alone.
 - **Keylock** holds the key while you change tempo.
 - **Stems**: split a track into vocals, drums, bass and other, then tap a part
   to mute it or hold it to hear it alone. The split runs in your browser

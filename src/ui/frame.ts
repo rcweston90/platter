@@ -121,6 +121,12 @@ export function readPalette(el: Element) {
     label: v('--font-label') || 'sans-serif',
     hot: CUE_COLORS.map((_, i) => v(`--dj-hot-${i + 1}`)),
     memory: v('--dj-memory'),
+    stem: {
+      vocals: v('--dj-stem-vocals'),
+      drums: v('--dj-stem-drums'),
+      bass: v('--dj-stem-bass'),
+      other: v('--dj-stem-other'),
+    },
     phrase: {
       intro: v('--dj-phrase-intro'),
       verse: v('--dj-phrase-verse'),
