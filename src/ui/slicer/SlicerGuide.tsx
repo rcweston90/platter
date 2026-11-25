@@ -30,7 +30,7 @@ export const SLICER_GUIDE: Record<SlicerStep, GuideSection> = {
       },
       {
         name: 'How it arrives',
-        text: 'Already cut, so the pads work straight away. A short sound (30 s or less) is cut on its hits. A longer track with a known tempo is cut into one slice per bar, which for a whole song is hundreds of slices: change how it’s cut in step 2.',
+        text: `Already cut on its hits, so the pads work straight away. A whole track gives its ${MAX_HITS} strongest hits. A sound with few hits (a held chord) is cut on the beat instead. Change how it’s cut in step 2.`,
       },
       {
         name: 'Fold the list',
