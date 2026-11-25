@@ -271,6 +271,7 @@ const got = await joined;
 assert.equal(got.length, 3);
 assert.deepEqual(seen, [1]);
 await until(() => p.rows.get().h.state === 'ready', 'joined split saved too');
+await until(() => splits.length === n0 + 3, 'G starts');
 splits.at(-1).finish(); // G
 await until(() => p.rows.get().g.state === 'ready', 'G');
 console.log('✓ presplit: newest tracks first; a deck joins the split under way instead of starting again');

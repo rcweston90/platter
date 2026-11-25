@@ -33,7 +33,7 @@ import { createStore, type Store } from '../store';
 import type { TrackRecord } from '../types';
 import { fingerprintBlob } from '../../library/fingerprint';
 import { splitInWorker, stemsPolicy, STEM_RATE, type SavedStemsHook, type SplitJob } from './index';
-import { access, hasSaved, loadSaved, writeSaved } from './saved';
+import { access, compactSaved, hasSaved, loadSaved, writeQuick } from './saved';
 import { modelFailed, type StemPcm } from './separate';
 import type { Backend } from './worker';
 
@@ -151,7 +151,10 @@ export class PreSplitter implements SavedStemsHook {
   private prints = new Map<string, string>();
   private wake: (() => void) | null = null;
   private unsubs: (() => void)[] = [];
+  /** Slow writes (Opus encoding), one at a time. */
   private writes: Promise<void> = Promise.resolve();
+  /** Quick writes (stems as they are, the moment a split finishes), one at a time. */
+  private quick: Promise<void> = Promise.resolve();
   private folderName: string | null = null;
   private browser: Promise<FileSystemDirectoryHandle | null> | null = null;
   private watchers = new Map<string, Set<() => void>>();
@@ -604,15 +607,16 @@ export class PreSplitter implements SavedStemsHook {
     } finally {
       this.job = null;
     }
-    settle(stems);
-    // A deck split it meanwhile (and kept it): nothing more to do.
-    if (this.saved.get(rec.id)?.fingerprint === got.src.fingerprint) return;
-    // Saved while the next track splits (encoding takes a few seconds). One save at a
-    // time, so at most one finished track's stems wait in memory besides the one splitting.
-    await this.writes;
+    // A deck split it meanwhile (and kept it): nothing more to save.
+    if (this.saved.get(rec.id)?.fingerprint === got.src.fingerprint) return settle(stems);
+    // On disk (as is, quickly) before a deck waiting on it shows it ready, so a
+    // refresh straight after can't lose it. Then compacted while the next track splits.
     this.saving.add(rec.id);
     this.tally();
-    void this.save(rec, got.src, stems)
+    const saving = this.save(rec, got.src, stems);
+    await saving.quick.catch(() => undefined);
+    settle(stems);
+    void saving.done
       .catch((err) => {
         this.failed.add(this.failKey(rec));
         this.store.set({ message: `Couldn’t save the stems of “${rec.title}”: ${err instanceof Error ? err.message : 'write failed'}` });
@@ -623,17 +627,55 @@ export class PreSplitter implements SavedStemsHook {
       });
   }
 
-  /** Writes a track's stems where they belong. One write at a time (each holds a track's stems in memory). */
-  private save(rec: TrackRecord, src: Source, stems: StemPcm[]): Promise<void> {
-    const next = this.writes.then(async () => {
+  /**
+   * Writes a track's stems where they belong, in two steps:
+   *  1. at once, as they are (uncompressed), so a refresh straight after a
+   *     split can't lose it. This never waits behind an Opus encode;
+   *  2. then, one at a time with other encodes, re-encoded as Opus to take a
+   *     fraction of the room (read back from disk, so the stems needn't wait
+   *     in memory). A refresh during this leaves step 1's file, compacted
+   *     next time the track loads.
+   * `quick` settles once step 1 has landed; `done` once both have (it
+   * rejects only if step 1 failed).
+   */
+  private save(rec: TrackRecord, src: Source, stems: StemPcm[]): { quick: Promise<void>; done: Promise<void> } {
+    const quick = this.quick.then(async () => {
       const to = await this.target(rec, src);
       if (!to) throw new Error('this browser has nowhere to keep them');
-      const bytes = await writeSaved(to.dir, { ...src, path: to.path }, stems, STEM_RATE, NAMES);
+      const bytes = await writeQuick(to.dir, { ...src, path: to.path }, stems, STEM_RATE, NAMES);
       this.saved.set(rec.id, { ...src, bytes, where: to.where });
       this.tally();
+      return to;
     });
-    this.writes = next.catch(() => undefined);
-    return next;
+    this.quick = quick.then(
+      () => undefined,
+      () => undefined,
+    );
+    const compact = this.writes.then(async () => {
+      const to = await quick.catch(() => null);
+      if (to) await this.compact(rec.id, to.dir, to.path, src.fingerprint);
+    });
+    this.writes = compact;
+    return { quick: quick.then(() => undefined), done: quick.then(() => compact) };
+  }
+
+  /** Re-encodes a quick save as Opus (see save). Never throws: the quick save stands. */
+  private async compact(trackId: string, dir: FileSystemDirectoryHandle, path: string, fingerprint: string) {
+    try {
+      const bytes = await compactSaved(dir, path, fingerprint);
+      const known = this.saved.get(trackId);
+      if (bytes != null && known?.fingerprint === fingerprint) {
+        this.saved.set(trackId, { ...known, bytes });
+        this.tally();
+      }
+    } catch {
+      // Stays uncompressed; tried again next time it loads.
+    }
+  }
+
+  /** A loaded save that's still uncompressed (a refresh cut its encode short): finish it. */
+  private compactLater(trackId: string, dir: FileSystemDirectoryHandle, path: string, fingerprint: string) {
+    this.writes = this.writes.then(() => this.compact(trackId, dir, path, fingerprint));
   }
 
   /* ── For the decks (SavedStemsHook) ────────────────────────────────── */
@@ -652,19 +694,24 @@ export class PreSplitter implements SavedStemsHook {
   async load(trackId: string) {
     const rec = this.rec(trackId);
     if (!rec) return null;
+    const from = async (dir: FileSystemDirectoryHandle, path: string, fingerprint: string) => {
+      const found = await loadSaved(dir, path, fingerprint);
+      if (found?.codec === 'raw16') this.compactLater(rec.id, dir, path, fingerprint);
+      return found;
+    };
     const got = await this.source(rec);
     if (!got) {
       const fp = await this.kept(rec);
       const dir = fp ? await this.browserDir() : null;
-      return dir && fp ? loadSaved(dir, fp, fp) : null;
+      return dir && fp ? from(dir, fp, fp) : null;
     }
     const { src } = got;
     if (this.fromFolder(rec) && this.folder) {
-      const found = await loadSaved(this.folder, src.path, src.fingerprint);
+      const found = await from(this.folder, src.path, src.fingerprint);
       if (found) return found;
     }
     const dir = await this.browserDir();
-    return dir ? loadSaved(dir, src.fingerprint, src.fingerprint) : null;
+    return dir ? from(dir, src.fingerprint, src.fingerprint) : null;
   }
 
   join(trackId: string, progress: Joiner['progress']): Promise<StemPcm[] | null> | null {
@@ -682,18 +729,17 @@ export class PreSplitter implements SavedStemsHook {
     return this.enabled && !!this.rec(trackId);
   }
 
-  keep(trackId: string, stems: StemPcm[]) {
+  keep(trackId: string, stems: StemPcm[]): Promise<void> {
     const rec = this.rec(trackId);
-    if (!rec) return;
-    void (async () => {
+    if (!rec) return Promise.resolve();
+    return (async () => {
       const got = await this.source(rec);
       if (!got) return;
-      try {
-        await this.save(rec, got.src, stems);
-      } catch {
-        // Not saved: it'll be split again in the background.
-      }
-    })();
+      // Settles once it's on disk (as is); compacting carries on after.
+      await this.save(rec, got.src, stems).quick;
+    })().catch(() => {
+      // Not saved: it'll be split again in the background.
+    });
   }
 
   watch(trackId: string, fn: () => void): () => void {

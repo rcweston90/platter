@@ -87,6 +87,19 @@ const source = { path: 'House/Song One.flac', fingerprint: 'ab'.repeat(32), size
     assert.deepEqual([...s.right], [...stems[i].right]);
   });
   console.log(`✓ PCM fallback: exact round trip (${(packed.length / raw * 100).toFixed(0)}% of raw size for test tones)`);
+
+  // The quick save, written the moment a split finishes: as is, exact.
+  const quick = sf.packStemFile(codec.rawStems(stems, 44100, ['drums', 'bass', 'vocals'], source));
+  const qfile = sf.unpackStemFile(quick);
+  assert.equal(qfile.header.codec, 'raw16');
+  assert.ok(sf.headerMatches(qfile.header, { fingerprint: source.fingerprint }), 'a quick save is a valid save');
+  const q = await codec.decodeStems(qfile);
+  assert.equal(q.rate, 44100);
+  q.stems.forEach((s, i) => {
+    assert.deepEqual([...s.left], [...stems[i].left]);
+    assert.deepEqual([...s.right], [...stems[i].right]);
+  });
+  console.log(`✓ quick save: no encoding, exact round trip (${(quick.length / raw * 100).toFixed(0)}% of raw size)`);
 }
 
 /* ── 4. Alignment ─────────────────────────────────────────────────────── */

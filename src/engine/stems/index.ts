@@ -27,6 +27,8 @@ export const STEMS = ['vocals', 'drums', 'bass', 'other'] as const;
 export type StemName = (typeof STEMS)[number];
 export const STEM_LABELS: Record<StemName, string> = { vocals: 'Vocals', drums: 'Drums', bass: 'Bass', other: 'Other' };
 export const STEM_RATE = 44100;
+/** Longest a finished split waits to be on disk before the deck shows it anyway. */
+const KEEP_WAIT_MS = 5000;
 
 /** Can this track be split? `reason` says why not, in a sentence. */
 export function stemsPolicy(rec: Pick<TrackRecord, 'soundcloud' | 'audius' | 'license'>): { allowed: boolean; reason: string | null } {
@@ -78,8 +80,9 @@ export interface SavedStemsHook {
   beforeSplit(): void;
   /** Would a live split of this track be worth saving? */
   wants(trackId: string): boolean;
-  /** Keep a live split (the stems are a copy the hook may keep). */
-  keep(trackId: string, stems: StemPcm[]): void;
+  /** Keep a live split (the stems are a copy the hook may keep). Settles
+   *  once it's on disk, safe from a refresh (it never rejects). */
+  keep(trackId: string, stems: StemPcm[]): Promise<void> | void;
 }
 
 const unmuted = (): Record<StemName, boolean> => ({ vocals: false, drums: false, bass: false, other: false });
@@ -323,13 +326,19 @@ export class DeckStems {
       case 'done':
         listeners.delete(m.id);
         this.job = null;
-        if (this.saved?.wants(trackId)) {
-          // The deck takes the buffers; the copy goes to disk.
-          this.saved.keep(trackId, m.stems.map((p) => ({ left: p.left.slice(), right: p.right.slice() })));
-        }
-        this.attach(m.stems, STEM_RATE);
-        this.store.set({ status: 'ready', progress: 1, backend: m.backend, seconds: m.seconds });
-        this.applyGains();
+        void (async () => {
+          if (this.saved?.wants(trackId)) {
+            // The deck takes the buffers; the copy goes to disk. It's on disk
+            // (a moment: written as is, compacted later) before the deck says
+            // ready, so a refresh then can't lose the split.
+            const kept = this.saved.keep(trackId, m.stems.map((p) => ({ left: p.left.slice(), right: p.right.slice() })));
+            await Promise.race([kept, new Promise((r) => setTimeout(r, KEEP_WAIT_MS))]);
+            if (trackId !== this.trackId) return;
+          }
+          this.attach(m.stems, STEM_RATE);
+          this.store.set({ status: 'ready', progress: 1, backend: m.backend, seconds: m.seconds });
+          this.applyGains();
+        })();
         break;
       case 'cancelled':
         listeners.delete(m.id);

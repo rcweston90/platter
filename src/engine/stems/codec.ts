@@ -84,6 +84,15 @@ export async function encodeStems(stems: StemPcm[], rate: number, names: string[
   return encodePcm(stems, rate, names, source);
 }
 
+/**
+ * Stems as they are (16-bit PCM, no compression): ready to write at once.
+ * Larger than Opus, so it's replaced once Opus is encoded (see saved.ts).
+ */
+export function rawStems(stems: StemPcm[], rate: number, names: string[], source: EncodeSource): StemFile {
+  const bytes = (a: Int16Array) => new Uint8Array(a.buffer, a.byteOffset, a.byteLength);
+  return { header: header('raw16', rate, stems[0].left.length, 0, names, source), packets: stems.map((s) => [bytes(s.left), bytes(s.right)]) };
+}
+
 async function encodePcm(stems: StemPcm[], rate: number, names: string[], source: EncodeSource): Promise<StemFile> {
   const packets: Uint8Array[][] = [];
   for (const s of stems) {
@@ -243,6 +252,17 @@ const toI16 = (v: number) => (v >= 1 ? 32767 : v <= -1 ? -32767 : Math.round(v *
 export async function decodeStems(file: StemFile): Promise<{ stems: StemPcm[]; rate: number }> {
   const h = file.header;
   const stems: StemPcm[] = [];
+  if (h.codec === 'raw16') {
+    // Copied out: a packet can sit at an odd offset in the file.
+    const i16 = (b: Uint8Array) => new Int16Array(b.slice().buffer);
+    for (const [l, r] of file.packets) {
+      const left = i16(l);
+      const right = i16(r);
+      if (left.length !== h.frames || right.length !== h.frames) throw new Error('The saved stems are the wrong length.');
+      stems.push({ left, right });
+    }
+    return { stems, rate: h.sampleRate };
+  }
   if (h.codec === 'pcm16') {
     for (const [l, r] of file.packets) {
       const [lb, rb] = await Promise.all([inflate(l), inflate(r)]);

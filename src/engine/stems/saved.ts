@@ -4,8 +4,8 @@
  * storage, the repo or any server. Writing needs the folder's readwrite
  * permission, which the browser asks for on a click (see presplit.ts).
  */
-import { encodeStems, decodeStems, type EncodeSource, type StemPcm } from './codec';
-import { headerMatches, headerSize, packStemFile, readStemHeader, stemFileLocation, STEMS_DIR, unpackStemFile, type StemFileHeader } from './stemfile';
+import { canEncodeOpus, encodeStems, decodeStems, rawStems, type EncodeSource, type StemPcm } from './codec';
+import { headerMatches, headerSize, packStemFile, readStemHeader, stemFileLocation, STEMS_DIR, unpackStemFile, type StemCodec, type StemFileHeader } from './stemfile';
 
 export type Access = 'granted' | 'prompt' | 'denied';
 
@@ -69,24 +69,22 @@ export async function hasSaved(root: FileSystemDirectoryHandle, trackPath: strin
 }
 
 /** The saved stems of this exact file, decoded; null if there are none (or they're for an older version of it). */
-export async function loadSaved(root: FileSystemDirectoryHandle, trackPath: string, fingerprint: string): Promise<{ stems: StemPcm[]; rate: number } | null> {
+export async function loadSaved(root: FileSystemDirectoryHandle, trackPath: string, fingerprint: string): Promise<{ stems: StemPcm[]; rate: number; codec: StemCodec } | null> {
   const fh = await fileHandle(root, trackPath, false);
   if (!fh) return null;
   try {
     const bytes = new Uint8Array(await (await fh.getFile()).arrayBuffer());
     const file = unpackStemFile(bytes);
     if (!headerMatches(file.header, { fingerprint })) return null;
-    return await decodeStems(file);
+    return { ...(await decodeStems(file)), codec: file.header.codec };
   } catch {
     return null;
   }
 }
 
-/** Encodes and writes the stems; returns the file's size. The write only lands once complete. */
-export async function writeSaved(root: FileSystemDirectoryHandle, source: EncodeSource, stems: StemPcm[], rate: number, names: string[]): Promise<number> {
-  const file = await encodeStems(stems, rate, names, source);
-  const bytes = packStemFile(file);
-  const fh = await fileHandle(root, source.path, true);
+/** Writes the file whole; it only lands once complete (a refresh mid-write leaves the old one). */
+async function writeFile(root: FileSystemDirectoryHandle, trackPath: string, bytes: Uint8Array): Promise<number> {
+  const fh = await fileHandle(root, trackPath, true);
   if (!fh) throw new Error(`Couldn’t make a folder for the stems in “${root.name}”.`);
   const w = await fh.createWritable();
   try {
@@ -97,4 +95,31 @@ export async function writeSaved(root: FileSystemDirectoryHandle, source: Encode
     throw err;
   }
   return bytes.length;
+}
+
+/**
+ * Writes the stems as they are, uncompressed: no encoding, so it lands within
+ * moments of the split finishing. Returns the file's size.
+ */
+export async function writeQuick(root: FileSystemDirectoryHandle, source: EncodeSource, stems: StemPcm[], rate: number, names: string[]): Promise<number> {
+  return writeFile(root, source.path, packStemFile(rawStems(stems, rate, names, source)));
+}
+
+/**
+ * A quick (uncompressed) save, re-encoded as Opus to take a fraction of the
+ * room. Read back from disk, so nothing waits in memory meanwhile. Returns the
+ * new size, or null if it's already compact, gone, or Opus can't be encoded here.
+ */
+export async function compactSaved(root: FileSystemDirectoryHandle, trackPath: string, fingerprint: string): Promise<number | null> {
+  const got = await savedHeader(root, trackPath);
+  if (!got || got.header.codec !== 'raw16' || !headerMatches(got.header, { fingerprint })) return null;
+  if (!(await canEncodeOpus())) return null;
+  const loaded = await loadSaved(root, trackPath, fingerprint);
+  if (!loaded) return null;
+  const file = await encodeStems(loaded.stems, loaded.rate, got.header.stems, got.header.source);
+  if (file.header.codec !== 'opus') return null; // deflated PCM saves next to nothing over raw
+  // Still the same quick save? (The track may have been split again meanwhile.)
+  const now = await savedHeader(root, trackPath);
+  if (!now || now.header.codec !== 'raw16' || now.header.createdAt !== got.header.createdAt) return null;
+  return writeFile(root, trackPath, packStemFile(file));
 }
