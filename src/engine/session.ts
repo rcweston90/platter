@@ -10,7 +10,7 @@ import { fetchSoundCloudAudio, SoundCloudError, type ScTrack } from './soundclou
 import { AutoDj } from './autodj';
 import { BeatFx } from './beatfx';
 import { backupToImported, makeBackup, matchTrack, parseBackup, parseRekordboxXml, type ImportedTrack } from './backup';
-import { cueState, Deck, JUMP_BEATS, PITCH_RANGES, QUANTIZE_BEATS } from './deck';
+import { cueState, Deck, DEFAULT_RANGE, JOG_MODES, JUMP_BEATS, PITCH_RANGES, QUANTIZE_BEATS, WIDE_RANGE, type JogMode } from './deck';
 import { normaliseCues } from './cues';
 import { DEMOS, demoRecords, renderDemo } from './demo';
 import { DjEngine, listOutputDevices, unlockDeviceNames, type CueRouting, type OutputDevice } from './engine';
@@ -119,6 +119,9 @@ interface Settings {
     /** Added after v1 shipped: absent in older saves. */
     jumpBeats?: number;
     quantizeBeats?: number;
+    /** Deck switches, added later still: absent means vinyl, doubles on. */
+    jogMode?: JogMode;
+    doubles?: boolean;
   }[];
   samplerLevel: number;
   /** Added with the mixer switches: absent in older saves. */
@@ -332,11 +335,15 @@ export class DjSession {
       const d = this.decks[i];
       if (!d) return;
       if ((PITCH_RANGES as readonly number[]).includes(p.range)) d.setRange(p.range);
+      // ±50 was a range before WIDE replaced it: the nearest that still holds it.
+      else if (typeof p.range === 'number' && p.range > DEFAULT_RANGE) d.setRange(PITCH_RANGES.find((r) => r >= p.range) ?? WIDE_RANGE);
       d.setQuantize(p.quantize);
       d.setSlip(p.slip);
       d.store.set({ keyLock: p.keyLock });
       if (p.jumpBeats !== undefined && (JUMP_BEATS as readonly number[]).includes(p.jumpBeats)) d.setJumpBeats(p.jumpBeats);
       if (p.quantizeBeats !== undefined && (QUANTIZE_BEATS as readonly number[]).includes(p.quantizeBeats)) d.setQuantizeBeats(p.quantizeBeats);
+      if (p.jogMode !== undefined && (JOG_MODES as readonly string[]).includes(p.jogMode)) d.setJogMode(p.jogMode);
+      if (typeof p.doubles === 'boolean') d.setDoubles(p.doubles);
     });
     this.sampler.setLevel(s.samplerLevel);
   }
@@ -358,6 +365,8 @@ export class DjSession {
           keyLock: st.keyLock,
           jumpBeats: st.jumpBeats,
           quantizeBeats: st.quantizeBeats,
+          jogMode: st.jogMode,
+          doubles: st.doubles,
         };
       }),
       samplerLevel: this.sampler.store.get().level,
@@ -834,7 +843,9 @@ export class DjSession {
       deck.load(ready, buffer, artUrl);
       this.hits[i].read(rec.id, buffer);
       this.stems[i].trackLoaded(this.crate.get().tracks.find((t) => t.id === rec.id) ?? rec);
-      if (this.inflight[i]?.play) deck.play();
+      // Instant doubles: the track the other deck has joins it where it is.
+      deck.double(this.decks[i === 0 ? 1 : 0]);
+      if (this.inflight[i]?.play && !deck.store.get().playing) deck.play();
       // Never analysed (no access in the background): do it now.
       if (!rec.demo && rec.status !== 'error' && (rec.bpm === null || (!rec.soundcloud && rec.library?.analysis?.analyzer !== ANALYZER_VERSION))) {
         void this.analyseLoaded(rec, buffer);
@@ -980,9 +991,12 @@ export class DjSession {
       h[`${L}.bendUp`] = (v) => d.setBend(v ? 1 : 0);
       knob(`${L}.pitch`, (v) => d.setPitch((v * 2 - 1) * st().range));
       h[`${L}.jogTouch`] = (v) => {
-        this.jog[i].touched = !!v;
+        // In CDJ jog mode a touched jog bends a playing deck, as untouched.
+        const grab = !!v && d.jogScratches();
+        if (!grab && !this.jog[i].touched) return;
+        this.jog[i].touched = grab;
         this.jog[i].total = 0;
-        d.touch(!!v);
+        d.touch(grab);
       };
       h[`${L}.jog`] = (delta) => {
         const j = this.jog[i];
