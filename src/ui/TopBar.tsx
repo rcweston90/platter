@@ -9,6 +9,7 @@ import { crateBrowser, crateSlot } from './crate/model';
 import { focusCrateSearch } from './crate/TrackBrowser';
 import { libraryFlyout, openLibrary } from './library/dock';
 import { MidiPanel } from './MidiPanel';
+import { MovesRecButton } from './MoveMixes';
 import { usePhone } from './Phone';
 import { saveFile } from './save';
 import { formatTime } from './Waveforms';
@@ -173,6 +174,7 @@ export function TopBar({ session, loop, onSlicer }: { session: DjSession; loop: 
         >
           <span className={s.recDot} aria-hidden="true" /> Rec <span ref={clock} className={s.recClock} />
         </button>
+        <MovesRecButton session={session} loop={loop} />
         {m.lastRecording && !m.recording && (
           <button
             type="button"

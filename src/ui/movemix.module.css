@@ -1,0 +1,233 @@
+/* Move mixes: the Rec moves button, the replay bar and the Recordings rows. */
+
+/* Rec moves: the deck colours split the dot, so it reads as "the decks", not the red of audio Rec. */
+.movesDot {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: linear-gradient(90deg, var(--dj-a) 50%, var(--dj-b) 50%);
+}
+
+.movesBtn[aria-pressed='true'] {
+  border-color: var(--dj-cue);
+  background: var(--dj-cue);
+  color: var(--dj-ink);
+}
+
+.movesBtn[aria-pressed='true'] .movesDot {
+  background: var(--dj-ink);
+}
+
+.movesBtn:disabled {
+  cursor: not-allowed;
+  opacity: 0.45;
+}
+
+/* ── The replay bar ─────────────────────────────────────────────────────── */
+
+.bar {
+  position: fixed;
+  top: 76px;
+  left: 50%;
+  z-index: 45;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+  width: max-content;
+  max-width: min(760px, calc(100vw - 24px));
+  padding: 6px 6px 6px 14px;
+  border: 1px solid var(--dj-line-2);
+  border-radius: 10px;
+  background: var(--dj-panel-2);
+  box-shadow: 0 10px 30px rgb(0 0 0 / 0.45);
+  color: var(--dj-text);
+  font-size: 14px;
+  transform: translateX(-50%);
+}
+
+.barText {
+  flex: 1;
+  min-width: 0;
+}
+
+.clock {
+  margin-left: 4px;
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+}
+
+.hint {
+  color: var(--dj-dim);
+}
+
+.subNote {
+  flex-basis: 100%;
+  color: var(--dj-dim);
+  font-size: 13px;
+}
+
+.live {
+  width: 10px;
+  height: 10px;
+  flex: none;
+  border-radius: 50%;
+  background: var(--dj-play);
+  box-shadow: 0 0 0 0 rgb(69 216 140 / 0.6);
+  animation: mmPulse 1.6s ease-out infinite;
+}
+
+@keyframes mmPulse {
+  to {
+    box-shadow: 0 0 0 10px rgb(69 216 140 / 0);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .live {
+    animation: none;
+  }
+}
+
+/* ── Recordings rows ────────────────────────────────────────────────────── */
+
+.row {
+  flex-wrap: wrap;
+}
+
+.row[data-replaying] {
+  background: rgb(69 216 140 / 0.08);
+}
+
+.kind {
+  flex: none;
+  min-width: 62px;
+  text-align: center;
+}
+
+.shared {
+  color: var(--dj-cue);
+  font-weight: 500;
+}
+
+.tracks {
+  color: var(--dj-dim);
+  font-size: 13px;
+}
+
+.tracks em {
+  color: var(--dj-cue);
+  font-style: normal;
+}
+
+.linkField {
+  width: 100%;
+  max-width: 520px;
+  min-height: 36px;
+  margin-top: 6px;
+  padding: 0 8px;
+  border: 1px solid var(--dj-field-line);
+  border-radius: 6px;
+  background: var(--dj-bg);
+  color: var(--dj-text);
+  font-family: var(--font-mono);
+  font-size: 12px;
+}
+
+.panelHead {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 12px;
+}
+
+.panelHead p {
+  flex: 1;
+  min-width: 220px;
+  margin: 0;
+  color: var(--dj-dim);
+  font-size: 13px;
+}
+
+/* ── Missing tracks ─────────────────────────────────────────────────────── */
+
+.backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 410;
+  display: grid;
+  place-items: center;
+  padding: 16px;
+  background: rgb(0 0 0 / 0.55);
+}
+
+.dialog {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  width: min(560px, 100%);
+  max-height: calc(100vh - 32px);
+  padding: 18px;
+  overflow: auto;
+  border: 1px solid var(--dj-line-2);
+  border-radius: 12px;
+  background: var(--dj-panel);
+  color: var(--dj-text);
+}
+
+.dialogTitle {
+  margin: 0;
+  font-family: var(--font-label);
+  font-size: 20px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.dialogText {
+  margin: 0;
+  color: var(--dj-dim);
+  font-size: 14px;
+}
+
+.missingList {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.missingRow {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 10px;
+  border: 1px solid var(--dj-line);
+  border-radius: 8px;
+}
+
+.missingRow select {
+  min-height: 44px;
+  max-width: 100%;
+  padding: 0 8px;
+  border: 1px solid var(--dj-field-line);
+  border-radius: 6px;
+  background: var(--dj-panel-2);
+  color: var(--dj-text);
+  font: inherit;
+}
+
+.dialogActions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+@media (max-width: 600px) {
+  .bar {
+    top: auto;
+    bottom: 140px;
+  }
+}
